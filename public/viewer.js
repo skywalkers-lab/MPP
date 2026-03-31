@@ -1,6 +1,10 @@
 // viewer.js: polling 기반 viewer 클라이언트 (정리 버전)
 const sessionId = location.pathname.split('/').pop();
 const apiUrl = `/api/viewer/sessions/${encodeURIComponent(sessionId)}`;
+      case 'waiting':
+// viewer.js: polling 기반 viewer 클라이언트 (최종 정리 버전)
+const sessionId = location.pathname.split('/').pop();
+const apiUrl = `/api/viewer/sessions/${encodeURIComponent(sessionId)}`;
 
 const $sessionCard = document.getElementById('session-card');
 const $snapshotSummary = document.getElementById('snapshot-summary');
@@ -68,42 +72,44 @@ function renderEventLog(data) {
 }
 
 function renderStatus(data, opts = {}) {
-  let statusMsg = '';
+  // 상태 메시지 및 분기
   if (data.viewerStatus === 'not_found') {
-    statusMsg = '<span class="error">존재하지 않는 세션입니다.</span>';
-    if (opts.pollError) statusMsg += '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>';
-    $sessionCard.innerHTML = statusMsg;
+    let msg = '<span class="error">존재하지 않는 세션입니다.</span>';
+    if (opts.pollError) msg += '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>';
+    $sessionCard.innerHTML = msg;
     $snapshotSummary.innerHTML = '';
     $eventLog.innerHTML = '';
     return;
   }
   renderSessionCard(data);
-  switch (data.viewerStatus) {
-    case 'waiting':
-      statusMsg = '<span>호스트가 연결되었지만 아직 텔레메트리 스냅샷이 도착하지 않았습니다.</span>';
-      $snapshotSummary.innerHTML = statusMsg + (opts.pollError ? '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>' : '');
-      $eventLog.innerHTML = '';
-      break;
-    case 'live':
-      $snapshotSummary.innerHTML = (opts.pollError ? '<div class="error" style="margin-bottom:8px;">API 갱신 실패, 재시도 중...</div>' : '');
-      renderSnapshotSummary(data);
-      renderEventLog(data);
-      break;
-    case 'stale':
-      statusMsg = '<span>호스트 연결이 끊겼습니다. 마지막 상태를 표시 중입니다.</span>';
-      $snapshotSummary.innerHTML = statusMsg + (opts.pollError ? '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>' : '');
-      renderSnapshotSummary(data);
-      renderEventLog(data);
-      break;
-    case 'ended':
-      statusMsg = '<span>세션이 종료되었습니다.</span>';
-      $snapshotSummary.innerHTML = statusMsg + (opts.pollError ? '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>' : '');
-      renderSnapshotSummary(data);
-      renderEventLog(data);
-      break;
-    default:
-      $snapshotSummary.innerHTML = '<span class="error">알 수 없는 상태</span>';
-      $eventLog.innerHTML = '';
+  if (data.viewerStatus === 'waiting') {
+    let msg = '<span>호스트가 연결되었지만 아직 텔레메트리 스냅샷이 도착하지 않았습니다.</span>';
+    if (opts.pollError) msg += '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>';
+    $snapshotSummary.innerHTML = msg;
+    $eventLog.innerHTML = '';
+    return;
+  }
+  if (data.viewerStatus === 'live') {
+    if (opts.pollError) $snapshotSummary.innerHTML = '<div class="error" style="margin-bottom:8px;">API 갱신 실패, 재시도 중...</div>';
+    renderSnapshotSummary(data);
+    renderEventLog(data);
+    return;
+  }
+  if (data.viewerStatus === 'stale') {
+    let msg = '<span>호스트 연결이 끊겼습니다. 마지막 상태를 표시 중입니다.</span>';
+    if (opts.pollError) msg += '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>';
+    $snapshotSummary.innerHTML = msg;
+    renderSnapshotSummary(data);
+    renderEventLog(data);
+    return;
+  }
+  if (data.viewerStatus === 'ended') {
+    let msg = '<span>세션이 종료되었습니다.</span>';
+    if (opts.pollError) msg += '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>';
+    $snapshotSummary.innerHTML = msg;
+    renderSnapshotSummary(data);
+    renderEventLog(data);
+    return;
   }
 }
 
@@ -118,7 +124,7 @@ async function poll() {
   } catch (e) {
     pollError = true;
     if (lastGoodData) {
-      renderStatus(lastGoodData, { pollError });
+      renderStatus(lastGoodData, { pollError: true });
     } else {
       $sessionCard.innerHTML = '<span class="error">API 오류: ' + (e.message || e) + '</span>';
       $snapshotSummary.innerHTML = '';
@@ -129,10 +135,6 @@ async function poll() {
   }
 }
 
-      case 'not_found':
-        statusMsg = '<span class="error">존재하지 않는 세션입니다.</span>';
-        break;
-      case 'waiting':
         statusMsg = '<span>호스트가 연결되었지만 아직 텔레메트리 스냅샷이 도착하지 않았습니다.</span>';
         break;
       case 'stale':

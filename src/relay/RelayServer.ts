@@ -1,35 +1,10 @@
-  /**
-   * 세션 접근 정책을 업데이트한다 (shareEnabled, visibility)
-   */
-  public updateSessionAccess(sessionId: string, patch: Partial<Pick<SessionAccessRecord, 'shareEnabled' | 'visibility'>>): SessionAccessRecord | undefined {
-    const access = this.sessionAccess.get(sessionId);
-    if (!access) return undefined;
-    let changed = false;
-    if (patch.shareEnabled !== undefined && patch.shareEnabled !== access.shareEnabled) {
-      access.shareEnabled = patch.shareEnabled;
-      changed = true;
-    }
-    if (patch.visibility && patch.visibility !== access.visibility) {
-      access.visibility = patch.visibility;
-      changed = true;
-    }
-    if (changed) {
-      access.updatedAt = Date.now();
-    }
-    return access;
-  }
-// ...기존 코드 유지 (RelayServer 클래스는 아래에서 한 번만 선언)
-// relay/RelayServer.ts
-// F1 25 Realtime Relay Core - WebSocket 기반 세션별 상태 중계 서버
-
-
+// (클래스 외부에 잘못 위치한 updateSessionAccess 메서드 제거)
 import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { CurrentRaceState } from '../model/CurrentRaceState';
 import { ConsoleLogger } from '../debug/ConsoleLogger';
 import express from 'express';
 
-// 5단계: 세션 접근/공유 메타데이터 타입
 export type SessionVisibility = 'private' | 'code'; // public은 추후 확장
 export interface SessionAccessRecord {
   sessionId: string;
@@ -50,7 +25,6 @@ export interface RelaySession {
   latestState: CurrentRaceState | null;
   status: 'active' | 'stale' | 'closed';
 }
-
 
 export interface RelayServerOptions {
   wsPort: number;
@@ -122,9 +96,9 @@ export class RelayServer {
   private handleConnection(ws: WebSocket) {
     const connId = uuidv4();
     this.logger.info(`[Relay] New connection: ${connId}`);
-    ws.on('message', (data) => this.handleMessage(ws, connId, data));
+    ws.on('message', (data: WebSocket.RawData) => this.handleMessage(ws, connId, data));
     ws.on('close', () => this.handleClose(connId));
-    ws.on('error', (err) => this.logger.warn(`[Relay] WS error: ${err}`));
+    ws.on('error', (err: Error) => this.logger.warn(`[Relay] WS error: ${err}`));
   }
 
   private handleMessage(ws: WebSocket, connId: string, data: any) {

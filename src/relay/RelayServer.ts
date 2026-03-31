@@ -1,3 +1,28 @@
+
+  /**
+   * 세션 접근 정책을 업데이트한다 (shareEnabled, visibility)
+   * PATCH /api/viewer/session-access/:sessionId에서 호출
+   */
+  public updateSessionAccess(
+    sessionId: string,
+    patch: Partial<Pick<SessionAccessRecord, 'shareEnabled' | 'visibility'>>
+  ): SessionAccessRecord | undefined {
+    const access = this.sessionAccess.get(sessionId);
+    if (!access) return undefined;
+    let changed = false;
+    if (patch.shareEnabled !== undefined && patch.shareEnabled !== access.shareEnabled) {
+      access.shareEnabled = patch.shareEnabled;
+      changed = true;
+    }
+    if (patch.visibility && patch.visibility !== access.visibility) {
+      access.visibility = patch.visibility;
+      changed = true;
+    }
+    if (changed) {
+      access.updatedAt = Date.now();
+    }
+    return access;
+  }
 // (클래스 외부에 잘못 위치한 updateSessionAccess 메서드 제거)
 import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';

@@ -1,3 +1,10 @@
+  /**
+   * 세션ID로 세션을 조회합니다. (향후 joinCode/visibility validation 확장 가능)
+   */
+  public getSession(sessionId: string): RelaySession | undefined {
+    // access policy, joinCode 등은 5단계에서 추가 예정
+    return this.sessions.get(sessionId);
+  }
 // relay/RelayServer.ts
 // F1 25 Realtime Relay Core - WebSocket 기반 세션별 상태 중계 서버
 

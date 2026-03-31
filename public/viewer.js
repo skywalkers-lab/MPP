@@ -29,27 +29,25 @@ function renderSnapshotSummary(data) {
     return;
   }
   const s = data.snapshot;
-  const playerIdx = s.playerCarIndex ?? '-';
-  const cars = s.cars || [];
-  const playerCar = (Array.isArray(cars) && cars[playerIdx]) || {};
-  const lap = playerCar.lap ?? '-';
-  const pos = playerCar.position ?? '-';
-  const lastLap = playerCar.lastLapTime ?? '-';
-  const bestLap = playerCar.bestLapTime ?? '-';
-  const fuel = playerCar.fuelRemaining ?? playerCar.fuelLapsRemaining ?? '-';
-  const tyreAge = playerCar.tyreAgeLaps ?? '-';
-  const ers = playerCar.ersLevel ?? '-';
-  const compound = playerCar.tyreCompound ?? '-';
+  const playerIdx = s.playerCarIndex;
+  let playerCar = null;
+  if (playerIdx !== undefined && playerIdx !== null && s.cars && typeof s.cars === 'object') {
+    playerCar = s.cars[playerIdx] || null;
+  }
+  function safe(val) {
+    return val === undefined || val === null ? '-' : val;
+  }
   $snapshotSummary.innerHTML = `
-    <div><span class="label">Player Car Index:</span> ${playerIdx}</div>
-    <div><span class="label">Lap:</span> ${lap}</div>
-    <div><span class="label">Position:</span> ${pos}</div>
-    <div><span class="label">Last Lap:</span> ${lastLap}</div>
-    <div><span class="label">Best Lap:</span> ${bestLap}</div>
-    <div><span class="label">Fuel:</span> ${fuel}</div>
-    <div><span class="label">Tyre Age:</span> ${tyreAge}</div>
-    <div><span class="label">ERS:</span> ${ers}</div>
-    <div><span class="label">Tyre Compound:</span> ${compound}</div>
+    <div><span class="label">Player Car Index:</span> ${safe(playerIdx)}</div>
+    <div><span class="label">Lap:</span> ${safe(playerCar && playerCar.currentLapNum)}</div>
+    <div><span class="label">Position:</span> ${safe(playerCar && playerCar.position)}</div>
+    <div><span class="label">Last Lap:</span> ${safe(playerCar && playerCar.lastLapTime)}</div>
+    <div><span class="label">Best Lap:</span> ${safe(playerCar && playerCar.bestLapTime)}</div>
+    <div><span class="label">Fuel Remaining:</span> ${safe(playerCar && playerCar.fuelRemaining)}</div>
+    <div><span class="label">Fuel Laps Remaining:</span> ${safe(playerCar && playerCar.fuelLapsRemaining)}</div>
+    <div><span class="label">Tyre Age (Laps):</span> ${safe(playerCar && playerCar.tyreAgeLaps)}</div>
+    <div><span class="label">ERS Level:</span> ${safe(playerCar && playerCar.ersLevel)}</div>
+    <div><span class="label">Tyre Compound:</span> ${safe(playerCar && playerCar.tyreCompound)}</div>
   `;
 }
 
@@ -97,6 +95,46 @@ function renderStatus(data) {
       $sessionCard.innerHTML = '<span class="error">알 수 없는 상태</span>';
       $snapshotSummary.innerHTML = '';
       $eventLog.innerHTML = '';
+    // 상태 메시지 영역 분리
+    let statusMsg = '';
+    switch (data.viewerStatus) {
+      case 'not_found':
+        statusMsg = '<span class="error">존재하지 않는 세션입니다.</span>';
+        break;
+      case 'waiting':
+        statusMsg = '<span>호스트가 연결되었지만 아직 텔레메트리 스냅샷이 도착하지 않았습니다.</span>';
+        break;
+      case 'stale':
+        statusMsg = '<span>호스트 연결이 끊겼습니다. 마지막 상태를 표시 중입니다.</span>';
+        break;
+      case 'ended':
+        statusMsg = '<span>세션이 종료되었습니다.</span>';
+        break;
+      case 'live':
+        statusMsg = '';
+        break;
+      default:
+        statusMsg = '<span class="error">알 수 없는 상태</span>';
+    }
+    // polling 실패 시 별도 안내
+    if (opts.pollError) {
+      statusMsg += '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>';
+    }
+    // 상태 카드/스냅샷/이벤트 분리 렌더링
+    if (data.viewerStatus === 'not_found') {
+      $sessionCard.innerHTML = statusMsg;
+      $snapshotSummary.innerHTML = '';
+      $eventLog.innerHTML = '';
+      return;
+    }
+    renderSessionCard(data);
+    $snapshotSummary.innerHTML = statusMsg;
+    if (data.viewerStatus === 'live' || data.viewerStatus === 'stale' || data.viewerStatus === 'ended') {
+      renderSnapshotSummary(data);
+      renderEventLog(data);
+    } else {
+      $eventLog.innerHTML = '';
+    }
   }
 }
 
@@ -112,6 +150,29 @@ async function poll() {
   } finally {
     setTimeout(poll, 1000);
   }
+  let lastGoodData = null;
+  async function poll() {
+    let pollError = false;
+    try {
+      const res = await fetch(apiUrl);
+      const data = await res.json();
+      lastGoodData = data;
+      renderStatus(data);
+    } catch (e) {
+      pollError = true;
+      if (lastGoodData) {
+        renderStatus(lastGoodData, { pollError });
+      } else {
+        $sessionCard.innerHTML = '<span class="error">API 오류: ' + (e.message || e) + '</span>';
+        $snapshotSummary.innerHTML = '';
+        $eventLog.innerHTML = '';
+      }
+    } finally {
+      setTimeout(poll, 1000);
+    }
+  }
+
+  poll();
 }
 
 poll();

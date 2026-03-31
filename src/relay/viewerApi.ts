@@ -9,8 +9,7 @@ export function createViewerApiRouter(relayServer: RelayServer) {
   // GET /api/viewer/sessions/:sessionId
   router.get('/sessions/:sessionId', (req, res) => {
     const sessionId = req.params.sessionId;
-    // @ts-ignore: private access workaround
-    const session = relayServer.sessions?.get(sessionId);
+    const session = relayServer.getSession(sessionId);
     const payload = serializeViewerSession(session);
     if (!session) {
       res.status(404).json(payload);

@@ -4,11 +4,14 @@ import { createViewerApiRouter } from '../src/relay/viewerApi';
 
 describe('Viewer API', () => {
   let app: express.Express;
+
+  let sessionMap: Map<string, any>;
   let relayServer: any;
 
   beforeEach(() => {
+    sessionMap = new Map();
     relayServer = {
-      sessions: new Map(),
+      getSession: (id: string) => sessionMap.get(id),
     };
     app = express();
     app.use('/api/viewer', createViewerApiRouter(relayServer));
@@ -21,7 +24,7 @@ describe('Viewer API', () => {
   });
 
   it('세션 있으나 snapshot 없음 → waiting', async () => {
-    relayServer.sessions.set('S1', {
+    sessionMap.set('S1', {
       sessionId: 'S1',
       status: 'active',
       updatedAt: 123,
@@ -36,7 +39,7 @@ describe('Viewer API', () => {
   });
 
   it('active+snapshot → live', async () => {
-    relayServer.sessions.set('S2', {
+    sessionMap.set('S2', {
       sessionId: 'S2',
       status: 'active',
       updatedAt: 123,
@@ -51,7 +54,7 @@ describe('Viewer API', () => {
   });
 
   it('stale → stale', async () => {
-    relayServer.sessions.set('S3', {
+    sessionMap.set('S3', {
       sessionId: 'S3',
       status: 'stale',
       updatedAt: 123,
@@ -65,7 +68,7 @@ describe('Viewer API', () => {
   });
 
   it('closed → ended', async () => {
-    relayServer.sessions.set('S4', {
+    sessionMap.set('S4', {
       sessionId: 'S4',
       status: 'closed',
       updatedAt: 123,

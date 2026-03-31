@@ -65,6 +65,20 @@ export class RelayServer {
       ws.send(JSON.stringify({ type: 'error', error: 'missing_type' }));
       return;
     }
+    // protocolVersion 검사 (host_hello)
+    if (msg.type === 'host_hello') {
+      if (typeof msg.protocolVersion !== 'number' || msg.protocolVersion !== 1) {
+        ws.send(JSON.stringify({ type: 'error', error: 'unsupported_protocol_version' }));
+        return;
+      }
+    }
+    // state_snapshot payload shape 검사
+    if (msg.type === 'state_snapshot') {
+      if (typeof msg.sessionId !== 'string' || typeof msg.sequence !== 'number' || typeof msg.timestamp !== 'number' || typeof msg.state !== 'object') {
+        ws.send(JSON.stringify({ type: 'error', error: 'invalid_state_snapshot_shape' }));
+        return;
+      }
+    }
     switch (msg.type) {
       case 'host_hello':
         this.handleHostHello(ws, connId, msg);

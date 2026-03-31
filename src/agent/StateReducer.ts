@@ -37,22 +37,11 @@ export class StateReducer {
       shouldReset = true;
     }
     if (
-      this.onStateChange = undefined; // Initialize onStateChange
       this.state.sessionMeta &&
       header.sessionUID === this.state.sessionMeta.sessionUID &&
       packet?.trackId != null &&
       this.state.sessionMeta.trackId != null &&
       packet.trackId !== this.state.sessionMeta.trackId
-    ) {
-      shouldReset = true;
-    }
-    if (
-      this.state.sessionMeta &&
-      header.sessionUID === this.state.sessionMeta.sessionUID &&
-      header.frameIdentifier != null &&
-      header.frameIdentifier < (this.state.sessionMeta as any).lastFrameIdentifier - 1000 // 큰 frame reset 감지
-    ) {
-      shouldReset = true;
     }
     if (shouldReset) {
       this.resetForNewSession(header.sessionUID);
@@ -167,9 +156,6 @@ export class StateReducer {
   }
 
   private pushEvent(event: EventLogEntry) {
-      if (stateChanged && this.onStateChange) {
-        this.onStateChange(this.getState()); // Call the onStateChange callback
-      }
     this.eventLog.push(event);
     if (this.eventLog.length > EVENT_LOG_RING_SIZE) {
       this.eventLog.shift();

@@ -18,7 +18,7 @@ export function startDebugHttpServer(reducer: StateReducer, port = 3000) {
     const state = reducer.getState();
     const player = state.playerCarIndex != null ? state.cars[state.playerCarIndex] : null;
     const safe = (v: any) => v == null ? null : v;
-    res.json({
+    const result: any = {
       session: {
         sessionUID: state.sessionMeta?.sessionUID ?? null,
         sessionType: state.sessionMeta?.sessionType ?? null,
@@ -41,8 +41,11 @@ export function startDebugHttpServer(reducer: StateReducer, port = 3000) {
       },
       totalCars: Object.keys(state.cars).length,
       recentEvents: state.eventLog.slice(-10),
-      raw: state,
-    });
+    };
+    if (process.env.DEBUG_HTTP_RAW === '1' || process.env.NODE_ENV === 'development') {
+      result.raw = state;
+    }
+    res.json(result);
   });
 
   app.listen(port, () => {

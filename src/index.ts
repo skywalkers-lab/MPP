@@ -12,7 +12,7 @@ const LOG_LEVEL = (process.env.F1_LOG_LEVEL as 'info' | 'warn' | 'debug') || 'in
 const DEBUG_HTTP_PORT = process.env.F1_DEBUG_HTTP_PORT ? parseInt(process.env.F1_DEBUG_HTTP_PORT) : 3000;
 const VERBOSE = process.env.F1_VERBOSE === '1' || process.env.F1_VERBOSE === 'true';
 
-udp.start();
+
 
 const logger = new ConsoleLogger(LOG_LEVEL);
 const reducer = new StateReducer();
@@ -34,6 +34,7 @@ if (process.env.RELAY_URL) {
 	new RelayAgentAdapter(reducer, relayClient, logger);
 	logger.info(`[Relay] Enabled: ${process.env.RELAY_URL}`);
 }
+
 
 udp.start();
 startDebugHttpServer(reducer, DEBUG_HTTP_PORT);

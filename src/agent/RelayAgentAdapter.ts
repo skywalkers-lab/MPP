@@ -12,9 +12,9 @@ export class RelayAgentAdapter {
   constructor(reducer: StateReducer, relay: RelayClient, logger: ConsoleLogger) {
     this.relay = relay;
     this.logger = logger;
-    reducer.onStateChange = (state) => {
+    reducer.subscribeOnStateChange((state) => {
       this.lastState = state;
       this.relay.sendStateSnapshot(state);
-    };
+    });
   }
 }

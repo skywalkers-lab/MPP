@@ -1,4 +1,5 @@
-// (클래스 외부에 잘못 위치한 updateSessionAccess 메서드 제거)
+// relay/RelayServer.ts
+// F1 25 Realtime Relay Core - WebSocket 기반 세션별 상태 중계 서버
 import { WebSocketServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { ConsoleLogger } from '../debug/ConsoleLogger';
@@ -38,24 +39,48 @@ export class RelayServer {
         return this.sessionAccess.get(sessionId);
     }
     /**
-     * joinCode 생성기 (6자리 영문+숫자, 중복 방지)
+     * 세션 접근 정책을 업데이트한다 (shareEnabled, visibility)
+     * PATCH /api/viewer/session-access/:sessionId에서 호출
      */
-    generateJoinCode() {
-        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        let code = '';
-        for (let i = 0; i < 6; ++i)
-            code += chars[Math.floor(Math.random() * chars.length)];
-        // 중복 방지
-        if (this.joinCodeToSessionId.has(code))
-            return this.generateJoinCode();
-        return code;
+    updateSessionAccess(sessionId, patch) {
+        const access = this.sessionAccess.get(sessionId);
+        if (!access)
+            return undefined;
+        let changed = false;
+        if (patch.shareEnabled !== undefined &&
+            patch.shareEnabled !== access.shareEnabled) {
+            access.shareEnabled = patch.shareEnabled;
+            changed = true;
+        }
+        if (patch.visibility !== undefined &&
+            patch.visibility !== access.visibility) {
+            access.visibility = patch.visibility;
+            changed = true;
+        }
+        if (changed) {
+            access.updatedAt = Date.now();
+        }
+        return access;
     }
     /**
      * 세션ID로 세션을 조회합니다. (향후 joinCode/visibility validation 확장 가능)
      */
     getSession(sessionId) {
-        // access policy, joinCode 등은 5단계에서 추가 예정
         return this.sessions.get(sessionId);
+    }
+    /**
+     * joinCode 생성기 (6자리 영문+숫자, 중복 방지)
+     */
+    generateJoinCode() {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let code = '';
+        for (let i = 0; i < 6; ++i) {
+            code += chars[Math.floor(Math.random() * chars.length)];
+        }
+        if (this.joinCodeToSessionId.has(code)) {
+            return this.generateJoinCode();
+        }
+        return code;
     }
     handleConnection(ws) {
         const connId = uuidv4();
@@ -69,7 +94,7 @@ export class RelayServer {
         try {
             msg = JSON.parse(data.toString());
         }
-        catch (e) {
+        catch {
             this.logger.warn(`[Relay] Invalid JSON from ${connId}`);
             ws.send(JSON.stringify({ type: 'error', error: 'invalid_json' }));
             return;
@@ -78,17 +103,25 @@ export class RelayServer {
             ws.send(JSON.stringify({ type: 'error', error: 'missing_type' }));
             return;
         }
-        // protocolVersion 검사 (host_hello)
         if (msg.type === 'host_hello') {
-            if (typeof msg.protocolVersion !== 'number' || msg.protocolVersion !== 1) {
-                ws.send(JSON.stringify({ type: 'error', error: 'unsupported_protocol_version' }));
+            if (typeof msg.protocolVersion !== 'number' ||
+                msg.protocolVersion !== 1) {
+                ws.send(JSON.stringify({
+                    type: 'error',
+                    error: 'unsupported_protocol_version',
+                }));
                 return;
             }
         }
-        // state_snapshot payload shape 검사
         if (msg.type === 'state_snapshot') {
-            if (typeof msg.sessionId !== 'string' || typeof msg.sequence !== 'number' || typeof msg.timestamp !== 'number' || typeof msg.state !== 'object') {
-                ws.send(JSON.stringify({ type: 'error', error: 'invalid_state_snapshot_shape' }));
+            if (typeof msg.sessionId !== 'string' ||
+                typeof msg.sequence !== 'number' ||
+                typeof msg.timestamp !== 'number' ||
+                typeof msg.state !== 'object') {
+                ws.send(JSON.stringify({
+                    type: 'error',
+                    error: 'invalid_state_snapshot_shape',
+                }));
                 return;
             }
         }
@@ -100,7 +133,7 @@ export class RelayServer {
                 this.handleStateSnapshot(connId, msg);
                 break;
             case 'heartbeat':
-                this.handleHeartbeat(connId, msg);
+                this.handleHeartbeat(connId);
                 break;
             default:
                 ws.send(JSON.stringify({ type: 'error', error: 'unknown_type' }));
@@ -128,8 +161,8 @@ export class RelayServer {
         const access = {
             sessionId,
             joinCode,
-            visibility: 'private', // 기본값
-            shareEnabled: false, // 기본값
+            visibility: 'private',
+            shareEnabled: false,
             createdAt: now,
             updatedAt: now,
         };
@@ -154,7 +187,7 @@ export class RelayServer {
         session.updatedAt = Date.now();
         this.logger.debug(`[Relay] state_snapshot seq=${msg.sequence} for session ${sessionId}`);
     }
-    handleHeartbeat(connId, msg) {
+    handleHeartbeat(connId) {
         const sessionId = this.connToSession.get(connId);
         if (!sessionId)
             return;
@@ -179,7 +212,8 @@ export class RelayServer {
     checkHeartbeats() {
         const now = Date.now();
         for (const session of this.sessions.values()) {
-            if (session.status === 'active' && now - session.lastHeartbeatAt > this.heartbeatTimeoutMs) {
+            if (session.status === 'active' &&
+                now - session.lastHeartbeatAt > this.heartbeatTimeoutMs) {
                 session.status = 'stale';
                 this.logger.warn(`[Relay] Heartbeat timeout: session ${session.sessionId} marked stale`);
             }
@@ -190,9 +224,8 @@ export class RelayServer {
     }
     startDebugHttp(port) {
         const app = express();
-        // 5단계: joinCode/access metadata 노출
         app.get('/relay/sessions', (req, res) => {
-            res.json(Array.from(this.sessions.values()).map(s => {
+            res.json(Array.from(this.sessions.values()).map((s) => {
                 const access = this.sessionAccess.get(s.sessionId);
                 return {
                     sessionId: s.sessionId,
@@ -209,8 +242,9 @@ export class RelayServer {
         });
         app.get('/relay/sessions/:id', (req, res) => {
             const s = this.sessions.get(req.params.id);
-            if (!s)
+            if (!s) {
                 return res.status(404).json({ error: 'not_found' });
+            }
             const access = this.sessionAccess.get(s.sessionId);
             res.json({
                 sessionId: s.sessionId,

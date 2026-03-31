@@ -1,3 +1,5 @@
+describe('Session Access/Invite (joinCode) API', () => {
+
 import request from 'supertest';
 import express from 'express';
 import { createViewerApiRouter } from '../src/relay/viewerApi';

@@ -1,5 +1,5 @@
-import { Buffer } from 'buffer';
 
+import { Buffer } from 'buffer';
 // 각 패킷별 파서 import (구현은 별도 파일)
 import { parseSessionPacket } from './PacketParsers/Session';
 import { parseLapDataPacket } from './PacketParsers/LapData';
@@ -9,6 +9,7 @@ import { parseCarStatusPacket } from './PacketParsers/CarStatus';
 import { parseCarDamagePacket } from './PacketParsers/CarDamage';
 import { parseEventPacket } from './PacketParsers/Event';
 
+export function parsePacketById(packetId: number, buf: Buffer) {
   switch (packetId) {
     case 1:
       return parseSessionPacket(buf);

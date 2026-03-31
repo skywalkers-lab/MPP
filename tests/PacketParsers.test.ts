@@ -1,3 +1,4 @@
+
 import { parsePacketHeader } from '../src/parsers/PacketHeaderParser';
 import { parseSessionPacket } from '../src/parsers/PacketParsers/Session';
 import { parseLapDataPacket } from '../src/parsers/PacketParsers/LapData';

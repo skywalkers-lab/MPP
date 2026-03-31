@@ -16,9 +16,14 @@ const relayServer = new RelayServer({
 });
 // Viewer API 및 정적 파일 서버
 const app = express();
+app.use(express.json()); // PATCH body parsing
+app.use(express.static(path.join(process.cwd(), 'public'))); // 루트 static 서빙
 app.use('/api/viewer', createViewerApiRouter(relayServer));
 app.use('/viewer', express.static(path.join(process.cwd(), 'public')));
 app.get('/viewer/:sessionId', (req, res) => {
+    res.sendFile(path.join(process.cwd(), 'public', 'viewer.html'));
+});
+app.get('/join/:joinCode', (req, res) => {
     res.sendFile(path.join(process.cwd(), 'public', 'viewer.html'));
 });
 const HTTP_PORT = process.env.VIEWER_HTTP_PORT ? parseInt(process.env.VIEWER_HTTP_PORT) : 4100;

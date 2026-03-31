@@ -1,11 +1,23 @@
 // relay/RelayServer.ts
 // F1 25 Realtime Relay Core - WebSocket 기반 세션별 상태 중계 서버
 
+
 import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { CurrentRaceState } from '../model/CurrentRaceState';
 import { ConsoleLogger } from '../debug/ConsoleLogger';
 import express from 'express';
+
+// 5단계: 세션 접근/공유 메타데이터 타입
+export type SessionVisibility = 'private' | 'code'; // public은 추후 확장
+export interface SessionAccessRecord {
+  sessionId: string;
+  joinCode: string;
+  visibility: SessionVisibility;
+  shareEnabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export interface RelaySession {
   sessionId: string;
@@ -17,6 +29,7 @@ export interface RelaySession {
   latestState: CurrentRaceState | null;
   status: 'active' | 'stale' | 'closed';
 }
+
 
 export interface RelayServerOptions {
   wsPort: number;
@@ -32,6 +45,10 @@ export class RelayServer {
   private logger: ConsoleLogger;
   private heartbeatTimeoutMs: number;
 
+  // 5단계: joinCode → sessionId 매핑 및 access record 관리
+  private joinCodeToSessionId: Map<string, string> = new Map();
+  private sessionAccess: Map<string, SessionAccessRecord> = new Map();
+
   constructor(private options: RelayServerOptions) {
     this.logger = options.logger || new ConsoleLogger('info');
     this.heartbeatTimeoutMs = options.heartbeatTimeoutMs || 10000;
@@ -42,6 +59,35 @@ export class RelayServer {
       this.startDebugHttp(options.debugHttpPort);
     }
     setInterval(this.checkHeartbeats.bind(this), 2000);
+  }
+
+  /**
+   * joinCode로 sessionId를 resolve (정책/공유 상태도 함께 반환)
+   */
+  public resolveJoinCode(joinCode: string): { sessionId?: string; access?: SessionAccessRecord } {
+    const sessionId = this.joinCodeToSessionId.get(joinCode);
+    if (!sessionId) return {};
+    const access = this.sessionAccess.get(sessionId);
+    return { sessionId, access };
+  }
+
+  /**
+   * 세션의 접근/공유 메타데이터 반환
+   */
+  public getSessionAccess(sessionId: string): SessionAccessRecord | undefined {
+    return this.sessionAccess.get(sessionId);
+  }
+
+  /**
+   * joinCode 생성기 (6자리 영문+숫자, 중복 방지)
+   */
+  private generateJoinCode(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; ++i) code += chars[Math.floor(Math.random() * chars.length)];
+    // 중복 방지
+    if (this.joinCodeToSessionId.has(code)) return this.generateJoinCode();
+    return code;
   }
 
   /**
@@ -119,6 +165,19 @@ export class RelayServer {
     this.connToSession.set(connId, sessionId);
     this.logger.info(`[Relay] session_started: ${sessionId} (host=${connId})`);
     ws.send(JSON.stringify({ type: 'session_started', sessionId, role: 'host' }));
+
+    // 5단계: 세션 생성 시 joinCode 및 access record 생성
+    const joinCode = this.generateJoinCode();
+    const access: SessionAccessRecord = {
+      sessionId,
+      joinCode,
+      visibility: 'private', // 기본값
+      shareEnabled: false,   // 기본값
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.joinCodeToSessionId.set(joinCode, sessionId);
+    this.sessionAccess.set(sessionId, access);
   }
 
   private handleStateSnapshot(connId: string, msg: any) {

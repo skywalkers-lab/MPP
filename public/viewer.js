@@ -1,7 +1,15 @@
-// viewer.js: polling 기반 viewer 클라이언트 (최종 정리 버전)
+// viewer.js: polling 기반 viewer 클라이언트 (5단계 joinCode 진입 지원)
 
-const sessionId = location.pathname.split('/').pop();
-const apiUrl = `/api/viewer/sessions/${encodeURIComponent(sessionId)}`;
+// joinCode 기반 진입 지원
+function getJoinCodeFromPath() {
+  const m = location.pathname.match(/\/join\/([A-Z0-9]{6,8})/i);
+  return m ? m[1] : null;
+}
+const joinCode = getJoinCodeFromPath();
+const sessionId = !joinCode ? location.pathname.split('/').pop() : null;
+const apiUrl = joinCode
+  ? `/api/viewer/join/${encodeURIComponent(joinCode)}`
+  : `/api/viewer/sessions/${encodeURIComponent(sessionId)}`;
 
 const $sessionCard = document.getElementById('session-card');
 const $snapshotSummary = document.getElementById('snapshot-summary');
@@ -30,38 +38,23 @@ function renderSessionCard(data) {
 
 function renderSnapshotSummary(data, options = {}) {
   const { statusMessage = '', pollError = false } = options;
-
   let headerHtml = '';
-  if (statusMessage) {
-    headerHtml += `<div style="margin-bottom:8px;">${statusMessage}</div>`;
-  }
-  if (pollError) {
-    headerHtml += '<div class="error" style="margin-bottom:8px;">API 갱신 실패, 재시도 중...</div>';
-  }
-
+  if (statusMessage) headerHtml += `<div style="margin-bottom:8px;">${statusMessage}</div>`;
+  if (pollError) headerHtml += '<div class="error" style="margin-bottom:8px;">API 갱신 실패, 재시도 중...</div>';
   if (!data.snapshot) {
     $snapshotSummary.innerHTML = `${headerHtml}<em>스냅샷 없음</em>`;
     return;
   }
-
   const s = data.snapshot;
   const playerIdx = s.playerCarIndex;
   let playerCar = null;
-
-  if (
-    playerIdx !== undefined &&
-    playerIdx !== null &&
-    s.cars &&
-    typeof s.cars === 'object'
-  ) {
+  if (playerIdx !== undefined && playerIdx !== null && s.cars && typeof s.cars === 'object') {
     playerCar = s.cars[playerIdx] || null;
   }
-
   if (!playerCar) {
     $snapshotSummary.innerHTML = `${headerHtml}<em>플레이어 차량 정보가 아직 없습니다.</em>`;
     return;
   }
-
   $snapshotSummary.innerHTML = `
     ${headerHtml}
     <div><span class="label">Player Car Index:</span> ${safe(playerIdx)}</div>
@@ -79,39 +72,25 @@ function renderSnapshotSummary(data, options = {}) {
 
 function renderEventLog(data) {
   const events = (data.snapshot && data.snapshot.eventLog) || [];
-
   if (!Array.isArray(events) || events.length === 0) {
     $eventLog.innerHTML = '<em>이벤트 로그 없음</em>';
     return;
   }
-
   const recent = events.slice(-5).reverse();
-  $eventLog.innerHTML =
-    '<div class="label">최근 이벤트</div><ul>' +
-    recent
-      .map(
-        (e) =>
-          `<li>${e.type || '-'} <span style="color:#aaa">${fmtTime(e.timestamp)}</span></li>`
-      )
-      .join('') +
-    '</ul>';
+  $eventLog.innerHTML = '<div class="label">최근 이벤트</div><ul>' +
+    recent.map(e => `<li>${e.type || '-'} <span style="color:#aaa">${fmtTime(e.timestamp)}</span></li>`).join('') + '</ul>';
 }
 
 function renderStatus(data, opts = {}) {
   if (data.viewerStatus === 'not_found') {
     let msg = '<span class="error">존재하지 않는 세션입니다.</span>';
-    if (opts.pollError) {
-      msg += '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>';
-    }
-
+    if (opts.pollError) msg += '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>';
     $sessionCard.innerHTML = msg;
     $snapshotSummary.innerHTML = '';
     $eventLog.innerHTML = '';
     return;
   }
-
   renderSessionCard(data);
-
   if (data.viewerStatus === 'waiting') {
     renderSnapshotSummary(data, {
       statusMessage: '호스트가 연결되었지만 아직 텔레메트리 스냅샷이 도착하지 않았습니다.',
@@ -120,15 +99,11 @@ function renderStatus(data, opts = {}) {
     $eventLog.innerHTML = '';
     return;
   }
-
   if (data.viewerStatus === 'live') {
-    renderSnapshotSummary(data, {
-      pollError: opts.pollError === true,
-    });
+    renderSnapshotSummary(data, { pollError: opts.pollError === true });
     renderEventLog(data);
     return;
   }
-
   if (data.viewerStatus === 'stale') {
     renderSnapshotSummary(data, {
       statusMessage: '호스트 연결이 끊겼습니다. 마지막 상태를 표시 중입니다.',
@@ -137,7 +112,6 @@ function renderStatus(data, opts = {}) {
     renderEventLog(data);
     return;
   }
-
   if (data.viewerStatus === 'ended') {
     renderSnapshotSummary(data, {
       statusMessage: '세션이 종료되었습니다.',
@@ -146,7 +120,6 @@ function renderStatus(data, opts = {}) {
     renderEventLog(data);
     return;
   }
-
   $sessionCard.innerHTML = '<span class="error">알 수 없는 상태</span>';
   $snapshotSummary.innerHTML = '';
   $eventLog.innerHTML = '';
@@ -159,13 +132,27 @@ async function poll() {
     const res = await fetch(apiUrl);
     const data = await res.json();
     lastGoodData = data;
+    // joinCode 기반 진입 시 상태 분기 처리
+    if (joinCode) {
+      if (data.viewerStatus === 'invalid_code') {
+        $sessionCard.innerHTML = '<span class="error">유효하지 않은 초대 코드입니다.</span>';
+        $snapshotSummary.innerHTML = '';
+        $eventLog.innerHTML = '';
+        return setTimeout(poll, 3000);
+      }
+      if (data.viewerStatus === 'not_shared') {
+        $sessionCard.innerHTML = '<span class="error">이 세션은 현재 공유 중이 아닙니다.</span>';
+        $snapshotSummary.innerHTML = '';
+        $eventLog.innerHTML = '';
+        return setTimeout(poll, 3000);
+      }
+    }
     renderStatus(data);
   } catch (e) {
     if (lastGoodData) {
       renderStatus(lastGoodData, { pollError: true });
     } else {
-      $sessionCard.innerHTML =
-        '<span class="error">API 오류: ' + (e.message || e) + '</span>';
+      $sessionCard.innerHTML = '<span class="error">API 오류: ' + (e.message || e) + '</span>';
       $snapshotSummary.innerHTML = '';
       $eventLog.innerHTML = '';
     }

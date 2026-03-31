@@ -2,6 +2,9 @@ describe('StateReducer', () => {
 import { StateReducer } from '../src/agent/StateReducer';
 import { PacketHeader } from '../src/parsers/PacketHeaderParser';
 
+import { StateReducer } from '../src/agent/StateReducer';
+import { PacketHeader } from '../src/parsers/PacketHeaderParser';
+
 describe('StateReducer', () => {
   it('should not crash on invalid packet', () => {
     const reducer = new StateReducer();

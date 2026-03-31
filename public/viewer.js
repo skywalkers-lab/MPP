@@ -125,9 +125,28 @@ function renderStatus(data, opts = {}) {
   $eventLog.innerHTML = '';
 }
 
-let lastGoodData = null;
 
-async function poll() {
+let lastGoodData = null;
+let pollTimer = null;
+let pollDelay = 1000;
+let pollActive = false;
+
+function startPolling() {
+  if (pollActive) return;
+  pollActive = true;
+  pollLoop();
+}
+
+function stopPolling() {
+  pollActive = false;
+  if (pollTimer) {
+    clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+}
+
+async function pollLoop() {
+  if (!pollActive) return;
   try {
     const res = await fetch(apiUrl);
     const data = await res.json();
@@ -138,16 +157,21 @@ async function poll() {
         $sessionCard.innerHTML = '<span class="error">유효하지 않은 초대 코드입니다.</span>';
         $snapshotSummary.innerHTML = '';
         $eventLog.innerHTML = '';
-        return setTimeout(poll, 3000);
+        pollDelay = 3000;
+        scheduleNextPoll();
+        return;
       }
       if (data.viewerStatus === 'not_shared') {
         $sessionCard.innerHTML = '<span class="error">이 세션은 현재 공유 중이 아닙니다.</span>';
         $snapshotSummary.innerHTML = '';
         $eventLog.innerHTML = '';
-        return setTimeout(poll, 3000);
+        pollDelay = 3000;
+        scheduleNextPoll();
+        return;
       }
     }
     renderStatus(data);
+    pollDelay = 1000;
   } catch (e) {
     if (lastGoodData) {
       renderStatus(lastGoodData, { pollError: true });
@@ -156,9 +180,17 @@ async function poll() {
       $snapshotSummary.innerHTML = '';
       $eventLog.innerHTML = '';
     }
+    pollDelay = 3000;
   } finally {
-    setTimeout(poll, 1000);
+    scheduleNextPoll();
   }
 }
 
-poll();
+function scheduleNextPoll() {
+  if (!pollActive) return;
+  if (pollTimer) clearTimeout(pollTimer);
+  pollTimer = setTimeout(pollLoop, pollDelay);
+}
+
+// 최초 1회만 polling 시작
+startPolling();

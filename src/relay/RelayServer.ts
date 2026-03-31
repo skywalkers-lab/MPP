@@ -1,3 +1,24 @@
+  /**
+   * 세션 접근 정책을 업데이트한다 (shareEnabled, visibility)
+   */
+  public updateSessionAccess(sessionId: string, patch: Partial<Pick<SessionAccessRecord, 'shareEnabled' | 'visibility'>>): SessionAccessRecord | undefined {
+    const access = this.sessionAccess.get(sessionId);
+    if (!access) return undefined;
+    let changed = false;
+    if (patch.shareEnabled !== undefined && patch.shareEnabled !== access.shareEnabled) {
+      access.shareEnabled = patch.shareEnabled;
+      changed = true;
+    }
+    if (patch.visibility && patch.visibility !== access.visibility) {
+      access.visibility = patch.visibility;
+      changed = true;
+    }
+    if (changed) {
+      access.updatedAt = Date.now();
+    }
+    return access;
+  }
+// ...기존 코드 유지 (RelayServer 클래스는 아래에서 한 번만 선언)
 // relay/RelayServer.ts
 // F1 25 Realtime Relay Core - WebSocket 기반 세션별 상태 중계 서버
 
@@ -232,19 +253,27 @@ export class RelayServer {
 
   private startDebugHttp(port: number) {
     const app = express();
+    // 5단계: joinCode/access metadata 노출
     app.get('/relay/sessions', (req, res) => {
-      res.json(Array.from(this.sessions.values()).map(s => ({
-        sessionId: s.sessionId,
-        status: s.status,
-        updatedAt: s.updatedAt,
-        lastHeartbeatAt: s.lastHeartbeatAt,
-        latestSequence: s.latestSequence,
-        hasState: !!s.latestState,
-      })));
+      res.json(Array.from(this.sessions.values()).map(s => {
+        const access = this.sessionAccess.get(s.sessionId);
+        return {
+          sessionId: s.sessionId,
+          status: s.status,
+          updatedAt: s.updatedAt,
+          lastHeartbeatAt: s.lastHeartbeatAt,
+          latestSequence: s.latestSequence,
+          hasState: !!s.latestState,
+          joinCode: access?.joinCode,
+          shareEnabled: access?.shareEnabled,
+          visibility: access?.visibility,
+        };
+      }));
     });
     app.get('/relay/sessions/:id', (req, res) => {
       const s = this.sessions.get(req.params.id);
       if (!s) return res.status(404).json({ error: 'not_found' });
+      const access = this.sessionAccess.get(s.sessionId);
       res.json({
         sessionId: s.sessionId,
         status: s.status,
@@ -252,6 +281,9 @@ export class RelayServer {
         lastHeartbeatAt: s.lastHeartbeatAt,
         latestSequence: s.latestSequence,
         latestState: s.latestState,
+        joinCode: access?.joinCode,
+        shareEnabled: access?.shareEnabled,
+        visibility: access?.visibility,
       });
     });
     app.listen(port, () => {

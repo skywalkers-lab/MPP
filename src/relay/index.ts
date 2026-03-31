@@ -21,8 +21,14 @@ const relayServer = new RelayServer({
 // Viewer API 및 정적 파일 서버
 const app = express();
 app.use('/api/viewer', createViewerApiRouter(relayServer));
+
 app.use('/viewer', express.static(path.join(process.cwd(), 'public')));
 app.get('/viewer/:sessionId', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'viewer.html'));
+});
+
+// [5단계] /join/:joinCode 라우트: viewer.html 서빙 (joinCode 기반 진입)
+app.get('/join/:joinCode', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'viewer.html'));
 });
 

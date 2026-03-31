@@ -6,6 +6,22 @@ import { serializeViewerSession } from './viewerStatus';
 export function createViewerApiRouter(relayServer: RelayServer) {
   const router = express.Router();
 
+  // PATCH /api/session-access/:sessionId (host/internal용, shareEnabled/visibility 변경)
+  router.patch('/session-access/:sessionId', (req, res) => {
+    const { sessionId } = req.params;
+    const { shareEnabled, visibility } = req.body || {};
+    const updated = relayServer.updateSessionAccess(sessionId, { shareEnabled, visibility });
+    if (!updated) return res.status(404).json({ error: 'not_found' });
+    res.json({ sessionId, shareEnabled: updated.shareEnabled, visibility: updated.visibility, updatedAt: updated.updatedAt });
+  });
+// viewer 전용 API 라우트 (Express Router)
+import express from 'express';
+import { RelayServer } from './RelayServer';
+import { serializeViewerSession } from './viewerStatus';
+
+export function createViewerApiRouter(relayServer: RelayServer) {
+  const router = express.Router();
+
   // GET /api/viewer/sessions/:sessionId
   router.get('/sessions/:sessionId', (req, res) => {
     const sessionId = req.params.sessionId;

@@ -6,15 +6,17 @@
   "scripts": {
     "start": "ts-node src/index.ts",
     "build": "tsc",
-    "test": "jest"
-     ,"relay": "ts-node src/relay/index.ts"
+    "test": "jest",
+    "relay": "ts-node src/relay/index.ts"
   },
   "dependencies": {
+    "@types/express": "^5.0.6",
+    "@types/uuid": "^10.0.0",
     "dgram": "^1.0.1",
     "express": "^4.18.2",
-    "winston": "^3.10.0"
-     ,"ws": "^8.13.0"
-     ,"uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "winston": "^3.10.0",
+    "ws": "^8.13.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.3",

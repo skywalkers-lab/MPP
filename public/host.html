@@ -205,6 +205,17 @@
       border-left-color: #54724d;
     }
 
+    .strategy-rec {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 4px 0;
+    }
+
+    .sev-info { color: #9fc3de; }
+    .sev-caution { color: #f8d07a; }
+    .sev-warning { color: #ffb567; }
+    .sev-critical { color: #ff8f8f; }
+
     @media (max-width: 680px) {
       .grid {
         grid-template-columns: 1fr;
@@ -315,6 +326,12 @@
       <h3 style="margin: 0 0 8px;">Session Timeline (Ops + Notes)</h3>
       <div class="muted">운영 이벤트와 사람 메모를 같은 시간축으로 확인합니다.</div>
       <div id="timeline-list" class="timeline-list"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin: 0 0 8px;">Strategy Engine v1</h3>
+      <div class="muted">설명 가능한 룰 기반 추천입니다. 스냅샷이 없거나 stale이면 추천을 중지하고 이유를 표시합니다.</div>
+      <div id="strategy-card" class="notes-list"></div>
     </div>
   </div>
 

@@ -21,6 +21,12 @@ import {
   InMemorySessionNotesStore,
   SessionNote,
 } from './notes';
+import { StrategyEngine } from './strategyEngine';
+import {
+  StrategyEngineInput,
+  StrategyEvaluationResult,
+  StrategyUnavailableResult,
+} from './strategy';
 
 export type SessionVisibility = 'private' | 'code'; // public은 추후 확장
 
@@ -88,6 +94,7 @@ export class RelayServer {
   private sessionAccess: Map<string, SessionAccessRecord> = new Map();
   private readonly recentOpsEvents = new InMemoryRecentOpsEvents(300);
   private readonly notesStore = new InMemorySessionNotesStore();
+  private readonly strategyEngine = new StrategyEngine();
   private readonly opsNotifier = new CompositeOpsNotifier([
     this.recentOpsEvents,
     new ConsoleOpsNotifier(),
@@ -163,14 +170,39 @@ export class RelayServer {
         const access = this.sessionAccess.get(session.sessionId);
         const base = serializeSessionOpsSummary(session, access);
         const latestNote = this.notesStore.getLatestNote(session.sessionId);
+        const strategy = this.computeSessionStrategy(session);
+
         return {
           ...base,
           noteCount: this.notesStore.getNoteCount(session.sessionId),
           latestNoteAt: latestNote?.timestamp ?? null,
           latestNotePreview: latestNote?.text?.slice(0, 80) ?? null,
+          strategyLabel: strategy.strategyUnavailable
+            ? null
+            : strategy.recommendation,
+          strategySeverity: strategy.strategyUnavailable
+            ? null
+            : strategy.severity,
+          strategyGeneratedAt: strategy.generatedAt,
+          strategyUnavailable: strategy.strategyUnavailable,
         };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  public getSessionStrategy(sessionId: string): StrategyEvaluationResult {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return {
+        strategyUnavailable: true,
+        reason: 'session_not_found',
+        reasons: ['session does not exist'],
+        signals: {},
+        generatedAt: Date.now(),
+      };
+    }
+
+    return this.computeSessionStrategy(session);
   }
 
   public getRecentOpsEvents(limit: number = 50): OpsEvent[] {
@@ -266,6 +298,73 @@ export class RelayServer {
    */
   public getSession(sessionId: string): RelaySession | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  private computeSessionStrategy(session: RelaySession): StrategyEvaluationResult {
+    const input = this.buildStrategyInput(session);
+    if (!input) {
+      const unavailable: StrategyUnavailableResult = {
+        strategyUnavailable: true,
+        reason: 'player_state_missing',
+        reasons: ['player car state is missing in current snapshot'],
+        signals: {
+          latestSequence: session.latestSequence,
+        },
+        generatedAt: Date.now(),
+      };
+      return unavailable;
+    }
+
+    return this.strategyEngine.evaluate(input);
+  }
+
+  private buildStrategyInput(session: RelaySession): StrategyEngineInput | null {
+    const now = Date.now();
+    const hasSnapshot = !!session.latestState;
+    const state = session.latestState;
+
+    if (!hasSnapshot || !state) {
+      return {
+        sessionId: session.sessionId,
+        relayStatus: session.status,
+        isStale: session.status === 'stale',
+        hasSnapshot: false,
+        latestSequence: session.latestSequence ?? null,
+        currentLap: null,
+        totalLaps: null,
+        position: null,
+        tyreAgeLaps: null,
+        fuelRemaining: null,
+        fuelLapsRemaining: null,
+        pitStatus: null,
+        generatedAt: now,
+      };
+    }
+
+    const playerCarIndex = state.playerCarIndex;
+    const playerCar =
+      playerCarIndex != null ? state.cars[playerCarIndex] : undefined;
+
+    if (!playerCar) {
+      return null;
+    }
+
+    return {
+      sessionId: session.sessionId,
+      relayStatus: session.status,
+      isStale: session.status === 'stale',
+      hasSnapshot,
+      latestSequence: session.latestSequence ?? null,
+      currentLap:
+        playerCar.currentLapNum ?? state.sessionMeta?.currentLap ?? null,
+      totalLaps: state.sessionMeta?.totalLaps ?? null,
+      position: playerCar.position ?? null,
+      tyreAgeLaps: playerCar.tyreAgeLaps ?? null,
+      fuelRemaining: playerCar.fuelRemaining ?? null,
+      fuelLapsRemaining: playerCar.fuelLapsRemaining ?? null,
+      pitStatus: playerCar.pitStatus ?? null,
+      generatedAt: now,
+    };
   }
 
   /**
@@ -544,6 +643,7 @@ export class RelayServer {
             visibility: access?.visibility,
             noteCount: this.notesStore.getNoteCount(s.sessionId),
             latestNote: this.notesStore.getLatestNote(s.sessionId),
+            strategy: this.computeSessionStrategy(s),
             ops: opsSummary,
           };
         })
@@ -580,6 +680,7 @@ export class RelayServer {
         visibility: access?.visibility,
         noteCount: this.notesStore.getNoteCount(s.sessionId),
         latestNote: this.notesStore.getLatestNote(s.sessionId),
+        strategy: this.computeSessionStrategy(s),
         ops: opsSummary,
       });
     });

@@ -84,7 +84,7 @@ function renderSummary(sessions) {
 
 function renderSessionsTable(sessions) {
   if (!sessions || sessions.length === 0) {
-    $sessionsBody.innerHTML = '<tr><td colspan="10" class="muted">세션이 없습니다.</td></tr>';
+    $sessionsBody.innerHTML = '<tr><td colspan="11" class="muted">세션이 없습니다.</td></tr>';
     return;
   }
 
@@ -116,6 +116,10 @@ function renderSessionsTable(sessions) {
         '<div class="muted" style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' +
           escapeHtml(s.latestNotePreview || '-') +
         '</div>' +
+      '</td>' +
+      '<td data-label="Strategy">' +
+        '<div>' + safe(s.strategyLabel || '-') + '</div>' +
+        '<div class="muted">severity=' + safe(s.strategySeverity || '-') + '</div>' +
       '</td>' +
       '<td data-label="Snapshot">' + (s.hasSnapshot ? 'yes' : 'no') + '</td>' +
       '<td data-label="Heartbeat">' + fmtTime(s.lastHeartbeatAt) + '</td>' +

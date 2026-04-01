@@ -7,6 +7,7 @@ var sessionId = getSessionIdFromPath();
 var accessApiUrl = '/api/viewer/session-access/' + encodeURIComponent(sessionId);
 var notesApiUrl = '/api/viewer/notes/' + encodeURIComponent(sessionId);
 var timelineApiUrl = '/api/viewer/timeline/' + encodeURIComponent(sessionId) + '?limit=120';
+var strategyApiUrl = '/api/viewer/strategy/' + encodeURIComponent(sessionId);
 
 var $sessionId = document.getElementById('session-id');
 var $joinCode = document.getElementById('join-code');
@@ -23,6 +24,7 @@ var $noteLap = document.getElementById('note-lap');
 var $notesMessage = document.getElementById('notes-message');
 var $notesList = document.getElementById('notes-list');
 var $timelineList = document.getElementById('timeline-list');
+var $strategyCard = document.getElementById('strategy-card');
 
 function setMessage(text, type) {
   if (!text) {
@@ -148,6 +150,42 @@ function renderTimeline(items) {
   }).join('');
 }
 
+function renderStrategy(data) {
+  if (!data) {
+    $strategyCard.innerHTML = '<div class="muted">전략 정보를 아직 불러오지 못했습니다.</div>';
+    return;
+  }
+
+  if (data.strategyUnavailable) {
+    $strategyCard.innerHTML = '<div class="note-item">' +
+      '<div class="note-meta"><span>unavailable</span><span>' + fmtTime(data.generatedAt) + '</span></div>' +
+      '<div class="note-text">reason: ' + escapeHtml(data.reason || 'unknown') + '</div>' +
+      '<div class="muted" style="margin-top:6px;">' +
+        escapeHtml((data.reasons || []).join(' | ') || 'strategy generation is paused') +
+      '</div>' +
+    '</div>';
+    return;
+  }
+
+  var sev = String(data.severity || 'info').toLowerCase();
+  var reasons = Array.isArray(data.reasons) ? data.reasons : [];
+  var signals = data.signals || {};
+
+  $strategyCard.innerHTML = '<div class="note-item">' +
+    '<div class="note-meta"><span>severity: ' + escapeHtml(sev) + '</span><span>' + fmtTime(data.generatedAt) + '</span></div>' +
+    '<div class="strategy-rec sev-' + escapeHtml(sev) + '">' + escapeHtml(data.recommendation || 'STAY OUT') + '</div>' +
+    '<div class="note-text">' +
+      reasons.slice(0, 3).map(function (r) { return '• ' + escapeHtml(r); }).join('<br/>') +
+    '</div>' +
+    '<div class="muted" style="margin-top:6px;">' +
+      'signals: tyre=' + safe(signals.tyreUrgencyScore) +
+      ', fuel=' + safe(signals.fuelRiskScore) +
+      ', pit=' + safe(signals.pitWindowHint) +
+      ', rejoin=' + safe(signals.rejoinRiskHint) +
+    '</div>' +
+  '</div>';
+}
+
 async function fetchNotes() {
   var res = await fetch(notesApiUrl);
   var data = await res.json();
@@ -190,7 +228,7 @@ async function addNote() {
   $noteText.value = '';
   $noteLap.value = '';
   setNotesMessage('노트가 추가되었습니다.', 'ok');
-  await Promise.all([fetchNotes(), fetchTimeline()]);
+  await Promise.all([fetchNotes(), fetchTimeline(), fetchStrategy()]);
 }
 
 async function deleteNote(noteId) {
@@ -201,7 +239,7 @@ async function deleteNote(noteId) {
   if (!res.ok) {
     throw new Error(data.error || 'note_delete_failed');
   }
-  await Promise.all([fetchNotes(), fetchTimeline()]);
+  await Promise.all([fetchNotes(), fetchTimeline(), fetchStrategy()]);
 }
 
 async function fetchTimeline() {
@@ -211,6 +249,15 @@ async function fetchTimeline() {
     throw new Error(data.error || 'timeline_fetch_failed');
   }
   renderTimeline(data.timeline || []);
+}
+
+async function fetchStrategy() {
+  var res = await fetch(strategyApiUrl);
+  var data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.reason || data.error || 'strategy_fetch_failed');
+  }
+  renderStrategy(data);
 }
 
 async function saveAccess() {
@@ -246,7 +293,7 @@ async function copyText(text) {
 document.getElementById('reload').addEventListener('click', fetchAccess);
 document.getElementById('save').addEventListener('click', saveAccess);
 document.getElementById('reload-notes').addEventListener('click', function () {
-  Promise.all([fetchNotes(), fetchTimeline()]).catch(function (err) {
+  Promise.all([fetchNotes(), fetchTimeline(), fetchStrategy()]).catch(function (err) {
     setNotesMessage('노트/타임라인 갱신 실패: ' + (err && err.message ? err.message : err), 'err');
   });
 });
@@ -277,6 +324,12 @@ $notesList.addEventListener('click', function (e) {
 });
 
 $sessionId.textContent = sessionId || '-';
-Promise.all([fetchAccess(), fetchNotes(), fetchTimeline()]).catch(function (err) {
+setInterval(function () {
+  Promise.all([fetchNotes(), fetchTimeline(), fetchStrategy()]).catch(function (err) {
+    setNotesMessage('주기 갱신 실패: ' + (err && err.message ? err.message : err), 'err');
+  });
+}, 4000);
+
+Promise.all([fetchAccess(), fetchNotes(), fetchTimeline(), fetchStrategy()]).catch(function (err) {
   setNotesMessage('초기 로드 실패: ' + (err && err.message ? err.message : err), 'err');
 });

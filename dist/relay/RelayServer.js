@@ -6,6 +6,7 @@ import { ConsoleLogger } from '../debug/ConsoleLogger';
 import express from 'express';
 import { CompositeOpsNotifier, ConsoleOpsNotifier, InMemoryRecentOpsEvents, serializeSessionOpsSummary, } from './ops';
 import { InMemorySessionNotesStore, } from './notes';
+import { StrategyEngine } from './strategyEngine';
 export function serializeSessionAccess(access) {
     if (!access)
         return null;
@@ -28,6 +29,7 @@ export class RelayServer {
         this.sessionAccess = new Map();
         this.recentOpsEvents = new InMemoryRecentOpsEvents(300);
         this.notesStore = new InMemorySessionNotesStore();
+        this.strategyEngine = new StrategyEngine();
         this.opsNotifier = new CompositeOpsNotifier([
             this.recentOpsEvents,
             new ConsoleOpsNotifier(),
@@ -89,14 +91,36 @@ export class RelayServer {
             const access = this.sessionAccess.get(session.sessionId);
             const base = serializeSessionOpsSummary(session, access);
             const latestNote = this.notesStore.getLatestNote(session.sessionId);
+            const strategy = this.computeSessionStrategy(session);
             return {
                 ...base,
                 noteCount: this.notesStore.getNoteCount(session.sessionId),
                 latestNoteAt: latestNote?.timestamp ?? null,
                 latestNotePreview: latestNote?.text?.slice(0, 80) ?? null,
+                strategyLabel: strategy.strategyUnavailable
+                    ? null
+                    : strategy.recommendation,
+                strategySeverity: strategy.strategyUnavailable
+                    ? null
+                    : strategy.severity,
+                strategyGeneratedAt: strategy.generatedAt,
+                strategyUnavailable: strategy.strategyUnavailable,
             };
         })
             .sort((a, b) => b.updatedAt - a.updatedAt);
+    }
+    getSessionStrategy(sessionId) {
+        const session = this.sessions.get(sessionId);
+        if (!session) {
+            return {
+                strategyUnavailable: true,
+                reason: 'session_not_found',
+                reasons: ['session does not exist'],
+                signals: {},
+                generatedAt: Date.now(),
+            };
+        }
+        return this.computeSessionStrategy(session);
     }
     getRecentOpsEvents(limit = 50) {
         return this.recentOpsEvents.getRecent(limit);
@@ -169,6 +193,64 @@ export class RelayServer {
      */
     getSession(sessionId) {
         return this.sessions.get(sessionId);
+    }
+    computeSessionStrategy(session) {
+        const input = this.buildStrategyInput(session);
+        if (!input) {
+            const unavailable = {
+                strategyUnavailable: true,
+                reason: 'player_state_missing',
+                reasons: ['player car state is missing in current snapshot'],
+                signals: {
+                    latestSequence: session.latestSequence,
+                },
+                generatedAt: Date.now(),
+            };
+            return unavailable;
+        }
+        return this.strategyEngine.evaluate(input);
+    }
+    buildStrategyInput(session) {
+        const now = Date.now();
+        const hasSnapshot = !!session.latestState;
+        const state = session.latestState;
+        if (!hasSnapshot || !state) {
+            return {
+                sessionId: session.sessionId,
+                relayStatus: session.status,
+                isStale: session.status === 'stale',
+                hasSnapshot: false,
+                latestSequence: session.latestSequence ?? null,
+                currentLap: null,
+                totalLaps: null,
+                position: null,
+                tyreAgeLaps: null,
+                fuelRemaining: null,
+                fuelLapsRemaining: null,
+                pitStatus: null,
+                generatedAt: now,
+            };
+        }
+        const playerCarIndex = state.playerCarIndex;
+        const playerCar = playerCarIndex != null ? state.cars[playerCarIndex] : undefined;
+        if (!playerCar) {
+            return null;
+        }
+        return {
+            sessionId: session.sessionId,
+            relayStatus: session.status,
+            isStale: session.status === 'stale',
+            hasSnapshot,
+            latestSequence: session.latestSequence ?? null,
+            currentLap: playerCar.currentLapNum ?? state.sessionMeta?.currentLap ?? null,
+            totalLaps: state.sessionMeta?.totalLaps ?? null,
+            position: playerCar.position ?? null,
+            tyreAgeLaps: playerCar.tyreAgeLaps ?? null,
+            fuelRemaining: playerCar.fuelRemaining ?? null,
+            fuelLapsRemaining: playerCar.fuelLapsRemaining ?? null,
+            pitStatus: playerCar.pitStatus ?? null,
+            generatedAt: now,
+        };
     }
     /**
      * joinCode 생성기 (6자리 영문+숫자, 중복 방지)
@@ -383,6 +465,7 @@ export class RelayServer {
                     visibility: access?.visibility,
                     noteCount: this.notesStore.getNoteCount(s.sessionId),
                     latestNote: this.notesStore.getLatestNote(s.sessionId),
+                    strategy: this.computeSessionStrategy(s),
                     ops: opsSummary,
                 };
             }));
@@ -412,6 +495,7 @@ export class RelayServer {
                 visibility: access?.visibility,
                 noteCount: this.notesStore.getNoteCount(s.sessionId),
                 latestNote: this.notesStore.getLatestNote(s.sessionId),
+                strategy: this.computeSessionStrategy(s),
                 ops: opsSummary,
             });
         });

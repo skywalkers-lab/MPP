@@ -84,6 +84,10 @@ export interface SessionOpsSummary {
   noteCount?: number;
   latestNoteAt?: number | null;
   latestNotePreview?: string | null;
+  strategyLabel?: string | null;
+  strategySeverity?: 'info' | 'caution' | 'warning' | 'critical' | null;
+  strategyGeneratedAt?: number | null;
+  strategyUnavailable?: boolean;
 }
 
 export function getViewerAccessLabel(

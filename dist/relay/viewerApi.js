@@ -111,6 +111,15 @@ export function createViewerApiRouter(relayServer) {
         const timeline = relayServer.getSessionTimeline(sessionId, limit);
         res.json({ sessionId, timeline, count: timeline.length, limit });
     });
+    // GET /api/viewer/strategy/:sessionId
+    router.get('/strategy/:sessionId', (req, res) => {
+        const { sessionId } = req.params;
+        const strategy = relayServer.getSessionStrategy(sessionId);
+        if (strategy.strategyUnavailable && strategy.reason === 'session_not_found') {
+            return res.status(404).json({ sessionId, ...strategy });
+        }
+        res.json({ sessionId, ...strategy });
+    });
     // GET /api/viewer/sessions/:sessionId
     router.get('/sessions/:sessionId', (req, res) => {
         const sessionId = req.params.sessionId;

@@ -63,6 +63,8 @@ describe('Session Ops / Notification / Control Plane', () => {
     expect(typeof row.latestSequence).toBe('number');
     expect(typeof row.hasSnapshot).toBe('boolean');
     expect(typeof row.hasViewerAccess).toBe('boolean');
+    expect(typeof row.strategyUnavailable).toBe('boolean');
+    expect(typeof row.strategyGeneratedAt).toBe('number');
   });
 
   it('shareEnabled/visibility 변경은 ops 이벤트로 기록되고 ops summary에 반영된다', async () => {

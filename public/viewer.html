@@ -7,6 +7,7 @@
   <style>
     body { font-family: sans-serif; background: #181c20; color: #eee; margin: 0; padding: 0; }
     .container { max-width: 600px; margin: 40px auto; background: #23272b; border-radius: 8px; box-shadow: 0 2px 8px #0008; padding: 24px; }
+    .access-card { background: #2b1f1f; border: 1px solid #6d3f3f; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; }
     .session-card { background: #222; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; }
     .status { font-weight: bold; }
     .snapshot-summary { background: #1a1d20; border-radius: 6px; padding: 12px; margin-bottom: 16px; }
@@ -19,6 +20,7 @@
 </head>
 <body>
   <div class="container">
+    <div id="access-card" class="access-card" style="display:none;"></div>
     <div id="session-card" class="session-card"></div>
     <div id="snapshot-summary" class="snapshot-summary"></div>
     <div id="event-log" class="event-log"></div>

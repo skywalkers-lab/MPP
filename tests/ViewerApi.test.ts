@@ -12,6 +12,9 @@ describe('Viewer API', () => {
     sessionMap = new Map();
     relayServer = {
       getSession: (id: string) => sessionMap.get(id),
+      getSessionAccess: () => undefined,
+      resolveJoinCode: () => ({}),
+      updateSessionAccess: () => undefined,
     };
     app = express();
     app.use('/api/viewer', createViewerApiRouter(relayServer));
@@ -21,6 +24,33 @@ describe('Viewer API', () => {
     const res = await request(app).get('/api/viewer/sessions/NOPE');
     expect(res.status).toBe(404);
     expect(res.body.viewerStatus).toBe('not_found');
+  });
+
+  it('세션 조회 응답에 access metadata가 포함된다', async () => {
+    relayServer.getSessionAccess = () => ({
+      sessionId: 'S-META',
+      joinCode: 'ABCD23',
+      visibility: 'code',
+      shareEnabled: true,
+      createdAt: 100,
+      updatedAt: 200,
+    });
+
+    sessionMap.set('S-META', {
+      sessionId: 'S-META',
+      status: 'active',
+      updatedAt: 123,
+      lastHeartbeatAt: 123,
+      latestSequence: 0,
+      latestState: undefined,
+    });
+
+    const res = await request(app).get('/api/viewer/sessions/S-META');
+    expect(res.status).toBe(200);
+    expect(res.body.access.joinCode).toBe('ABCD23');
+    expect(res.body.access.shareEnabled).toBe(true);
+    expect(res.body.joinCode).toBe('ABCD23');
+    expect(res.body.visibility).toBe('code');
   });
 
   it('세션 있으나 snapshot 없음 → waiting', async () => {

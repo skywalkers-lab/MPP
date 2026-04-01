@@ -4,6 +4,18 @@ import { WebSocketServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { ConsoleLogger } from '../debug/ConsoleLogger';
 import express from 'express';
+export function serializeSessionAccess(access) {
+    if (!access)
+        return null;
+    return {
+        sessionId: access.sessionId,
+        joinCode: access.joinCode,
+        visibility: access.visibility,
+        shareEnabled: access.shareEnabled,
+        createdAt: access.createdAt,
+        updatedAt: access.updatedAt,
+    };
+}
 export class RelayServer {
     constructor(options) {
         this.options = options;
@@ -20,7 +32,10 @@ export class RelayServer {
         if (options.debugHttpPort) {
             this.startDebugHttp(options.debugHttpPort);
         }
-        setInterval(this.checkHeartbeats.bind(this), 2000);
+        const heartbeatTimer = setInterval(this.checkHeartbeats.bind(this), 2000);
+        if (typeof heartbeatTimer.unref === 'function') {
+            heartbeatTimer.unref();
+        }
     }
     /**
      * joinCode로 sessionId를 resolve (정책/공유 상태도 함께 반환)
@@ -226,7 +241,7 @@ export class RelayServer {
         const app = express();
         app.get('/relay/sessions', (req, res) => {
             res.json(Array.from(this.sessions.values()).map((s) => {
-                const access = this.sessionAccess.get(s.sessionId);
+                const access = serializeSessionAccess(this.sessionAccess.get(s.sessionId));
                 return {
                     sessionId: s.sessionId,
                     status: s.status,
@@ -234,6 +249,7 @@ export class RelayServer {
                     lastHeartbeatAt: s.lastHeartbeatAt,
                     latestSequence: s.latestSequence,
                     hasState: !!s.latestState,
+                    access,
                     joinCode: access?.joinCode,
                     shareEnabled: access?.shareEnabled,
                     visibility: access?.visibility,
@@ -245,7 +261,7 @@ export class RelayServer {
             if (!s) {
                 return res.status(404).json({ error: 'not_found' });
             }
-            const access = this.sessionAccess.get(s.sessionId);
+            const access = serializeSessionAccess(this.sessionAccess.get(s.sessionId));
             res.json({
                 sessionId: s.sessionId,
                 status: s.status,
@@ -253,6 +269,7 @@ export class RelayServer {
                 lastHeartbeatAt: s.lastHeartbeatAt,
                 latestSequence: s.latestSequence,
                 latestState: s.latestState,
+                access,
                 joinCode: access?.joinCode,
                 shareEnabled: access?.shareEnabled,
                 visibility: access?.visibility,

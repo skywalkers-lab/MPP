@@ -1,61 +1,114 @@
-# Remote Viewer 사용법
+# Remote Viewer / Session Access Guide
 
-## 1. Relay 서버 실행
+## 1. 실행
 
 ```bash
 npm install
 npm run relay
 ```
 
-- 기본 WebSocket 포트: 4000
-- 디버그 HTTP 포트: 4001
-- Viewer HTTP 포트: 4100 (환경변수 VIEWER_HTTP_PORT로 변경 가능)
+- Relay WebSocket: `4000`
+- Relay Debug HTTP: `4001`
+- Viewer HTTP: `4100` (환경변수 `VIEWER_HTTP_PORT`로 변경 가능)
 
-## 2. Agent를 Relay에 연결
-- F1 25 UDP 로컬 에이전트가 relay 서버(WS 포트)에 연결되어야 합니다.
-- 연결 시 세션이 생성되고, state_snapshot 패킷이 전송됩니다.
+## 2. 현재 단계 목표
 
-## 3. sessionId 확인
-- 디버그 HTTP: [http://localhost:4001/relay/sessions](http://localhost:4001/relay/sessions) 에서 sessionId 확인
+현재 단계는 **Host Control / Access UX Polish** 입니다.
 
+- Discord OAuth 로그인
+- Discord 계정 연동
+- Discord bot control plane
+- guild/role 연동
+- Discord identity 기반 권한 모델
 
-## 4. Viewer 페이지 접속
+위 항목은 모두 **보류** 상태입니다.
 
-- **내부 디버그용**: [http://localhost:4100/viewer/SESSION_ID](http://localhost:4100/viewer/SESSION_ID)
-	- SESSION_ID는 디버그 HTTP에서 확인한 값 사용
-- **외부 공유용**: [http://localhost:4100/join/JOINCODE](http://localhost:4100/join/JOINCODE)
-	- JOINCODE는 세션 생성 시 자동 생성되며, host가 공유를 활성화해야 외부 접근 가능
-	- 잘못된 코드: "유효하지 않은 초대 코드입니다." 메시지 표시
-	- 공유 비활성/비공개: "이 세션은 현재 공유 중이 아닙니다." 메시지 표시
+## 3. Access 모델 (Session-Centric)
 
+이 시스템은 사용자 계정보다 **세션 상태**를 우선합니다.
 
-## 5. Viewer 상태 종류
-- **live**: 호스트 연결 및 최신 스냅샷 표시
-- **waiting**: 호스트 연결, 아직 스냅샷 없음
-- **stale**: 호스트 연결 끊김, 마지막 상태 표시
-- **ended**: 세션 종료
-- **not_found**: 세션 없음
+- 내부 식별자: `sessionId`
+- 외부 초대 코드: `joinCode`
+- 공유 토글: `shareEnabled`
+- 공유 정책: `visibility` (`private` | `code`)
 
+즉, "누가 로그인했는가"보다 "이 세션이 지금 공유 가능한가"를 기준으로 동작합니다.
 
-## 6. 동작 방식 및 접근 정책
-- viewer는 polling 기반(1초 간격)으로 상태를 조회합니다.
-- **5단계: sessionId와 joinCode 분리, 최소 접근 제어 도입**
-	- sessionId는 내부 식별자, joinCode는 외부 공유용(6자리 랜덤)
-	- host가 공유를 활성화해야만 joinCode로 외부 접근 가능
-	- visibility(기본값 private), shareEnabled(기본값 false) 정책 적용
-	- 잘못된 joinCode, 공유 비활성, 정상 접근을 각각 구분하여 안내
-- 실시간 WebSocket, 인증, Discord OAuth, 역할 시스템 등은 아직 미구현입니다.
-- viewer는 오직 읽기 전용이며, 쓰기/변경/노트/전략 등은 불가합니다.
+## 4. Host / Internal 운영 흐름
 
-## 7. 개발/테스트
-- `npm test`로 상태 판정 및 API 테스트 가능
-- 프론트엔드는 public/viewer.html, public/viewer.js로 구성되어 있습니다.
+### 4-1. 세션 목록 확인
 
+- `http://localhost:4001/relay/sessions`
+- 각 세션의 `sessionId`, 상태, access metadata(`joinCode`, `shareEnabled`, `visibility`)를 확인할 수 있습니다.
 
----
+### 4-2. Host Control 페이지
 
-> **5단계 Session Access/Invite 안내:**
-> - 내부 식별자(sessionId)와 외부 공유용 joinCode가 분리되어 있습니다.
-> - 외부 사용자는 joinCode로만 viewer에 접근할 수 있습니다.
-> - host가 공유를 활성화하지 않았다면 joinCode로도 접근할 수 없습니다.
-> - OAuth/role system, 협업 기능 등은 아직 미구현이며, 현재는 최소 접근 제어만 적용되어 있습니다.
+- `http://localhost:4100/host/SESSION_ID`
+
+이 페이지에서 운영자는 다음을 수행할 수 있습니다.
+
+- 현재 `sessionId` 확인
+- 현재 `joinCode` 확인 및 복사
+- join URL 복사 (`/join/:joinCode`)
+- `shareEnabled` on/off 제어
+- `visibility` 전환 (`private` / `code`)
+
+## 5. External Viewer 흐름 (Read-Only)
+
+외부 사용자는 joinCode 링크로 접속합니다.
+
+- `http://localhost:4100/join/JOINCODE`
+
+Viewer는 끝까지 read-only 입니다.
+
+- write action 없음
+- role 선택 없음
+- note/전략 수정 없음
+
+### viewer 상태
+
+- `waiting`: 호스트 연결, 아직 스냅샷 없음
+- `live`: 최신 스냅샷 표시 중
+- `stale`: 호스트 연결 끊김, 마지막 상태 표시
+- `ended`: 세션 종료
+
+### access 오류 상태
+
+- `invalid_code`: 유효하지 않은 joinCode
+- `not_shared`: 공유 비활성 또는 `visibility=private`
+
+Viewer 화면에서 access 오류와 relay lifecycle 상태를 구분해서 표시합니다.
+
+## 6. API 요약
+
+### Viewer API
+
+- `GET /api/viewer/sessions/:sessionId`
+  - viewer payload + access metadata
+- `GET /api/viewer/join/:joinCode`
+  - 공유 가능 시 viewer payload 반환
+  - 거부 시 `invalid_code` / `not_shared`
+- `GET /api/viewer/session-access/:sessionId`
+  - host control용 access summary
+- `PATCH /api/viewer/session-access/:sessionId`
+  - `shareEnabled`, `visibility` 업데이트
+
+### Relay Debug API
+
+- `GET /relay/sessions`
+- `GET /relay/sessions/:id`
+
+두 endpoint 모두 access metadata를 함께 제공합니다.
+
+## 7. 테스트
+
+```bash
+npm test
+```
+
+현재 테스트는 다음을 검증합니다.
+
+- session access metadata 노출
+- PATCH access control 상태 변경
+- joinCode 기반 접근 허용/거부
+- viewer status 판정

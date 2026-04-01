@@ -26,6 +26,9 @@ app.get('/viewer/:sessionId', (req, res) => {
 app.get('/join/:joinCode', (req, res) => {
     res.sendFile(path.join(process.cwd(), 'public', 'viewer.html'));
 });
+app.get('/host/:sessionId', (req, res) => {
+    res.sendFile(path.join(process.cwd(), 'public', 'host.html'));
+});
 const HTTP_PORT = process.env.VIEWER_HTTP_PORT ? parseInt(process.env.VIEWER_HTTP_PORT) : 4100;
 app.listen(HTTP_PORT, () => {
     logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);

@@ -1,16 +1,15 @@
-// viewer.js: polling 기반 viewer 클라이언트 (5단계 joinCode 진입 지원)
-
-// joinCode 기반 진입 지원
 function getJoinCodeFromPath() {
   const m = location.pathname.match(/\/join\/([A-Z0-9]{6,8})/i);
   return m ? m[1] : null;
 }
+
 const joinCode = getJoinCodeFromPath();
 const sessionId = !joinCode ? location.pathname.split('/').pop() : null;
 const apiUrl = joinCode
   ? `/api/viewer/join/${encodeURIComponent(joinCode)}`
   : `/api/viewer/sessions/${encodeURIComponent(sessionId)}`;
 
+const $accessCard = document.getElementById('access-card');
 const $sessionCard = document.getElementById('session-card');
 const $snapshotSummary = document.getElementById('snapshot-summary');
 const $eventLog = document.getElementById('event-log');
@@ -25,11 +24,39 @@ function safe(val) {
   return val === undefined || val === null ? '-' : val;
 }
 
+function renderAccessError(data) {
+  const code = data && data.accessError && data.accessError.code
+    ? data.accessError.code
+    : data.viewerStatus;
+  const message = data && data.accessError && data.accessError.message
+    ? data.accessError.message
+    : data.message;
+
+  $accessCard.style.display = 'block';
+
+  if (code === 'invalid_code') {
+    $accessCard.innerHTML = '<div class="error"><b>접근 오류:</b> 유효하지 않은 초대 코드입니다.</div>';
+  } else if (code === 'not_shared') {
+    $accessCard.innerHTML = '<div class="error"><b>접근 오류:</b> 현재 세션 공유가 비활성화되어 있습니다.<br/>호스트가 shareEnabled를 ON으로 변경하고 visibility를 code로 설정해야 합니다.</div>';
+  } else {
+    $accessCard.innerHTML = '<div class="error"><b>접근 오류:</b> ' + safe(message) + '</div>';
+  }
+}
+
+function clearAccessError() {
+  $accessCard.style.display = 'none';
+  $accessCard.innerHTML = '';
+}
+
 function renderSessionCard(data) {
+  const access = data.access || null;
   $sessionCard.innerHTML = `
-    <div><span class="label">Session ID:</span> <span class="value">${data.sessionId || sessionId}</span></div>
+    <div><span class="label">Session ID:</span> <span class="value">${safe(data.sessionId || sessionId)}</span></div>
     <div><span class="label">Viewer Status:</span> <span class="status">${safe(data.viewerStatus)}</span></div>
     <div><span class="label">Relay Status:</span> ${safe(data.relayStatus)}</div>
+    <div><span class="label">Share Enabled:</span> ${safe(access ? access.shareEnabled : data.shareEnabled)}</div>
+    <div><span class="label">Visibility:</span> ${safe(access ? access.visibility : data.visibility)}</div>
+    <div><span class="label">Join Code:</span> ${safe(access ? access.joinCode : data.joinCode || joinCode)}</div>
     <div><span class="label">Last Update:</span> ${fmtTime(data.updatedAt)}</div>
     <div><span class="label">Last Heartbeat:</span> ${fmtTime(data.lastHeartbeatAt)}</div>
     <div><span class="label">Latest Sequence:</span> ${safe(data.latestSequence)}</div>
@@ -90,7 +117,9 @@ function renderStatus(data, opts = {}) {
     $eventLog.innerHTML = '';
     return;
   }
+
   renderSessionCard(data);
+
   if (data.viewerStatus === 'waiting') {
     renderSnapshotSummary(data, {
       statusMessage: '호스트가 연결되었지만 아직 텔레메트리 스냅샷이 도착하지 않았습니다.',
@@ -99,11 +128,13 @@ function renderStatus(data, opts = {}) {
     $eventLog.innerHTML = '';
     return;
   }
+
   if (data.viewerStatus === 'live') {
     renderSnapshotSummary(data, { pollError: opts.pollError === true });
     renderEventLog(data);
     return;
   }
+
   if (data.viewerStatus === 'stale') {
     renderSnapshotSummary(data, {
       statusMessage: '호스트 연결이 끊겼습니다. 마지막 상태를 표시 중입니다.',
@@ -112,6 +143,7 @@ function renderStatus(data, opts = {}) {
     renderEventLog(data);
     return;
   }
+
   if (data.viewerStatus === 'ended') {
     renderSnapshotSummary(data, {
       statusMessage: '세션이 종료되었습니다.',
@@ -120,11 +152,11 @@ function renderStatus(data, opts = {}) {
     renderEventLog(data);
     return;
   }
+
   $sessionCard.innerHTML = '<span class="error">알 수 없는 상태</span>';
   $snapshotSummary.innerHTML = '';
   $eventLog.innerHTML = '';
 }
-
 
 let lastGoodData = null;
 let pollTimer = null;
@@ -137,39 +169,24 @@ function startPolling() {
   pollLoop();
 }
 
-function stopPolling() {
-  pollActive = false;
-  if (pollTimer) {
-    clearTimeout(pollTimer);
-    pollTimer = null;
-  }
-}
-
 async function pollLoop() {
   if (!pollActive) return;
   try {
     const res = await fetch(apiUrl);
     const data = await res.json();
-    lastGoodData = data;
-    // joinCode 기반 진입 시 상태 분기 처리
-    if (joinCode) {
-      if (data.viewerStatus === 'invalid_code') {
-        $sessionCard.innerHTML = '<span class="error">유효하지 않은 초대 코드입니다.</span>';
-        $snapshotSummary.innerHTML = '';
-        $eventLog.innerHTML = '';
-        pollDelay = 3000;
-        scheduleNextPoll();
-        return;
-      }
-      if (data.viewerStatus === 'not_shared') {
-        $sessionCard.innerHTML = '<span class="error">이 세션은 현재 공유 중이 아닙니다.</span>';
-        $snapshotSummary.innerHTML = '';
-        $eventLog.innerHTML = '';
-        pollDelay = 3000;
-        scheduleNextPoll();
-        return;
-      }
+
+    if (joinCode && (data.viewerStatus === 'invalid_code' || data.viewerStatus === 'not_shared')) {
+      renderAccessError(data);
+      $sessionCard.innerHTML = '<span class="label">세션 상태를 불러올 수 없습니다.</span>';
+      $snapshotSummary.innerHTML = '';
+      $eventLog.innerHTML = '';
+      pollDelay = 3000;
+      scheduleNextPoll();
+      return;
     }
+
+    clearAccessError();
+    lastGoodData = data;
     renderStatus(data);
     pollDelay = 1000;
   } catch (e) {
@@ -192,5 +209,4 @@ function scheduleNextPoll() {
   pollTimer = setTimeout(pollLoop, pollDelay);
 }
 
-// 최초 1회만 polling 시작
 startPolling();

@@ -42,6 +42,8 @@ export class StateReducer {
       packet?.trackId != null &&
       this.state.sessionMeta.trackId != null &&
       packet.trackId !== this.state.sessionMeta.trackId
+    ) {
+      shouldReset = true;
     }
     if (shouldReset) {
       this.resetForNewSession(header.sessionUID);

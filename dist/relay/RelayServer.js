@@ -32,9 +32,20 @@ export class RelayServer {
         if (options.debugHttpPort) {
             this.startDebugHttp(options.debugHttpPort);
         }
-        const heartbeatTimer = setInterval(this.checkHeartbeats.bind(this), 2000);
-        if (typeof heartbeatTimer.unref === 'function') {
-            heartbeatTimer.unref();
+        this.heartbeatTimer = setInterval(this.checkHeartbeats.bind(this), 2000);
+        if (typeof this.heartbeatTimer.unref === 'function') {
+            this.heartbeatTimer.unref();
+        }
+    }
+    close() {
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = undefined;
+        }
+        this.wss.close();
+        if (this.debugHttpServer) {
+            this.debugHttpServer.close();
+            this.debugHttpServer = undefined;
         }
     }
     /**
@@ -275,7 +286,7 @@ export class RelayServer {
                 visibility: access?.visibility,
             });
         });
-        app.listen(port, () => {
+        this.debugHttpServer = app.listen(port, () => {
             this.logger.info(`[Relay] Debug HTTP server running at http://localhost:${port}/relay/sessions`);
         });
     }

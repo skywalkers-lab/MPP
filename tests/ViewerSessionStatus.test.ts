@@ -19,7 +19,7 @@ describe('ViewerStatus 판정', () => {
   });
 
   it('세션 있으나 snapshot 없음 → waiting', () => {
-    const session = { ...baseSession, latestState: undefined } as RelaySession;
+    const session = { ...baseSession, latestState: null } as RelaySession;
     expect(getViewerStatus(session)).toBe('waiting');
     const payload = serializeViewerSession(session);
     expect(payload.viewerStatus).toBe('waiting');

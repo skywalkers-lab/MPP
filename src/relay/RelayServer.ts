@@ -2,6 +2,7 @@
 // F1 25 Realtime Relay Core - WebSocket 기반 세션별 상태 중계 서버
 
 import { WebSocketServer, WebSocket } from 'ws';
+import { Server as HttpServer } from 'http';
 import { v4 as uuidv4 } from 'uuid';
 import { CurrentRaceState } from '../model/CurrentRaceState';
 import { ConsoleLogger } from '../debug/ConsoleLogger';
@@ -61,6 +62,8 @@ export interface RelayServerOptions {
 
 export class RelayServer {
   private wss: WebSocketServer;
+  private heartbeatTimer?: NodeJS.Timeout;
+  private debugHttpServer?: HttpServer;
   private sessions: Map<string, RelaySession> = new Map();
   private connToSession: Map<string, string> = new Map();
   private logger: ConsoleLogger;
@@ -81,9 +84,23 @@ export class RelayServer {
       this.startDebugHttp(options.debugHttpPort);
     }
 
-    const heartbeatTimer = setInterval(this.checkHeartbeats.bind(this), 2000);
-    if (typeof heartbeatTimer.unref === 'function') {
-      heartbeatTimer.unref();
+    this.heartbeatTimer = setInterval(this.checkHeartbeats.bind(this), 2000);
+    if (typeof this.heartbeatTimer.unref === 'function') {
+      this.heartbeatTimer.unref();
+    }
+  }
+
+  public close() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = undefined;
+    }
+
+    this.wss.close();
+
+    if (this.debugHttpServer) {
+      this.debugHttpServer.close();
+      this.debugHttpServer = undefined;
     }
   }
 
@@ -399,7 +416,7 @@ export class RelayServer {
       });
     });
 
-    app.listen(port, () => {
+    this.debugHttpServer = app.listen(port, () => {
       this.logger.info(
         `[Relay] Debug HTTP server running at http://localhost:${port}/relay/sessions`
       );

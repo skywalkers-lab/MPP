@@ -1,13 +1,3 @@
-describe('StateReducer', () => {
-import { StateReducer } from '../src/agent/StateReducer';
-import { PacketHeader } from '../src/parsers/PacketHeaderParser';
-
-import { StateReducer } from '../src/agent/StateReducer';
-import { PacketHeader } from '../src/parsers/PacketHeaderParser';
-
-import { StateReducer } from '../src/agent/StateReducer';
-import { PacketHeader } from '../src/parsers/PacketHeaderParser';
-
 import { StateReducer } from '../src/agent/StateReducer';
 import { PacketHeader } from '../src/parsers/PacketHeaderParser';
 
@@ -20,7 +10,10 @@ describe('StateReducer', () => {
   it('should allow partial state (LapData only)', () => {
     const reducer = new StateReducer();
     // LapData만 먼저 들어와도 상태 생성
-    reducer.handlePacket({ packetId: 2, sessionUID: 'abc', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any, { 0: { carIndex: 0, position: 1 } });
+    reducer.handlePacket(
+      { packetId: 2, sessionUID: 'abc', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any,
+      { carIndex: 0, position: 1 }
+    );
     const state = reducer.getState();
     expect(state.cars[0]).toBeDefined();
     expect(state.cars[0].position).toBe(1);
@@ -29,15 +22,27 @@ describe('StateReducer', () => {
   it('should merge Participants and LapData (order independent)', () => {
     const reducer = new StateReducer();
     // Participants 먼저
-    reducer.handlePacket({ packetId: 4, sessionUID: 'abc', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any, { 0: { carIndex: 0, driverName: 'Test', teamId: 1, teamName: 'Red Bull', nationality: 'KOR', aiControlled: false, raceNumber: 33 } });
-    reducer.handlePacket({ packetId: 2, sessionUID: 'abc', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any, { 0: { carIndex: 0, position: 1 } });
+    reducer.handlePacket(
+      { packetId: 4, sessionUID: 'abc', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any,
+      [{ carIndex: 0, driverName: 'Test', teamId: 1, teamName: 'Red Bull', nationality: 'KOR', aiControlled: false, raceNumber: 33 }]
+    );
+    reducer.handlePacket(
+      { packetId: 2, sessionUID: 'abc', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any,
+      { carIndex: 0, position: 1 }
+    );
     let state = reducer.getState();
     expect(state.cars[0]).toBeDefined();
     expect(state.drivers[0].driverName).toBe('Test');
     // LapData 먼저
     const reducer2 = new StateReducer();
-    reducer2.handlePacket({ packetId: 2, sessionUID: 'abc', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any, { 0: { carIndex: 0, position: 1 } });
-    reducer2.handlePacket({ packetId: 4, sessionUID: 'abc', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any, { 0: { carIndex: 0, driverName: 'Test', teamId: 1, teamName: 'Red Bull', nationality: 'KOR', aiControlled: false, raceNumber: 33 } });
+    reducer2.handlePacket(
+      { packetId: 2, sessionUID: 'abc', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any,
+      { carIndex: 0, position: 1 }
+    );
+    reducer2.handlePacket(
+      { packetId: 4, sessionUID: 'abc', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any,
+      [{ carIndex: 0, driverName: 'Test', teamId: 1, teamName: 'Red Bull', nationality: 'KOR', aiControlled: false, raceNumber: 33 }]
+    );
     state = reducer2.getState();
     expect(state.cars[0]).toBeDefined();
     expect(state.drivers[0].driverName).toBe('Test');

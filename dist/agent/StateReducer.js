@@ -31,128 +31,129 @@ export class StateReducer {
             header.sessionUID === this.state.sessionMeta.sessionUID &&
             packet?.trackId != null &&
             this.state.sessionMeta.trackId != null &&
-            packet.trackId !== this.state.sessionMeta.trackId)
-            ;
+            packet.trackId !== this.state.sessionMeta.trackId) {
+            shouldReset = true;
+        }
+        if (shouldReset) {
+            this.resetForNewSession(header.sessionUID);
+        }
+        if (this.state.sessionMeta) {
+            this.state.sessionMeta.lastFrameIdentifier = header.frameIdentifier;
+        }
+        switch (header.packetId) {
+            case 1: // Session
+                this.state.sessionMeta = {
+                    sessionUID: header.sessionUID,
+                    sessionType: packet.sessionType,
+                    trackId: packet.trackId,
+                    weather: packet.weather,
+                    safetyCarStatus: packet.safetyCarStatus,
+                    totalLaps: packet.totalLaps,
+                    currentLap: packet.currentLap,
+                    sessionTime: packet.sessionTime,
+                };
+                break;
+            case 2: // Lap Data
+                this.updateCarState(packet.carIndex, {
+                    position: packet.position,
+                    currentLapNum: packet.currentLapNum,
+                    lastLapTime: packet.lastLapTime,
+                    bestLapTime: packet.bestLapTime,
+                    gapToLeader: packet.gapToLeader,
+                    gapToFront: packet.gapToFront,
+                });
+                let stateChanged = false; // Track if state has changed
+                break;
+            case 4: // Participants
+                for (const p of packet) {
+                    this.state.drivers[p.carIndex] = {
+                        carIndex: p.carIndex,
+                        driverName: p.driverName,
+                        teamId: p.teamId,
+                        teamName: p.teamName,
+                        nationality: p.nationality,
+                        aiControlled: p.aiControlled,
+                        raceNumber: p.raceNumber,
+                    };
+                }
+                break;
+            case 6: // Car Telemetry
+                this.updateCarState(packet.carIndex, {
+                    ersLevel: packet.ersLevel,
+                    tyreTemp: packet.tyreTemp,
+                });
+                break;
+            case 7: // Car Status
+                this.updateCarState(packet.carIndex, {
+                    fuelRemaining: packet.fuelRemaining,
+                    fuelLapsRemaining: packet.fuelLapsRemaining,
+                    tyreCompound: packet.tyreCompound,
+                    tyreAgeLaps: packet.tyreAgeLaps,
+                    ersDeployMode: packet.ersDeployMode,
+                });
+                break;
+            case 8: // Car Damage
+                this.updateCarState(packet.carIndex, {
+                    damage: {
+                        frontWingLeft: packet.frontWingLeft,
+                        frontWingRight: packet.frontWingRight,
+                        rearWing: packet.rearWing,
+                        floor: packet.floor,
+                        sidepod: packet.sidepod,
+                        engine: packet.engine,
+                        gearbox: packet.gearbox,
+                    },
+                });
+                break;
+            case 3: // Event
+                this.pushEvent({
+                    timestamp: packet.timestamp || Date.now(),
+                    type: packet.type,
+                    details: packet.details,
+                });
+                break;
+            default:
+                // 무시
+                break;
+        }
+        // 플레이어/스펙테이터 인덱스 갱신
+        this.state.playerCarIndex = header.playerCarIndex;
+        this.state.spectatorCarIndex = header.secondaryPlayerCarIndex;
     }
-    if(shouldReset) {
-        this.resetForNewSession(header.sessionUID);
-    }
-    if(state, sessionMeta) {
-        this.state.sessionMeta.lastFrameIdentifier = header.frameIdentifier;
-    }
-    switch(header, packetId) {
-        1;
-        this.state.sessionMeta = {
-            sessionUID: header.sessionUID,
-            sessionType: packet.sessionType,
-            trackId: packet.trackId,
-            weather: packet.weather,
-            safetyCarStatus: packet.safetyCarStatus,
-            totalLaps: packet.totalLaps,
-            currentLap: packet.currentLap,
-            sessionTime: packet.sessionTime,
-        };
-        break;
-        2;
-        this.updateCarState(packet.carIndex, {
-            position: packet.position,
-            currentLapNum: packet.currentLapNum,
-            lastLapTime: packet.lastLapTime,
-            bestLapTime: packet.bestLapTime,
-            gapToLeader: packet.gapToLeader,
-            gapToFront: packet.gapToFront,
-        });
-        let stateChanged = false; // Track if state has changed
-        break;
-        4;
-        for (const p of packet) {
-            this.state.drivers[p.carIndex] = {
-                carIndex: p.carIndex,
-                driverName: p.driverName,
-                teamId: p.teamId,
-                teamName: p.teamName,
-                nationality: p.nationality,
-                aiControlled: p.aiControlled,
-                raceNumber: p.raceNumber,
+    updateCarState(carIndex, partial) {
+        if (!this.state.cars[carIndex]) {
+            this.state.cars[carIndex] = {
+                carIndex,
+                position: null,
+                currentLapNum: null,
+                lastLapTime: null,
+                bestLapTime: null,
+                gapToLeader: null,
+                gapToFront: null,
+                pitStatus: null,
+                tyreCompound: null,
+                tyreAgeLaps: null,
+                fuelRemaining: null,
+                fuelLapsRemaining: null,
+                ersLevel: null,
+                ersDeployMode: null,
+                tyreWear: null,
+                tyreTemp: null,
+                damage: null,
             };
         }
-        break;
-        6;
-        this.updateCarState(packet.carIndex, {
-            ersLevel: packet.ersLevel,
-            tyreTemp: packet.tyreTemp,
-        });
-        break;
-        7;
-        this.updateCarState(packet.carIndex, {
-            fuelRemaining: packet.fuelRemaining,
-            fuelLapsRemaining: packet.fuelLapsRemaining,
-            tyreCompound: packet.tyreCompound,
-            tyreAgeLaps: packet.tyreAgeLaps,
-            ersDeployMode: packet.ersDeployMode,
-        });
-        break;
-        8;
-        this.updateCarState(packet.carIndex, {
-            damage: {
-                frontWingLeft: packet.frontWingLeft,
-                frontWingRight: packet.frontWingRight,
-                rearWing: packet.rearWing,
-                floor: packet.floor,
-                sidepod: packet.sidepod,
-                engine: packet.engine,
-                gearbox: packet.gearbox,
-            },
-        });
-        break;
-        3;
-        this.pushEvent({
-            timestamp: packet.timestamp || Date.now(),
-            type: packet.type,
-            details: packet.details,
-        });
-        break;
+        Object.assign(this.state.cars[carIndex], partial);
     }
-}
-// 플레이어/스펙테이터 인덱스 갱신
-this.state.playerCarIndex = header.playerCarIndex;
-this.state.spectatorCarIndex = header.secondaryPlayerCarIndex;
-updateCarState(carIndex, number, partial, (Partial));
-{
-    if (!this.state.cars[carIndex]) {
-        this.state.cars[carIndex] = {
-            carIndex,
-            position: null,
-            currentLapNum: null,
-            lastLapTime: null,
-            bestLapTime: null,
-            gapToLeader: null,
-            gapToFront: null,
-            pitStatus: null,
-            tyreCompound: null,
-            tyreAgeLaps: null,
-            fuelRemaining: null,
-            fuelLapsRemaining: null,
-            ersLevel: null,
-            ersDeployMode: null,
-            tyreWear: null,
-            tyreTemp: null,
-            damage: null,
-        };
+    pushEvent(event) {
+        this.eventLog.push(event);
+        if (this.eventLog.length > EVENT_LOG_RING_SIZE) {
+            this.eventLog.shift();
+        }
     }
-    Object.assign(this.state.cars[carIndex], partial);
-}
-pushEvent(event, EventLogEntry);
-{
-    this.eventLog.push(event);
-    if (this.eventLog.length > EVENT_LOG_RING_SIZE) {
-        this.eventLog.shift();
+    resetForNewSession(sessionUID) {
+        this.state.sessionMeta = { sessionUID, sessionType: '', trackId: 0, weather: '', safetyCarStatus: '', totalLaps: 0, currentLap: 0, sessionTime: 0 };
+        this.state.cars = {};
+        this.state.drivers = {};
+        this.eventLog = [];
     }
-}
-resetForNewSession(sessionUID, string);
-{
-    this.state.sessionMeta = { sessionUID, sessionType: '', trackId: 0, weather: '', safetyCarStatus: '', totalLaps: 0, currentLap: 0, sessionTime: 0 };
-    this.state.cars = {};
-    this.state.drivers = {};
-    this.eventLog = [];
 }

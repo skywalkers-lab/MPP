@@ -26,6 +26,10 @@ describe('Session Access/Invite (joinCode) API', () => {
     joinCode = access.joinCode;
   });
 
+  afterEach(() => {
+    relayServer.close();
+  });
+
   it('세션 생성 시 joinCode/access record가 생성된다', () => {
     const access = relayServer.getSessionAccess(sessionId);
     expect(access).toBeDefined();

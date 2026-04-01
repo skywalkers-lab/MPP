@@ -81,6 +81,9 @@ export interface SessionOpsSummary {
   lastHeartbeatAt: number | null;
   latestSequence: number | null;
   hasSnapshot: boolean;
+  noteCount?: number;
+  latestNoteAt?: number | null;
+  latestNotePreview?: string | null;
 }
 
 export function getViewerAccessLabel(

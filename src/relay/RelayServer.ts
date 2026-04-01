@@ -16,6 +16,11 @@ import {
   serializeSessionOpsSummary,
   SessionOpsSummary,
 } from './ops';
+import {
+  AddSessionNoteInput,
+  InMemorySessionNotesStore,
+  SessionNote,
+} from './notes';
 
 export type SessionVisibility = 'private' | 'code'; // public은 추후 확장
 
@@ -82,6 +87,7 @@ export class RelayServer {
   private joinCodeToSessionId: Map<string, string> = new Map();
   private sessionAccess: Map<string, SessionAccessRecord> = new Map();
   private readonly recentOpsEvents = new InMemoryRecentOpsEvents(300);
+  private readonly notesStore = new InMemorySessionNotesStore();
   private readonly opsNotifier = new CompositeOpsNotifier([
     this.recentOpsEvents,
     new ConsoleOpsNotifier(),
@@ -155,13 +161,58 @@ export class RelayServer {
     return Array.from(this.sessions.values())
       .map((session) => {
         const access = this.sessionAccess.get(session.sessionId);
-        return serializeSessionOpsSummary(session, access);
+        const base = serializeSessionOpsSummary(session, access);
+        const latestNote = this.notesStore.getLatestNote(session.sessionId);
+        return {
+          ...base,
+          noteCount: this.notesStore.getNoteCount(session.sessionId),
+          latestNoteAt: latestNote?.timestamp ?? null,
+          latestNotePreview: latestNote?.text?.slice(0, 80) ?? null,
+        };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   public getRecentOpsEvents(limit: number = 50): OpsEvent[] {
     return this.recentOpsEvents.getRecent(limit);
+  }
+
+  public listSessionNotes(sessionId: string): SessionNote[] {
+    return this.notesStore.listNotes(sessionId);
+  }
+
+  public addSessionNote(
+    sessionId: string,
+    payload: AddSessionNoteInput
+  ): SessionNote {
+    return this.notesStore.addNote(sessionId, payload);
+  }
+
+  public deleteSessionNote(sessionId: string, noteId: string): boolean {
+    return this.notesStore.deleteNote(sessionId, noteId);
+  }
+
+  public getSessionTimeline(sessionId: string, limit: number = 100) {
+    const notes = this.notesStore
+      .listNotes(sessionId)
+      .map((note) => ({
+        kind: 'note' as const,
+        timestamp: note.timestamp,
+        note,
+      }));
+
+    const opsEvents = this.recentOpsEvents
+      .getRecent(300)
+      .filter((event) => event.sessionId === sessionId)
+      .map((event) => ({
+        kind: 'ops_event' as const,
+        timestamp: event.timestamp,
+        event,
+      }));
+
+    return [...notes, ...opsEvents]
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .slice(-Math.max(1, Math.min(500, limit)));
   }
 
   /**
@@ -491,6 +542,8 @@ export class RelayServer {
             joinCode: access?.joinCode,
             shareEnabled: access?.shareEnabled,
             visibility: access?.visibility,
+            noteCount: this.notesStore.getNoteCount(s.sessionId),
+            latestNote: this.notesStore.getLatestNote(s.sessionId),
             ops: opsSummary,
           };
         })
@@ -525,6 +578,8 @@ export class RelayServer {
         joinCode: access?.joinCode,
         shareEnabled: access?.shareEnabled,
         visibility: access?.visibility,
+        noteCount: this.notesStore.getNoteCount(s.sessionId),
+        latestNote: this.notesStore.getLatestNote(s.sessionId),
         ops: opsSummary,
       });
     });

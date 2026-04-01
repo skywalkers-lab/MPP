@@ -5,6 +5,8 @@ function getSessionIdFromPath() {
 
 var sessionId = getSessionIdFromPath();
 var accessApiUrl = '/api/viewer/session-access/' + encodeURIComponent(sessionId);
+var notesApiUrl = '/api/viewer/notes/' + encodeURIComponent(sessionId);
+var timelineApiUrl = '/api/viewer/timeline/' + encodeURIComponent(sessionId) + '?limit=120';
 
 var $sessionId = document.getElementById('session-id');
 var $joinCode = document.getElementById('join-code');
@@ -14,6 +16,13 @@ var $visibility = document.getElementById('visibility');
 var $sharePill = document.getElementById('share-pill');
 var $visibilityPill = document.getElementById('visibility-pill');
 var $message = document.getElementById('message');
+var $noteText = document.getElementById('note-text');
+var $noteAuthor = document.getElementById('note-author');
+var $noteCategory = document.getElementById('note-category');
+var $noteLap = document.getElementById('note-lap');
+var $notesMessage = document.getElementById('notes-message');
+var $notesList = document.getElementById('notes-list');
+var $timelineList = document.getElementById('timeline-list');
 
 function setMessage(text, type) {
   if (!text) {
@@ -23,8 +32,30 @@ function setMessage(text, type) {
   $message.innerHTML = '<div class="msg ' + type + '">' + text + '</div>';
 }
 
+function setNotesMessage(text, type) {
+  if (!text) {
+    $notesMessage.innerHTML = '';
+    return;
+  }
+  $notesMessage.innerHTML = '<div class="msg ' + type + '">' + text + '</div>';
+}
+
 function safe(v) {
   return v === null || v === undefined ? '-' : String(v);
+}
+
+function escapeHtml(v) {
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function fmtTime(ts) {
+  if (!ts) return '-';
+  return new Date(ts).toLocaleString();
 }
 
 function buildJoinUrl(joinCode) {
@@ -66,6 +97,122 @@ async function fetchAccess() {
   }
 }
 
+function renderNotes(notes) {
+  if (!notes || notes.length === 0) {
+    $notesList.innerHTML = '<div class="muted">아직 노트가 없습니다.</div>';
+    return;
+  }
+
+  var items = notes.slice().sort(function (a, b) {
+    return b.timestamp - a.timestamp;
+  });
+
+  $notesList.innerHTML = items.map(function (note) {
+    return '<div class="note-item" data-note-id="' + escapeHtml(note.noteId) + '">' +
+      '<div class="note-meta">' +
+        '<span>' + escapeHtml(note.authorLabel || 'Engineer') + '</span>' +
+        '<span>' + escapeHtml(note.category || 'general') + '</span>' +
+        (note.lap !== undefined ? '<span>lap ' + escapeHtml(note.lap) + '</span>' : '') +
+        '<span>' + fmtTime(note.timestamp) + '</span>' +
+      '</div>' +
+      '<div class="note-text">' + escapeHtml(note.text || '') + '</div>' +
+      '<div style="margin-top: 6px;">' +
+        '<button class="delete-note" data-note-id="' + escapeHtml(note.noteId) + '">삭제</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function renderTimeline(items) {
+  if (!items || items.length === 0) {
+    $timelineList.innerHTML = '<div class="muted">타임라인 항목이 없습니다.</div>';
+    return;
+  }
+
+  $timelineList.innerHTML = items.map(function (item) {
+    if (item.kind === 'note' && item.note) {
+      return '<div class="timeline-item note">' +
+        '<div class="note-meta"><strong>note</strong><span>' + fmtTime(item.timestamp) + '</span></div>' +
+        '<div class="note-text">[' + escapeHtml(item.note.authorLabel || 'Engineer') + '] ' + escapeHtml(item.note.text || '') + '</div>' +
+      '</div>';
+    }
+
+    if (item.kind === 'ops_event' && item.event) {
+      return '<div class="timeline-item ops_event">' +
+        '<div class="note-meta"><strong>ops</strong><span>' + fmtTime(item.timestamp) + '</span></div>' +
+        '<div class="note-text">' + escapeHtml(item.event.type) + '</div>' +
+      '</div>';
+    }
+
+    return '';
+  }).join('');
+}
+
+async function fetchNotes() {
+  var res = await fetch(notesApiUrl);
+  var data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'notes_fetch_failed');
+  }
+  renderNotes(data.notes || []);
+}
+
+async function addNote() {
+  setNotesMessage('', '');
+
+  var text = ($noteText.value || '').trim();
+  if (!text) {
+    setNotesMessage('노트 텍스트를 입력하세요.', 'err');
+    return;
+  }
+
+  var lap = ($noteLap.value || '').trim();
+  var body = {
+    text: text,
+    authorLabel: $noteAuthor.value,
+    category: $noteCategory.value,
+  };
+
+  if (lap !== '') {
+    body.lap = Number(lap);
+  }
+
+  var res = await fetch(notesApiUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  var data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'note_add_failed');
+  }
+
+  $noteText.value = '';
+  $noteLap.value = '';
+  setNotesMessage('노트가 추가되었습니다.', 'ok');
+  await Promise.all([fetchNotes(), fetchTimeline()]);
+}
+
+async function deleteNote(noteId) {
+  var res = await fetch(notesApiUrl + '/' + encodeURIComponent(noteId), {
+    method: 'DELETE',
+  });
+  var data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'note_delete_failed');
+  }
+  await Promise.all([fetchNotes(), fetchTimeline()]);
+}
+
+async function fetchTimeline() {
+  var res = await fetch(timelineApiUrl);
+  var data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'timeline_fetch_failed');
+  }
+  renderTimeline(data.timeline || []);
+}
+
 async function saveAccess() {
   setMessage('', '');
   try {
@@ -98,6 +245,16 @@ async function copyText(text) {
 
 document.getElementById('reload').addEventListener('click', fetchAccess);
 document.getElementById('save').addEventListener('click', saveAccess);
+document.getElementById('reload-notes').addEventListener('click', function () {
+  Promise.all([fetchNotes(), fetchTimeline()]).catch(function (err) {
+    setNotesMessage('노트/타임라인 갱신 실패: ' + (err && err.message ? err.message : err), 'err');
+  });
+});
+document.getElementById('add-note').addEventListener('click', function () {
+  addNote().catch(function (err) {
+    setNotesMessage('노트 추가 실패: ' + (err && err.message ? err.message : err), 'err');
+  });
+});
 document.getElementById('copy-code').addEventListener('click', function () {
   copyText($joinCode.textContent).catch(function () {
     setMessage('코드 복사에 실패했습니다.', 'err');
@@ -109,5 +266,17 @@ document.getElementById('copy-url').addEventListener('click', function () {
   });
 });
 
+$notesList.addEventListener('click', function (e) {
+  if (e.target && e.target.classList && e.target.classList.contains('delete-note')) {
+    var noteId = e.target.getAttribute('data-note-id');
+    if (!noteId) return;
+    deleteNote(noteId).catch(function (err) {
+      setNotesMessage('노트 삭제 실패: ' + (err && err.message ? err.message : err), 'err');
+    });
+  }
+});
+
 $sessionId.textContent = sessionId || '-';
-fetchAccess();
+Promise.all([fetchAccess(), fetchNotes(), fetchTimeline()]).catch(function (err) {
+  setNotesMessage('초기 로드 실패: ' + (err && err.message ? err.message : err), 'err');
+});

@@ -142,6 +142,69 @@
       text-decoration: none;
     }
 
+    .notes-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .note-item {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: #101722;
+    }
+
+    .note-meta {
+      color: var(--muted);
+      font-size: 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .note-text {
+      margin-top: 6px;
+      font-size: 14px;
+      line-height: 1.35;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .input, .textarea {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #13202e;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+
+    .textarea {
+      min-height: 88px;
+      resize: vertical;
+    }
+
+    .timeline-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .timeline-item {
+      border-left: 3px solid #35506b;
+      padding: 6px 0 6px 10px;
+    }
+
+    .timeline-item.note {
+      border-left-color: #4a6f94;
+    }
+
+    .timeline-item.ops_event {
+      border-left-color: #54724d;
+    }
+
     @media (max-width: 680px) {
       .grid {
         grid-template-columns: 1fr;
@@ -208,6 +271,50 @@
       </div>
 
       <div id="message"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin: 0 0 8px;">Session Notes</h3>
+      <div class="grid">
+        <div>
+          <label class="row" for="note-text">Note Text</label>
+          <textarea id="note-text" class="textarea" maxlength="400" placeholder="예: Lap 14 진입 직전 프론트 타이어 온도 급상승, 보수적 푸시 권장"></textarea>
+        </div>
+        <div>
+          <label class="row" for="note-author">Author Label</label>
+          <select id="note-author" class="input">
+            <option value="Engineer">Engineer</option>
+            <option value="Strategist">Strategist</option>
+            <option value="Pit Wall">Pit Wall</option>
+            <option value="Observer">Observer</option>
+          </select>
+
+          <label class="row" for="note-category" style="margin-top: 8px;">Category</label>
+          <select id="note-category" class="input">
+            <option value="general">general</option>
+            <option value="strategy">strategy</option>
+            <option value="incident">incident</option>
+            <option value="pit">pit</option>
+            <option value="risk">risk</option>
+          </select>
+
+          <label class="row" for="note-lap" style="margin-top: 8px;">Lap (optional)</label>
+          <input id="note-lap" class="input" type="number" min="0" step="1" placeholder="예: 14" />
+        </div>
+      </div>
+
+      <div class="inline" style="margin-top: 10px;">
+        <button id="add-note" class="primary">노트 추가</button>
+        <button id="reload-notes" class="secondary">노트 새로고침</button>
+      </div>
+      <div id="notes-message"></div>
+      <div id="notes-list" class="notes-list"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin: 0 0 8px;">Session Timeline (Ops + Notes)</h3>
+      <div class="muted">운영 이벤트와 사람 메모를 같은 시간축으로 확인합니다.</div>
+      <div id="timeline-list" class="timeline-list"></div>
     </div>
   </div>
 

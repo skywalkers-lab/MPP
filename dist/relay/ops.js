@@ -27,7 +27,13 @@ export class CompositeOpsNotifier {
     }
     notify(event) {
         for (const notifier of this.notifiers) {
-            notifier.notify(event);
+            try {
+                notifier.notify(event);
+            }
+            catch (err) {
+                // Log error but continue with next notifier
+                console.error(`[OpsNotifier] Error in notifier:`, err);
+            }
         }
     }
 }

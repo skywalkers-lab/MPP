@@ -84,15 +84,12 @@ function renderSummary(sessions) {
 
 function renderSessionsTable(sessions) {
   if (!sessions || sessions.length === 0) {
-    $sessionsBody.innerHTML = '<tr><td colspan="9" class="muted">세션이 없습니다.</td></tr>';
+    $sessionsBody.innerHTML = '<tr><td colspan="10" class="muted">세션이 없습니다.</td></tr>';
     return;
   }
 
   var rows = sessions.map(function (s) {
     var joinUrl = buildJoinUrl(s.joinCode);
-    var joinCell = s.joinCode
-      ? '<div>' + escapeHtml(s.joinCode) + '</div><div class="muted">' + escapeHtml(joinUrl) + '</div>'
-      : '-';
 
     return '<tr>' +
       '<td data-label="Session">' +
@@ -113,6 +110,12 @@ function renderSessionsTable(sessions) {
               '<div class="muted" style="font-size: 11px; word-break: break-all;">' + escapeHtml(s.joinCode) + '</div>' +
             '</div>'
           : '-') +
+      '</td>' +
+      '<td data-label="Notes">' +
+        '<div>count: ' + safe(s.noteCount || 0) + '</div>' +
+        '<div class="muted" style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' +
+          escapeHtml(s.latestNotePreview || '-') +
+        '</div>' +
       '</td>' +
       '<td data-label="Snapshot">' + (s.hasSnapshot ? 'yes' : 'no') + '</td>' +
       '<td data-label="Heartbeat">' + fmtTime(s.lastHeartbeatAt) + '</td>' +

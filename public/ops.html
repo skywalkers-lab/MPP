@@ -71,6 +71,28 @@
     .access-shared { color: var(--ok); }
     .access-private, .access-not_shared { color: var(--warn); }
 
+    .inline-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .mini-btn {
+      padding: 2px 8px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      background: #112030;
+      color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .mini-btn:hover {
+      background: #1a3045;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;

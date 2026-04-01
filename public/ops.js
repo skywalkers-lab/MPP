@@ -43,6 +43,16 @@ function buildJoinUrl(joinCode) {
   return window.location.origin + '/join/' + encodeURIComponent(joinCode);
 }
 
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (err) {
+    console.error('Copy failed:', err);
+    return false;
+  }
+}
+
 function filterSessions(sessions) {
   var filter = $statusFilter.value;
   if (!filter || filter === 'all') return sessions;
@@ -95,7 +105,15 @@ function renderSessionsTable(sessions) {
         '<div class="' + accessClass(s.viewerAccessLabel) + '">' + safe(s.viewerAccessLabel) + '</div>' +
         '<div class="muted">enabled=' + safe(s.shareEnabled) + ', visibility=' + safe(s.visibility) + '</div>' +
       '</td>' +
-      '<td data-label="Join">' + joinCell + '</td>' +
+      '<td data-label="Join" class="inline-actions">' +
+        (s.joinCode
+          ? '<div>' +
+              '<a href="' + escapeHtml(joinUrl) + '" target="_blank" rel="noopener" class="mini-btn">open</a>' +
+              '<button class="mini-btn copy-join" data-join-url="' + escapeHtml(joinUrl) + '">copy</button>' +
+              '<div class="muted" style="font-size: 11px; word-break: break-all;">' + escapeHtml(s.joinCode) + '</div>' +
+            '</div>'
+          : '-') +
+      '</td>' +
       '<td data-label="Snapshot">' + (s.hasSnapshot ? 'yes' : 'no') + '</td>' +
       '<td data-label="Heartbeat">' + fmtTime(s.lastHeartbeatAt) + '</td>' +
       '<td data-label="Updated">' + fmtTime(s.updatedAt) + '</td>' +
@@ -158,6 +176,25 @@ document.getElementById('refresh').addEventListener('click', refreshAll);
 $statusFilter.addEventListener('change', function () {
   var filtered = filterSessions(allSessions);
   renderSessionsTable(filtered);
+});
+
+// Event delegation for copy buttons
+$sessionsBody.addEventListener('click', async function (e) {
+  if (e.target && e.target.classList && e.target.classList.contains('copy-join')) {
+    var joinUrl = e.target.getAttribute('data-join-url');
+    if (joinUrl) {
+      var success = await copyText(joinUrl);
+      if (success) {
+        var originalText = e.target.textContent;
+        e.target.textContent = 'copied!';
+        e.target.style.background = '#1a4d2e';
+        setTimeout(function () {
+          e.target.textContent = originalText;
+          e.target.style.background = '';
+        }, 800);
+      }
+    }
+  }
 });
 
 refreshAll();

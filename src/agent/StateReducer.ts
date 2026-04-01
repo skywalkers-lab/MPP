@@ -1,9 +1,10 @@
 import { PacketHeader } from '../parsers/PacketHeaderParser';
-import { CurrentRaceState, EVENT_LOG_RING_SIZE, EventLogEntry, CarState, DriverInfo, CarDamage } from '../model/CurrentRaceState';
+import { CurrentRaceState, EVENT_LOG_RING_SIZE, EventLogEntry, CarState } from '../model/CurrentRaceState';
 
 export class StateReducer {
   private state: CurrentRaceState;
   private eventLog: EventLogEntry[];
+  private stateListeners: Array<(state: CurrentRaceState) => void>;
 
   constructor() {
     this.state = {
@@ -15,6 +16,11 @@ export class StateReducer {
       eventLog: [],
     };
     this.eventLog = [];
+    this.stateListeners = [];
+  }
+
+  subscribeOnStateChange(listener: (state: CurrentRaceState) => void) {
+    this.stateListeners.push(listener);
   }
 
   getState(): CurrentRaceState {
@@ -73,7 +79,6 @@ export class StateReducer {
           gapToLeader: packet.gapToLeader,
           gapToFront: packet.gapToFront,
         });
-      let stateChanged = false; // Track if state has changed
         break;
       case 4: // Participants
         for (const p of packet) {
@@ -130,6 +135,15 @@ export class StateReducer {
     // 플레이어/스펙테이터 인덱스 갱신
     this.state.playerCarIndex = header.playerCarIndex;
     this.state.spectatorCarIndex = header.secondaryPlayerCarIndex;
+
+    this.notifyStateChange();
+  }
+
+  private notifyStateChange() {
+    const snapshot = this.getState();
+    for (const listener of this.stateListeners) {
+      listener(snapshot);
+    }
   }
 
   private updateCarState(carIndex: number, partial: Partial<CarState>) {

@@ -1,11 +1,11 @@
 // 각 패킷별 파서 import (구현은 별도 파일)
-import { parseSessionPacket } from './PacketParsers/Session';
-import { parseLapDataPacket } from './PacketParsers/LapData';
-import { parseParticipantsPacket } from './PacketParsers/Participants';
-import { parseCarTelemetryPacket } from './PacketParsers/CarTelemetry';
-import { parseCarStatusPacket } from './PacketParsers/CarStatus';
-import { parseCarDamagePacket } from './PacketParsers/CarDamage';
-import { parseEventPacket } from './PacketParsers/Event';
+import { parseSessionPacket } from './Session';
+import { parseLapDataPacket } from './LapData';
+import { parseParticipantsPacket } from './Participants';
+import { parseCarTelemetryPacket } from './CarTelemetry';
+import { parseCarStatusPacket } from './CarStatus';
+import { parseCarDamagePacket } from './CarDamage';
+import { parseEventPacket } from './Event';
 export function parsePacketById(packetId, buf) {
     switch (packetId) {
         case 1:

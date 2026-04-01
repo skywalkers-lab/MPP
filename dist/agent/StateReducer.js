@@ -10,6 +10,10 @@ export class StateReducer {
             eventLog: [],
         };
         this.eventLog = [];
+        this.stateListeners = [];
+    }
+    subscribeOnStateChange(listener) {
+        this.stateListeners.push(listener);
     }
     getState() {
         return { ...this.state, eventLog: [...this.eventLog] };
@@ -62,7 +66,6 @@ export class StateReducer {
                     gapToLeader: packet.gapToLeader,
                     gapToFront: packet.gapToFront,
                 });
-                let stateChanged = false; // Track if state has changed
                 break;
             case 4: // Participants
                 for (const p of packet) {
@@ -119,6 +122,13 @@ export class StateReducer {
         // 플레이어/스펙테이터 인덱스 갱신
         this.state.playerCarIndex = header.playerCarIndex;
         this.state.spectatorCarIndex = header.secondaryPlayerCarIndex;
+        this.notifyStateChange();
+    }
+    notifyStateChange() {
+        const snapshot = this.getState();
+        for (const listener of this.stateListeners) {
+            listener(snapshot);
+        }
     }
     updateCarState(carIndex, partial) {
         if (!this.state.cars[carIndex]) {

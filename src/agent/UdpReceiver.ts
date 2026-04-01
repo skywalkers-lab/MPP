@@ -18,7 +18,7 @@ export class UdpReceiver {
   private options: UdpReceiverOptions;
   private lastSessionUID: string | null = null;
   private packetCounts: Record<number, number> = {};
-  private parseFailCounts: Record<number, number> = {};
+  private parseFailCounts: Record<string, number> = {};
   private lastLogTime: number = 0;
 
   constructor(reducer: StateReducer, logger: ConsoleLogger, options: UdpReceiverOptions) {
@@ -107,8 +107,12 @@ export class UdpReceiver {
         }
       }
     }
-    if (player.driverName && /[^\x20-\x7E]/.test(player.driverName)) {
-      this.logger.warn(`[self-check] driverName may be broken: ${player.driverName}`);
+    const driverName =
+      state.playerCarIndex != null
+        ? state.drivers[state.playerCarIndex]?.driverName
+        : undefined;
+    if (driverName && /[^\x20-\x7E]/.test(driverName)) {
+      this.logger.warn(`[self-check] driverName may be broken: ${driverName}`);
     }
   }
 

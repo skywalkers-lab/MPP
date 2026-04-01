@@ -3,6 +3,18 @@ import { serializeViewerSession } from './viewerStatus';
 import { serializeSessionAccess } from './RelayServer';
 export function createViewerApiRouter(relayServer) {
     const router = express.Router();
+    // GET /api/viewer/ops/sessions
+    router.get('/ops/sessions', (req, res) => {
+        const sessions = relayServer.listSessionOpsSummaries();
+        res.json({ sessions, count: sessions.length });
+    });
+    // GET /api/viewer/ops/events/recent?limit=50
+    router.get('/ops/events/recent', (req, res) => {
+        const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 50;
+        const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, limitRaw)) : 50;
+        const events = relayServer.getRecentOpsEvents(limit);
+        res.json({ events, count: events.length, limit });
+    });
     // GET /api/viewer/sessions/:sessionId
     router.get('/sessions/:sessionId', (req, res) => {
         const sessionId = req.params.sessionId;

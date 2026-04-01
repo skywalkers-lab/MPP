@@ -7,6 +7,15 @@ import { v4 as uuidv4 } from 'uuid';
 import { CurrentRaceState } from '../model/CurrentRaceState';
 import { ConsoleLogger } from '../debug/ConsoleLogger';
 import express from 'express';
+import {
+  CompositeOpsNotifier,
+  ConsoleOpsNotifier,
+  InMemoryRecentOpsEvents,
+  OpsEvent,
+  OpsEventType,
+  serializeSessionOpsSummary,
+  SessionOpsSummary,
+} from './ops';
 
 export type SessionVisibility = 'private' | 'code'; // public은 추후 확장
 
@@ -72,6 +81,11 @@ export class RelayServer {
   // 5단계: joinCode → sessionId 매핑 및 access record 관리
   private joinCodeToSessionId: Map<string, string> = new Map();
   private sessionAccess: Map<string, SessionAccessRecord> = new Map();
+  private readonly recentOpsEvents = new InMemoryRecentOpsEvents(300);
+  private readonly opsNotifier = new CompositeOpsNotifier([
+    this.recentOpsEvents,
+    new ConsoleOpsNotifier(),
+  ]);
 
   constructor(private options: RelayServerOptions) {
     this.logger = options.logger || new ConsoleLogger('info');
@@ -91,6 +105,18 @@ export class RelayServer {
   }
 
   public close() {
+    const closedAt = Date.now();
+    for (const session of this.sessions.values()) {
+      if (session.status !== 'closed') {
+        const previousStatus = session.status;
+        session.status = 'closed';
+        this.emitOpsEvent('session_closed', session.sessionId, {
+          previousStatus,
+          closedAt,
+        });
+      }
+    }
+
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = undefined;
@@ -125,6 +151,19 @@ export class RelayServer {
     return this.sessionAccess.get(sessionId);
   }
 
+  public listSessionOpsSummaries(): SessionOpsSummary[] {
+    return Array.from(this.sessions.values())
+      .map((session) => {
+        const access = this.sessionAccess.get(session.sessionId);
+        return serializeSessionOpsSummary(session, access);
+      })
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  public getRecentOpsEvents(limit: number = 50): OpsEvent[] {
+    return this.recentOpsEvents.getRecent(limit);
+  }
+
   /**
    * 세션 접근 정책을 업데이트한다 (shareEnabled, visibility)
    * PATCH /api/viewer/session-access/:sessionId에서 호출
@@ -142,16 +181,26 @@ export class RelayServer {
       patch.shareEnabled !== undefined &&
       patch.shareEnabled !== access.shareEnabled
     ) {
+      const previousShareEnabled = access.shareEnabled;
       access.shareEnabled = patch.shareEnabled;
       changed = true;
+      this.emitOpsEvent('share_enabled_changed', sessionId, {
+        previousShareEnabled,
+        nextShareEnabled: access.shareEnabled,
+      });
     }
 
     if (
       patch.visibility !== undefined &&
       patch.visibility !== access.visibility
     ) {
+      const previousVisibility = access.visibility;
       access.visibility = patch.visibility;
       changed = true;
+      this.emitOpsEvent('visibility_changed', sessionId, {
+        previousVisibility,
+        nextVisibility: access.visibility,
+      });
     }
 
     if (changed) {
@@ -296,6 +345,12 @@ export class RelayServer {
 
     this.joinCodeToSessionId.set(joinCode, sessionId);
     this.sessionAccess.set(sessionId, access);
+
+    this.emitOpsEvent('session_started', sessionId, {
+      joinCode,
+      shareEnabled: access.shareEnabled,
+      visibility: access.visibility,
+    });
   }
 
   private handleStateSnapshot(connId: string, msg: any) {
@@ -330,8 +385,16 @@ export class RelayServer {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
+    const previousStatus = session.status;
     session.lastHeartbeatAt = Date.now();
     session.status = 'active';
+
+    if (previousStatus === 'stale') {
+      this.emitOpsEvent('session_recovered', sessionId, {
+        previousStatus,
+        nextStatus: session.status,
+      });
+    }
 
     this.logger.debug(`[Relay] heartbeat for session ${sessionId}`);
   }
@@ -343,10 +406,18 @@ export class RelayServer {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
+    const previousStatus = session.status;
     session.status = 'stale';
     this.logger.info(
       `[Relay] Connection closed: ${connId}, session ${sessionId} marked stale`
     );
+
+    if (previousStatus !== 'stale') {
+      this.emitOpsEvent('session_stale', sessionId, {
+        reason: 'connection_closed',
+        previousStatus,
+      });
+    }
 
     this.connToSession.delete(connId);
   }
@@ -359,12 +430,33 @@ export class RelayServer {
         session.status === 'active' &&
         now - session.lastHeartbeatAt > this.heartbeatTimeoutMs
       ) {
+        const previousStatus = session.status;
         session.status = 'stale';
         this.logger.warn(
           `[Relay] Heartbeat timeout: session ${session.sessionId} marked stale`
         );
+        this.emitOpsEvent('session_stale', session.sessionId, {
+          reason: 'heartbeat_timeout',
+          previousStatus,
+          heartbeatAgeMs: now - session.lastHeartbeatAt,
+        });
       }
     }
+  }
+
+  private emitOpsEvent(
+    type: OpsEventType,
+    sessionId: string,
+    payload?: Record<string, unknown>
+  ) {
+    const event: OpsEvent = {
+      eventId: `${type}-${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type,
+      sessionId,
+      timestamp: Date.now(),
+      payload,
+    };
+    this.opsNotifier.notify(event);
   }
 
   private generateSessionId(): string {
@@ -378,17 +470,28 @@ export class RelayServer {
       res.json(
         Array.from(this.sessions.values()).map((s) => {
           const access = serializeSessionAccess(this.sessionAccess.get(s.sessionId));
+          const opsSummary = serializeSessionOpsSummary(
+            s,
+            this.sessionAccess.get(s.sessionId)
+          );
+
           return {
             sessionId: s.sessionId,
             status: s.status,
+            relayStatus: opsSummary.relayStatus,
+            viewerStatus: opsSummary.viewerStatus,
             updatedAt: s.updatedAt,
             lastHeartbeatAt: s.lastHeartbeatAt,
             latestSequence: s.latestSequence,
             hasState: !!s.latestState,
+            hasSnapshot: opsSummary.hasSnapshot,
+            hasViewerAccess: opsSummary.hasViewerAccess,
+            viewerAccessLabel: opsSummary.viewerAccessLabel,
             access,
             joinCode: access?.joinCode,
             shareEnabled: access?.shareEnabled,
             visibility: access?.visibility,
+            ops: opsSummary,
           };
         })
       );
@@ -401,18 +504,28 @@ export class RelayServer {
       }
 
       const access = serializeSessionAccess(this.sessionAccess.get(s.sessionId));
+      const opsSummary = serializeSessionOpsSummary(
+        s,
+        this.sessionAccess.get(s.sessionId)
+      );
 
       res.json({
         sessionId: s.sessionId,
         status: s.status,
+        relayStatus: opsSummary.relayStatus,
+        viewerStatus: opsSummary.viewerStatus,
         updatedAt: s.updatedAt,
         lastHeartbeatAt: s.lastHeartbeatAt,
         latestSequence: s.latestSequence,
         latestState: s.latestState,
+        hasSnapshot: opsSummary.hasSnapshot,
+        hasViewerAccess: opsSummary.hasViewerAccess,
+        viewerAccessLabel: opsSummary.viewerAccessLabel,
         access,
         joinCode: access?.joinCode,
         shareEnabled: access?.shareEnabled,
         visibility: access?.visibility,
+        ops: opsSummary,
       });
     });
 

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Session Ops Control Plane</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #10151d;
+      --panel: #182230;
+      --line: #2a3a50;
+      --text: #edf2f7;
+      --muted: #95a3b8;
+      --ok: #72dc98;
+      --warn: #f0c26b;
+      --bad: #ff8f8f;
+      --info: #8ad0ff;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 0% 0%, #26384f 0%, #10151d 45%);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+
+    .wrap { max-width: 1200px; margin: 26px auto; padding: 0 16px 26px; }
+    h1 { margin: 0 0 8px; font-size: 30px; }
+    .desc { margin: 0 0 16px; color: var(--muted); }
+
+    .panel {
+      background: linear-gradient(150deg, var(--panel) 0%, #121b27 100%);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    button, select {
+      border: 1px solid var(--line);
+      background: #142131;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+
+    button { cursor: pointer; }
+
+    .status-chip {
+      display: inline-flex;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .relay-active { color: var(--ok); border-color: #2c6d45; background: #12231a; }
+    .relay-stale { color: var(--warn); border-color: #785b24; background: #2d2413; }
+    .relay-closed { color: var(--bad); border-color: #7b3939; background: #2c1818; }
+
+    .access-shared { color: var(--ok); }
+    .access-private, .access-not_shared { color: var(--warn); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th { color: var(--muted); font-weight: 600; }
+
+    .muted { color: var(--muted); font-size: 12px; }
+
+    a { color: var(--info); text-decoration: none; }
+
+    .event-item {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 0;
+    }
+
+    .event-type { color: var(--info); font-weight: 600; }
+
+    @media (max-width: 920px) {
+      table, thead, tbody, tr, th, td { display: block; }
+      thead { display: none; }
+      td { border: 0; padding: 6px 0; }
+      tr { border-bottom: 1px solid var(--line); padding: 10px 0; }
+      td::before {
+        content: attr(data-label);
+        display: inline-block;
+        color: var(--muted);
+        margin-right: 8px;
+        min-width: 120px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Session Ops Control Plane</h1>
+    <p class="desc">다중 세션 운영 상태 관찰, stale 감시, host 제어 진입, 운영 이벤트 확인을 위한 내부 제어면입니다.</p>
+
+    <div class="panel toolbar">
+      <button id="refresh">새로고침</button>
+      <label for="status-filter" class="muted">상태 필터</label>
+      <select id="status-filter">
+        <option value="all">all</option>
+        <option value="active">active</option>
+        <option value="stale">stale</option>
+        <option value="closed">closed</option>
+      </select>
+      <span id="summary" class="muted"></span>
+    </div>
+
+    <div class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th>Session</th>
+            <th>Relay</th>
+            <th>Viewer</th>
+            <th>Share</th>
+            <th>Join</th>
+            <th>Snapshot</th>
+            <th>Heartbeat</th>
+            <th>Updated</th>
+            <th>Control</th>
+          </tr>
+        </thead>
+        <tbody id="sessions-body"></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 10px;">Recent Ops Events</h3>
+      <div id="events"></div>
+    </div>
+  </div>
+
+  <script src="/ops.js"></script>
+</body>
+</html>

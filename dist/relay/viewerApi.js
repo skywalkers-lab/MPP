@@ -120,6 +120,43 @@ export function createViewerApiRouter(relayServer) {
         }
         res.json({ sessionId, ...strategy });
     });
+    // GET /api/viewer/archives?limit=100
+    router.get('/archives', (req, res) => {
+        const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 100;
+        const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, limitRaw)) : 100;
+        const archives = relayServer.listSessionArchives(limit);
+        res.json({ archives, count: archives.length, limit });
+    });
+    // GET /api/viewer/archive/:sessionId
+    router.get('/archive/:sessionId', (req, res) => {
+        const { sessionId } = req.params;
+        const archive = relayServer.getSessionArchive(sessionId);
+        if (!archive) {
+            return res.status(404).json({ error: 'not_found' });
+        }
+        res.json({ sessionId, archive });
+    });
+    // GET /api/viewer/archive/:sessionId/summary
+    router.get('/archive/:sessionId/summary', (req, res) => {
+        const { sessionId } = req.params;
+        const summary = relayServer.getSessionArchiveSummary(sessionId);
+        if (!summary) {
+            return res.status(404).json({ error: 'not_found' });
+        }
+        res.json({ sessionId, summary });
+    });
+    // GET /api/viewer/archive/:sessionId/timeline?limit=500
+    router.get('/archive/:sessionId/timeline', (req, res) => {
+        const { sessionId } = req.params;
+        const summary = relayServer.getSessionArchiveSummary(sessionId);
+        if (!summary) {
+            return res.status(404).json({ error: 'not_found' });
+        }
+        const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 500;
+        const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(5000, limitRaw)) : 500;
+        const timeline = relayServer.getSessionArchiveTimeline(sessionId, limit);
+        res.json({ sessionId, timeline, count: timeline.length, limit });
+    });
     // GET /api/viewer/sessions/:sessionId
     router.get('/sessions/:sessionId', (req, res) => {
         const sessionId = req.params.sessionId;

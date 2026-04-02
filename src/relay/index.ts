@@ -39,6 +39,9 @@ app.get('/host/:sessionId', (req, res) => {
 app.get('/ops', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'ops.html'));
 });
+app.get('/archives', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'archives.html'));
+});
 
 const HTTP_PORT = process.env.VIEWER_HTTP_PORT ? parseInt(process.env.VIEWER_HTTP_PORT) : 4100;
 app.listen(HTTP_PORT, () => {

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Session Archives / Replay</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #0f141b;
+      --panel: #1a232f;
+      --panel-soft: #111821;
+      --text: #edf2f7;
+      --muted: #96a2b5;
+      --ok: #7ddc9a;
+      --warn: #f8b84e;
+      --danger: #ff8f8f;
+      --line: #273446;
+      --action: #7cc8ff;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background: radial-gradient(circle at 15% 10%, #1d2a3a 0%, #030303 45%), #0f141b;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      min-height: 100vh;
+    }
+
+    .wrap {
+      max-width: 1180px;
+      margin: 24px auto;
+      padding: 0 16px 26px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+    }
+
+    .desc {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .card {
+      background: linear-gradient(145deg, var(--panel) 0%, var(--panel-soft) 100%);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .link {
+      color: #a6dcff;
+      text-decoration: none;
+      font-size: 13px;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: #13202e;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    button:hover { transform: translateY(-1px); }
+
+    .primary {
+      border-color: #3b6f93;
+      background: linear-gradient(140deg, var(--action) 0%, #4d85ae 100%);
+      color: #0a1620;
+      font-weight: 600;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      gap: 12px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .muted { color: var(--muted); font-size: 12px; }
+
+    .timeline-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+      max-height: 460px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    .timeline-item {
+      border: 1px solid var(--line);
+      border-left-width: 3px;
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #101722;
+      cursor: pointer;
+    }
+
+    .timeline-item.snapshot { border-left-color: #7cc8ff; }
+    .timeline-item.ops_event { border-left-color: #96f0c8; }
+    .timeline-item.note { border-left-color: #f8b84e; }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #0f1823;
+      padding: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .chip strong {
+      display: block;
+      color: var(--text);
+      margin-bottom: 4px;
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Archives / Replay</h1>
+    <p class="desc">실시간 세션 종료 후 이벤트들을 복기합니다.</p>
+
+    <div class="card toolbar">
+      <button id="reload" class="primary">아카이브 새로고침</button>
+      <a href="/ops" class="link">Ops Control Plane</a>
+      <a href="/host/S-EXAMPLE" class="link">Host Control (세션 아이디 필요)</a>
+      <span id="summary" class="muted"></span>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3 style="margin:0 0 8px;">Archive Sessions</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Session</th>
+              <th>Ended</th>
+              <th>Duration</th>
+              <th>Counts</th>
+              <th>Strategy</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="archives-body"></tbody>
+        </table>
+      </div>
+
+      <div>
+        <div class="card">
+          <h3 style="margin:0 0 8px;">Archive Summary</h3>
+          <div id="archive-summary" class="summary-grid"></div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 8px;">Timeline</h3>
+          <div class="muted">snapshot / ops_event / note를 시간순으로 확인하고 snapshot 클릭 시 시점 요약을 봅니다.</div>
+          <div id="timeline-list" class="timeline-list"></div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin:0 0 8px;">Snapshot Focus</h3>
+          <div id="snapshot-focus" class="muted">timeline에서 snapshot 항목을 선택하세요.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/archives.js"></script>
+</body>
+</html>

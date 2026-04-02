@@ -7,6 +7,7 @@ import express from 'express';
 import { CompositeOpsNotifier, ConsoleOpsNotifier, InMemoryRecentOpsEvents, serializeSessionOpsSummary, } from './ops';
 import { InMemorySessionNotesStore, } from './notes';
 import { StrategyEngine } from './strategyEngine';
+import { InMemorySessionArchiveStore, toArchiveRecommendationSnapshot, } from './archive';
 export function serializeSessionAccess(access) {
     if (!access)
         return null;
@@ -30,6 +31,7 @@ export class RelayServer {
         this.recentOpsEvents = new InMemoryRecentOpsEvents(300);
         this.notesStore = new InMemorySessionNotesStore();
         this.strategyEngine = new StrategyEngine();
+        this.archiveStore = new InMemorySessionArchiveStore();
         this.opsNotifier = new CompositeOpsNotifier([
             this.recentOpsEvents,
             new ConsoleOpsNotifier(),
@@ -57,6 +59,7 @@ export class RelayServer {
                     previousStatus,
                     closedAt,
                 });
+                this.finalizeArchiveForSession(session, 'server_shutdown', closedAt);
             }
         }
         if (this.heartbeatTimer) {
@@ -135,7 +138,9 @@ export class RelayServer {
         return this.notesStore.listNotes(sessionId);
     }
     addSessionNote(sessionId, payload) {
-        return this.notesStore.addNote(sessionId, payload);
+        const note = this.notesStore.addNote(sessionId, payload);
+        this.archiveStore.recordNote(note);
+        return note;
     }
     deleteSessionNote(sessionId, noteId) {
         return this.notesStore.deleteNote(sessionId, noteId);
@@ -159,6 +164,18 @@ export class RelayServer {
         return [...notes, ...opsEvents]
             .sort((a, b) => a.timestamp - b.timestamp)
             .slice(-Math.max(1, Math.min(500, limit)));
+    }
+    listSessionArchives(limit = 100) {
+        return this.archiveStore.listArchiveSummaries(limit);
+    }
+    getSessionArchive(sessionId) {
+        return this.archiveStore.getArchiveBySession(sessionId);
+    }
+    getSessionArchiveSummary(sessionId) {
+        return this.archiveStore.getArchiveSummary(sessionId);
+    }
+    getSessionArchiveTimeline(sessionId, limit = 500) {
+        return this.archiveStore.getArchiveTimeline(sessionId, limit);
     }
     /**
      * 세션 접근 정책을 업데이트한다 (shareEnabled, visibility)
@@ -191,6 +208,10 @@ export class RelayServer {
         }
         if (changed) {
             access.updatedAt = Date.now();
+            this.archiveStore.updateAccessMetadata(sessionId, {
+                joinCode: access.joinCode,
+                visibility: access.visibility,
+            });
         }
         return access;
     }
@@ -358,6 +379,13 @@ export class RelayServer {
         };
         this.joinCodeToSessionId.set(joinCode, sessionId);
         this.sessionAccess.set(sessionId, access);
+        this.archiveStore.startRecording({
+            sessionId,
+            startedAt: now,
+            createdAt: now,
+            joinCode,
+            visibility: access.visibility,
+        });
         this.emitOpsEvent('session_started', sessionId, {
             joinCode,
             shareEnabled: access.shareEnabled,
@@ -380,6 +408,8 @@ export class RelayServer {
         session.latestSequence = msg.sequence;
         session.latestState = msg.state;
         session.updatedAt = Date.now();
+        const strategy = this.computeSessionStrategy(session);
+        this.archiveStore.recordSnapshot(sessionId, msg.sequence, msg.timestamp, msg.state, toArchiveRecommendationSnapshot(strategy, Date.now()));
         this.logger.debug(`[Relay] state_snapshot seq=${msg.sequence} for session ${sessionId}`);
     }
     handleHeartbeat(connId) {
@@ -415,6 +445,7 @@ export class RelayServer {
                 reason: 'connection_closed',
                 previousStatus,
             });
+            this.finalizeArchiveForSession(session, 'session_stale', Date.now());
         }
         this.connToSession.delete(connId);
     }
@@ -431,6 +462,8 @@ export class RelayServer {
                     previousStatus,
                     heartbeatAgeMs: now - session.lastHeartbeatAt,
                 });
+                // Conservative replay model: stale transition can mark a partial archive boundary.
+                this.finalizeArchiveForSession(session, 'session_stale', now);
             }
         }
     }
@@ -443,6 +476,23 @@ export class RelayServer {
             payload,
         };
         this.opsNotifier.notify(event);
+        this.archiveStore.recordOpsEvent(event);
+    }
+    finalizeArchiveForSession(session, reason, endedAt) {
+        if (!this.archiveStore.hasActiveRecording(session.sessionId)) {
+            return;
+        }
+        const strategy = this.computeSessionStrategy(session);
+        const lastRecommendation = strategy.strategyUnavailable
+            ? null
+            : strategy.primaryRecommendation ?? strategy.recommendation;
+        this.archiveStore.finalizeSessionArchive(session.sessionId, {
+            endedAt,
+            latestSequence: session.latestSequence ?? null,
+            lastKnownStatus: session.status,
+            reason,
+            lastRecommendation,
+        });
     }
     generateSessionId() {
         return 'S-' + Math.random().toString(36).substr(2, 6).toUpperCase();

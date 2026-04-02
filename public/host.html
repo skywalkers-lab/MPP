@@ -216,6 +216,22 @@
     .sev-warning { color: #ffb567; }
     .sev-critical { color: #ff8f8f; }
 
+    .metric-grid {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .metric-chip {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 12px;
+      color: var(--muted);
+      background: #0f1823;
+    }
+
     @media (max-width: 680px) {
       .grid {
         grid-template-columns: 1fr;
@@ -329,8 +345,8 @@
     </div>
 
     <div class="card">
-      <h3 style="margin: 0 0 8px;">Strategy Engine v1</h3>
-      <div class="muted">설명 가능한 룰 기반 추천입니다. 스냅샷이 없거나 stale이면 추천을 중지하고 이유를 표시합니다.</div>
+      <h3 style="margin: 0 0 8px;">Strategy Engine v2</h3>
+      <div class="muted">설명 가능한 비교형 룰 기반 추천입니다. undercut/overcut/traffic/degradation 신호를 함께 보여줍니다.</div>
       <div id="strategy-card" class="notes-list"></div>
     </div>
   </div>

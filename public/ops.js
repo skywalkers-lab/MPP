@@ -119,7 +119,8 @@ function renderSessionsTable(sessions) {
       '</td>' +
       '<td data-label="Strategy">' +
         '<div>' + safe(s.strategyLabel || '-') + '</div>' +
-        '<div class="muted">severity=' + safe(s.strategySeverity || '-') + '</div>' +
+        '<div class="muted">alt=' + safe(s.strategySecondaryLabel || '-') + '</div>' +
+        '<div class="muted">severity=' + safe(s.strategySeverity || '-') + ', traffic=' + safe(s.strategyTrafficBand || '-') + '</div>' +
       '</td>' +
       '<td data-label="Snapshot">' + (s.hasSnapshot ? 'yes' : 'no') + '</td>' +
       '<td data-label="Heartbeat">' + fmtTime(s.lastHeartbeatAt) + '</td>' +

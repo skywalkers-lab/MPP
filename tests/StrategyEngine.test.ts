@@ -71,4 +71,37 @@ describe('StrategyEngine v1', () => {
       expect(result.reason).toBe('session_stale');
     }
   });
+
+  it('includes v2 advanced signals when strategy is available', () => {
+    const result = engine.evaluate(baseInput({ tyreAgeLaps: 20, position: 11 }));
+    expect(result.strategyUnavailable).toBe(false);
+
+    if (!result.strategyUnavailable) {
+      expect(result.primaryRecommendation).toBeDefined();
+      expect(result.signals).toHaveProperty('undercutScore');
+      expect(result.signals).toHaveProperty('overcutScore');
+      expect(result.signals).toHaveProperty('trafficRiskScore');
+      expect(result.signals).toHaveProperty('degradationTrend');
+      expect(result.signals).toHaveProperty('expectedRejoinBand');
+      expect(result.signals).toHaveProperty('cleanAirProbability');
+    }
+  });
+
+  it('prefers overcut-style output when traffic risk is high and degradation is still manageable', () => {
+    const result = engine.evaluate(
+      baseInput({
+        tyreAgeLaps: 14,
+        position: 16,
+        currentLap: 22,
+        totalLaps: 58,
+        fuelLapsRemaining: 50,
+      })
+    );
+
+    expect(result.strategyUnavailable).toBe(false);
+    if (!result.strategyUnavailable) {
+      expect(result.signals.trafficRiskScore == null ? 0 : result.signals.trafficRiskScore).toBeGreaterThanOrEqual(65);
+      expect(result.secondaryRecommendation).toBeDefined();
+    }
+  });
 });

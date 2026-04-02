@@ -180,9 +180,15 @@ export class RelayServer {
           strategyLabel: strategy.strategyUnavailable
             ? null
             : strategy.recommendation,
+          strategySecondaryLabel: strategy.strategyUnavailable
+            ? null
+            : strategy.secondaryRecommendation ?? null,
           strategySeverity: strategy.strategyUnavailable
             ? null
             : strategy.severity,
+          strategyTrafficBand: strategy.strategyUnavailable
+            ? null
+            : strategy.signals.expectedRejoinBand,
           strategyGeneratedAt: strategy.generatedAt,
           strategyUnavailable: strategy.strategyUnavailable,
         };

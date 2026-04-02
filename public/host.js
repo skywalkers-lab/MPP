@@ -170,12 +170,23 @@ function renderStrategy(data) {
   var sev = String(data.severity || 'info').toLowerCase();
   var reasons = Array.isArray(data.reasons) ? data.reasons : [];
   var signals = data.signals || {};
+  var primary = data.primaryRecommendation || data.recommendation || 'STAY OUT';
+  var secondary = data.secondaryRecommendation || '-';
 
   $strategyCard.innerHTML = '<div class="note-item">' +
     '<div class="note-meta"><span>severity: ' + escapeHtml(sev) + '</span><span>' + fmtTime(data.generatedAt) + '</span></div>' +
-    '<div class="strategy-rec sev-' + escapeHtml(sev) + '">' + escapeHtml(data.recommendation || 'STAY OUT') + '</div>' +
+    '<div class="strategy-rec sev-' + escapeHtml(sev) + '">Primary: ' + escapeHtml(primary) + '</div>' +
+    '<div class="muted">Alternative: ' + escapeHtml(secondary) + '</div>' +
     '<div class="note-text">' +
       reasons.slice(0, 3).map(function (r) { return '• ' + escapeHtml(r); }).join('<br/>') +
+    '</div>' +
+    '<div class="metric-grid">' +
+      '<div class="metric-chip">Undercut: ' + safe(signals.undercutScore) + '</div>' +
+      '<div class="metric-chip">Overcut: ' + safe(signals.overcutScore) + '</div>' +
+      '<div class="metric-chip">Traffic: ' + safe(signals.trafficRiskScore) + '</div>' +
+      '<div class="metric-chip">Degradation: ' + safe(signals.degradationTrend) + '</div>' +
+      '<div class="metric-chip">Rejoin Band: ' + safe(signals.expectedRejoinBand) + '</div>' +
+      '<div class="metric-chip">Clean Air %: ' + safe(signals.cleanAirProbability) + '</div>' +
     '</div>' +
     '<div class="muted" style="margin-top:6px;">' +
       'signals: tyre=' + safe(signals.tyreUrgencyScore) +

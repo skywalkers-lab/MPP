@@ -76,9 +76,16 @@ describe('Strategy API', () => {
     expect(res.body.strategyUnavailable).toBe(false);
     expect(typeof res.body.recommendation).toBe('string');
     expect(typeof res.body.severity).toBe('string');
+    expect(typeof res.body.primaryRecommendation).toBe('string');
     expect(Array.isArray(res.body.reasons)).toBe(true);
     expect(typeof res.body.generatedAt).toBe('number');
     expect(res.body.signals).toBeDefined();
+    expect(res.body.signals).toHaveProperty('undercutScore');
+    expect(res.body.signals).toHaveProperty('overcutScore');
+    expect(res.body.signals).toHaveProperty('trafficRiskScore');
+    expect(res.body.signals).toHaveProperty('degradationTrend');
+    expect(res.body.signals).toHaveProperty('expectedRejoinBand');
+    expect(res.body.signals).toHaveProperty('cleanAirProbability');
   });
 
   it('returns unavailable reason when snapshot is missing', async () => {
@@ -86,6 +93,7 @@ describe('Strategy API', () => {
     expect(res.status).toBe(200);
     expect(res.body.strategyUnavailable).toBe(true);
     expect(res.body.reason).toBe('no_snapshot');
+    expect(res.body.signals.undercutScore).toBeUndefined();
   });
 
   it('returns unavailable reason when session is stale', async () => {

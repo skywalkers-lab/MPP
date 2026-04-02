@@ -85,7 +85,9 @@ export interface SessionOpsSummary {
   latestNoteAt?: number | null;
   latestNotePreview?: string | null;
   strategyLabel?: string | null;
+  strategySecondaryLabel?: string | null;
   strategySeverity?: 'info' | 'caution' | 'warning' | 'critical' | null;
+  strategyTrafficBand?: 'low' | 'medium' | 'high' | 'critical' | 'unknown' | null;
   strategyGeneratedAt?: number | null;
   strategyUnavailable?: boolean;
 }

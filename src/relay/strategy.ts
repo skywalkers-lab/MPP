@@ -1,4 +1,5 @@
 export type StrategySeverity = 'info' | 'caution' | 'warning' | 'critical';
+export type StrategyScoreBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
 
 export type StrategyRecommendationLabel =
   | 'PIT NOW'
@@ -44,11 +45,26 @@ export interface StrategySignals {
   stintProgress: number | null;
   pitWindowHint: 'open_now' | 'open_soon' | 'monitor' | 'too_early' | 'unknown';
   rejoinRiskHint: 'low' | 'medium' | 'high' | 'unknown';
+
+  // v2 comparative strategy layer
+  undercutScore: number | null;
+  overcutScore: number | null;
+  trafficRiskScore: number | null;
+  degradationTrend: number | null;
+  expectedRejoinBand: StrategyScoreBand;
+  cleanAirProbability: number | null;
 }
 
 export interface StrategyRecommendationResult {
   strategyUnavailable: false;
+
+  // v1 compatibility field
   recommendation: StrategyRecommendationLabel;
+
+  // v2 comparison-friendly fields
+  primaryRecommendation: StrategyRecommendationLabel;
+  secondaryRecommendation?: StrategyRecommendationLabel;
+
   severity: StrategySeverity;
   reasons: string[];
   signals: StrategySignals;

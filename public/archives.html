@@ -112,7 +112,7 @@
 
     .timeline-list {
       display: grid;
-      gap: 8px;
+      gap: 6px;
       margin-top: 8px;
       max-height: 460px;
       overflow-y: auto;
@@ -121,16 +121,54 @@
 
     .timeline-item {
       border: 1px solid var(--line);
-      border-left-width: 3px;
+      border-left-width: 4px;
       border-radius: 8px;
-      padding: 8px 10px;
+      padding: 7px 10px;
       background: #101722;
       cursor: pointer;
+      transition: background 0.15s;
+    }
+    .timeline-item:hover { background: #152030; }
+    .timeline-item.snapshot  { border-left-color: #7cc8ff; }
+    .timeline-item.ops_event { border-left-color: #7ddc9a; }
+    .timeline-item.note      { border-left-color: #f8b84e; }
+
+    .tl-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 2px;
     }
 
-    .timeline-item.snapshot { border-left-color: #7cc8ff; }
-    .timeline-item.ops_event { border-left-color: #96f0c8; }
-    .timeline-item.note { border-left-color: #f8b84e; }
+    .tl-kind-badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+    }
+    .tl-kind-badge.snapshot  { color: #7cc8ff; border-color: #2a5070; background: #0e1f30; }
+    .tl-kind-badge.ops_event { color: #7ddc9a; border-color: #265038; background: #0d2018; }
+    .tl-kind-badge.note      { color: #f8b84e; border-color: #70501a; background: #241d0a; }
+
+    .tl-ts {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: monospace;
+      margin-left: auto;
+    }
+
+    .tl-main {
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .tl-sub {
+      font-size: 11px;
+      color: var(--muted);
+    }
 
     .pill {
       display: inline-flex;
@@ -145,14 +183,14 @@
     .summary-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
+      gap: 6px;
     }
 
     .chip {
       border: 1px solid var(--line);
       border-radius: 8px;
       background: #0f1823;
-      padding: 8px;
+      padding: 7px 10px;
       font-size: 12px;
       color: var(--muted);
     }
@@ -160,8 +198,26 @@
     .chip strong {
       display: block;
       color: var(--text);
-      margin-bottom: 4px;
-      font-size: 13px;
+      margin-bottom: 3px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .finalize-chip {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .finalize-chip.server_shutdown { color: #ff8f8f; border-color: #7b3939; background: #2c1818; }
+    .finalize-chip.session_stale   { color: #f8b84e; border-color: #785b24; background: #2d2413; }
+
+    .snapshot-focus-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
     }
 
     @media (max-width: 980px) {
@@ -179,7 +235,7 @@
     <div class="card toolbar">
       <button id="reload" class="primary">아카이브 새로고침</button>
       <a href="/ops" class="link">Ops Control Plane</a>
-      <a href="/host/S-EXAMPLE" class="link">Host Control (세션 아이디 필요)</a>
+      <input id="archive-search" type="text" placeholder="session ID 검색..." style="border:1px solid var(--line);background:#13202e;color:var(--text);border-radius:8px;padding:6px 10px;font-size:13px;width:200px;">
       <span id="summary" class="muted"></span>
     </div>
 
@@ -190,10 +246,10 @@
           <thead>
             <tr>
               <th>Session</th>
-              <th>Ended</th>
               <th>Duration</th>
               <th>Counts</th>
-              <th>Strategy</th>
+              <th>Final Rec</th>
+              <th>Finalize</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -208,14 +264,14 @@
         </div>
 
         <div class="card">
-          <h3 style="margin:0 0 8px;">Timeline</h3>
-          <div class="muted">snapshot / ops_event / note를 시간순으로 확인하고 snapshot 클릭 시 시점 요약을 봅니다.</div>
+          <h3 style="margin:0 0 4px;">Timeline</h3>
+          <div class="muted" style="font-size:11px;margin-bottom:6px;">snapshot(blue) / ops_event(green) / note(amber) — snapshot 클릭 시 실시간 요약을 확인합니다.</div>
           <div id="timeline-list" class="timeline-list"></div>
         </div>
 
         <div class="card">
           <h3 style="margin:0 0 8px;">Snapshot Focus</h3>
-          <div id="snapshot-focus" class="muted">timeline에서 snapshot 항목을 선택하세요.</div>
+          <div id="snapshot-focus" class="snapshot-focus-grid muted">timeline에서 snapshot 항목을 클릭하세요.</div>
         </div>
       </div>
     </div>

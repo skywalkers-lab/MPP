@@ -71,6 +71,16 @@
     .access-shared { color: var(--ok); }
     .access-private, .access-not_shared { color: var(--warn); }
 
+    /* Session health */
+    .health-healthy   { color: var(--ok);   border-color: #2c6d45; background: #12231a; }
+    .health-delayed   { color: var(--warn);  border-color: #785b24; background: #2d2413; }
+    .health-stale_risk{ color: #ff9f57;      border-color: #7a4d25; background: #2d1e0f; }
+    .health-stale     { color: var(--bad);   border-color: #7b3939; background: #2c1818; }
+
+    /* Row-level highlight for stale risk */
+    tr.row-stale_risk td { background: rgba(100, 55, 20, 0.09); }
+    tr.row-stale td      { background: rgba(100, 30, 30, 0.09); }
+
     .inline-actions {
       display: flex;
       gap: 6px;
@@ -142,6 +152,7 @@
     <div class="panel toolbar">
       <button id="refresh">새로고침</button>
       <a href="/archives" class="mini-btn" style="text-decoration:none; display:inline-block;">archives</a>
+      <span id="auto-refresh-label" class="muted" style="font-size:11px;">auto 2.5s</span>
       <label for="status-filter" class="muted">상태 필터</label>
       <select id="status-filter">
         <option value="all">all</option>
@@ -157,13 +168,13 @@
         <thead>
           <tr>
             <th>Session</th>
+            <th>Health</th>
             <th>Relay</th>
             <th>Viewer</th>
             <th>Share</th>
             <th>Join</th>
             <th>Notes</th>
             <th>Strategy</th>
-            <th>Snapshot</th>
             <th>Heartbeat</th>
             <th>Updated</th>
             <th>Control</th>

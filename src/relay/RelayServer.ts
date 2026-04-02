@@ -340,6 +340,57 @@ export class RelayServer {
     return this.sessions.get(sessionId);
   }
 
+  /**
+   * 세션 health 상태를 계산합니다.
+   * heartbeat 수신 간격을 기준으로 healthy / delayed / stale_risk / stale 네 단계를 반환합니다.
+   */
+  public getSessionHealth(sessionId: string): {
+    sessionId: string;
+    sessionFound: boolean;
+    relayStatus: string;
+    heartbeatAgeMs: number;
+    healthLevel: 'healthy' | 'delayed' | 'stale_risk' | 'stale';
+    checkedAt: number;
+  } {
+    const now = Date.now();
+    const session = this.sessions.get(sessionId);
+
+    if (!session) {
+      return {
+        sessionId,
+        sessionFound: false,
+        relayStatus: 'not_found',
+        heartbeatAgeMs: -1,
+        healthLevel: 'stale',
+        checkedAt: now,
+      };
+    }
+
+    const heartbeatAgeMs = now - session.lastHeartbeatAt;
+
+    let healthLevel: 'healthy' | 'delayed' | 'stale_risk' | 'stale';
+    if (session.status !== 'active') {
+      healthLevel = 'stale';
+    } else if (heartbeatAgeMs < 3000) {
+      healthLevel = 'healthy';
+    } else if (heartbeatAgeMs < 6000) {
+      healthLevel = 'delayed';
+    } else if (heartbeatAgeMs < 10000) {
+      healthLevel = 'stale_risk';
+    } else {
+      healthLevel = 'stale';
+    }
+
+    return {
+      sessionId,
+      sessionFound: true,
+      relayStatus: session.status,
+      heartbeatAgeMs,
+      healthLevel,
+      checkedAt: now,
+    };
+  }
+
   private computeSessionStrategy(session: RelaySession): StrategyEvaluationResult {
     const input = this.buildStrategyInput(session);
     if (!input) {

@@ -13,6 +13,13 @@ function fmtTime(ts) {
   return new Date(ts).toLocaleString();
 }
 
+function fmtAgeSeconds(ts) {
+  if (!ts) return '-';
+  var age = Math.round((Date.now() - ts) / 1000);
+  if (age < 0) return '0s';
+  return age + 's ago';
+}
+
 function safe(v) {
   return v === null || v === undefined ? '-' : String(v);
 }
@@ -21,6 +28,21 @@ function relayClass(status) {
   if (status === 'active') return 'relay-active';
   if (status === 'stale') return 'relay-stale';
   return 'relay-closed';
+}
+
+// Compute health level client-side from heartbeatAt + relayStatus
+function computeHealthLevel(s) {
+  if (s.relayStatus !== 'active') return 'stale';
+  var age = Date.now() - (s.lastHeartbeatAt || 0);
+  if (age < 3000) return 'healthy';
+  if (age < 6000) return 'delayed';
+  if (age < 10000) return 'stale_risk';
+  return 'stale';
+}
+
+function healthBadge(level) {
+  var labels = { healthy: 'healthy', delayed: 'delayed', stale_risk: 'stale risk', stale: 'STALE' };
+  return '<span class="status-chip health-' + level + '">' + (labels[level] || level) + '</span>';
 }
 
 function escapeHtml(v) {
@@ -66,12 +88,14 @@ function renderSummary(sessions) {
   var stale = 0;
   var closed = 0;
   var shared = 0;
+  var staleRisk = 0;
 
   sessions.forEach(function (s) {
     if (s.relayStatus === 'active') active += 1;
     if (s.relayStatus === 'stale') stale += 1;
     if (s.relayStatus === 'closed') closed += 1;
     if (s.hasViewerAccess) shared += 1;
+    if (computeHealthLevel(s) === 'stale_risk') staleRisk += 1;
   });
 
   $summary.textContent =
@@ -79,7 +103,8 @@ function renderSummary(sessions) {
     ' | active ' + active +
     ' | stale ' + stale +
     ' | closed ' + closed +
-    ' | shared ' + shared;
+    ' | shared ' + shared +
+    (staleRisk > 0 ? ' | ⚠ stale_risk ' + staleRisk : '');
 }
 
 function renderSessionsTable(sessions) {
@@ -90,17 +115,20 @@ function renderSessionsTable(sessions) {
 
   var rows = sessions.map(function (s) {
     var joinUrl = buildJoinUrl(s.joinCode);
+    var healthLevel = computeHealthLevel(s);
+    var rowClass = (healthLevel === 'stale_risk' || healthLevel === 'stale') ? ' class="row-' + healthLevel + '"' : '';
 
-    return '<tr>' +
+    return '<tr' + rowClass + '>' +
       '<td data-label="Session">' +
-        '<div>' + escapeHtml(s.sessionId) + '</div>' +
+        '<div style="font-family:monospace;font-size:12px;">' + escapeHtml(s.sessionId) + '</div>' +
         '<div class="muted">seq: ' + safe(s.latestSequence) + '</div>' +
       '</td>' +
+      '<td data-label="Health">' + healthBadge(healthLevel) + '</td>' +
       '<td data-label="Relay"><span class="status-chip ' + relayClass(s.relayStatus) + '">' + safe(s.relayStatus) + '</span></td>' +
       '<td data-label="Viewer">' + safe(s.viewerStatus) + '</td>' +
       '<td data-label="Share">' +
         '<div class="' + accessClass(s.viewerAccessLabel) + '">' + safe(s.viewerAccessLabel) + '</div>' +
-        '<div class="muted">enabled=' + safe(s.shareEnabled) + ', visibility=' + safe(s.visibility) + '</div>' +
+        '<div class="muted">shared=' + safe(s.shareEnabled) + ', ' + safe(s.visibility) + '</div>' +
       '</td>' +
       '<td data-label="Join" class="inline-actions">' +
         (s.joinCode
@@ -113,20 +141,25 @@ function renderSessionsTable(sessions) {
       '</td>' +
       '<td data-label="Notes">' +
         '<div>count: ' + safe(s.noteCount || 0) + '</div>' +
-        '<div class="muted" style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' +
+        '<div class="muted" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' +
           escapeHtml(s.latestNotePreview || '-') +
         '</div>' +
       '</td>' +
       '<td data-label="Strategy">' +
         '<div>' + safe(s.strategyLabel || '-') + '</div>' +
         '<div class="muted">alt=' + safe(s.strategySecondaryLabel || '-') + '</div>' +
-        '<div class="muted">severity=' + safe(s.strategySeverity || '-') + ', traffic=' + safe(s.strategyTrafficBand || '-') + '</div>' +
+        '<div class="muted">sev=' + safe(s.strategySeverity || '-') + ', traffic=' + safe(s.strategyTrafficBand || '-') + '</div>' +
       '</td>' +
-      '<td data-label="Snapshot">' + (s.hasSnapshot ? 'yes' : 'no') + '</td>' +
-      '<td data-label="Heartbeat">' + fmtTime(s.lastHeartbeatAt) + '</td>' +
+      '<td data-label="Heartbeat">' +
+        '<div>' + fmtAgeSeconds(s.lastHeartbeatAt) + '</div>' +
+        '<div class="muted" style="font-size:11px;">' + fmtTime(s.lastHeartbeatAt) + '</div>' +
+      '</td>' +
       '<td data-label="Updated">' + fmtTime(s.updatedAt) + '</td>' +
       '<td data-label="Control">' +
-        '<a href="/host/' + encodeURIComponent(s.sessionId) + '">host</a>' +
+        '<div class="inline-actions">' +
+          '<a href="/host/' + encodeURIComponent(s.sessionId) + '" class="mini-btn">host</a>' +
+          '<a href="/overlay/' + encodeURIComponent(s.sessionId) + '" class="mini-btn" target="_blank" rel="noopener">overlay</a>' +
+        '</div>' +
       '</td>' +
     '</tr>';
   }).join('');

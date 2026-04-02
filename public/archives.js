@@ -68,56 +68,100 @@ function renderArchiveSummary(summary) {
 
 function renderSnapshotFocus(snapshot) {
   if (!snapshot) {
-    $snapshotFocus.innerHTML = '<div class="muted">timeline에서 snapshot 항목을 선택하세요.</div>';
+    $snapshotFocus.className = 'snapshot-focus-grid muted';
+    $snapshotFocus.textContent = 'timeline에서 snapshot 항목을 클릭하세요.';
     return;
   }
 
   var state = snapshot.state || {};
   var playerIndex = state.playerCarIndex;
-  var player = playerIndex !== null && playerIndex !== undefined ? state.cars && state.cars[playerIndex] : null;
+  var player = (playerIndex !== null && playerIndex !== undefined && state.cars)
+    ? state.cars[playerIndex]
+    : null;
+  var meta = state.sessionMeta || null;
+  var rec = snapshot.recommendation;
 
-  $snapshotFocus.innerHTML = '<div class="chip"><strong>Timestamp</strong>' + escapeHtml(fmtTime(snapshot.timestamp)) + '</div>' +
+  // Tyre compound color
+  var TYRE_COLORS = { soft: '#ff7070', medium: '#f8b84e', hard: '#edf2f7', inter: '#7ddc9a', wet: '#7cc8ff' };
+  var tyreName = player && player.tyreCompound ? String(player.tyreCompound).toLowerCase() : null;
+  var tyreColor = tyreName && TYRE_COLORS[tyreName] ? TYRE_COLORS[tyreName] : '#96a2b5';
+
+  $snapshotFocus.className = 'snapshot-focus-grid';
+
+  $snapshotFocus.innerHTML =
+    '<div class="chip"><strong>Timestamp</strong>' + escapeHtml(fmtTime(snapshot.timestamp)) + '</div>' +
     '<div class="chip"><strong>Sequence</strong>' + escapeHtml(safe(snapshot.sequence)) + '</div>' +
-    '<div class="chip"><strong>Lap</strong>' + escapeHtml(safe(player && player.currentLapNum)) + '</div>' +
+    '<div class="chip"><strong>Lap</strong>' + escapeHtml(safe(player && player.currentLapNum || (meta && meta.currentLap))) + '</div>' +
     '<div class="chip"><strong>Position</strong>' + escapeHtml(safe(player && player.position)) + '</div>' +
-    '<div class="chip"><strong>Tyre Age</strong>' + escapeHtml(safe(player && player.tyreAgeLaps)) + '</div>' +
+    '<div class="chip"><strong>Tyre</strong><span style="color:' + tyreColor + ';">' + escapeHtml(safe(player && player.tyreCompound)) + '</span></div>' +
+    '<div class="chip"><strong>Tyre Age</strong>' + escapeHtml(safe(player && player.tyreAgeLaps)) + ' laps</div>' +
+    '<div class="chip"><strong>Fuel Remaining</strong>' + escapeHtml(safe(player && player.fuelRemaining)) + '</div>' +
     '<div class="chip"><strong>Fuel Laps</strong>' + escapeHtml(safe(player && player.fuelLapsRemaining)) + '</div>' +
-    '<div class="chip"><strong>Track Lap</strong>' + escapeHtml(safe(state.sessionMeta && state.sessionMeta.currentLap)) + '</div>' +
-    '<div class="chip"><strong>Recommendation</strong>' + escapeHtml(safe(snapshot.recommendation && snapshot.recommendation.recommendation)) + '</div>';
+    '<div class="chip"><strong>ERS</strong>' + (player && player.ersLevel != null ? Math.round(Number(player.ersLevel) * 100) + '%' : '-') + '</div>' +
+    '<div class="chip"><strong>Track Lap</strong>' + escapeHtml(safe(meta && meta.currentLap)) + ' / ' + escapeHtml(safe(meta && meta.totalLaps)) + '</div>' +
+    '<div class="chip" style="grid-column:span 2;">' +
+      '<strong>Recommendation</strong>' +
+      escapeHtml(safe(rec && rec.recommendation)) +
+      (rec && rec.severity ? ' <span class="muted">(' + escapeHtml(rec.severity) + ')</span>' : '') +
+    '</div>';
 }
 
 function renderTimeline(timeline) {
   if (!timeline || timeline.length === 0) {
     $timelineList.innerHTML = '<div class="muted">타임라인 항목이 없습니다.</div>';
+    $timelineList.dataset.timeline = '[]';
     return;
   }
 
+  $timelineList.dataset.timeline = JSON.stringify(timeline);
+
   $timelineList.innerHTML = timeline.map(function (item, idx) {
     if (item.kind === 'snapshot') {
-      var rec = item.snapshot && item.snapshot.recommendation ? item.snapshot.recommendation.recommendation : null;
+      var snap = item.snapshot || {};
+      var rec = snap.recommendation ? snap.recommendation.recommendation : null;
+      var state = snap.state || {};
+      var playerIdx = state.playerCarIndex;
+      var player = (playerIdx != null && state.cars) ? state.cars[playerIdx] : null;
+      var lapStr = player
+        ? 'L' + safe(player.currentLapNum || (state.sessionMeta && state.sessionMeta.currentLap)) +
+          ' P' + safe(player.position)
+        : '';
+
       return '<div class="timeline-item snapshot" data-kind="snapshot" data-index="' + idx + '">' +
-        '<div class="pill">snapshot</div>' +
-        '<div style="margin-top:6px;">seq=' + escapeHtml(safe(item.sequence)) + ', ts=' + escapeHtml(fmtTime(item.timestamp)) + '</div>' +
-        '<div class="muted">recommendation=' + escapeHtml(safe(rec)) + '</div>' +
+        '<div class="tl-header">' +
+          '<span class="tl-kind-badge snapshot">snapshot</span>' +
+          (lapStr ? '<span class="tl-main">' + escapeHtml(lapStr) + '</span>' : '') +
+          '<span class="tl-ts">' + escapeHtml(fmtTime(item.timestamp)) + '</span>' +
+        '</div>' +
+        '<div class="tl-sub">seq=' + escapeHtml(safe(item.sequence)) +
+          (rec ? ' → ' + escapeHtml(rec) : '') +
+        '</div>' +
       '</div>';
     }
 
     if (item.kind === 'ops_event') {
+      var evType = item.event && item.event.type ? item.event.type : 'unknown';
       return '<div class="timeline-item ops_event" data-kind="ops_event" data-index="' + idx + '">' +
-        '<div class="pill">ops_event</div>' +
-        '<div style="margin-top:6px;">' + escapeHtml(safe(item.event && item.event.type)) + '</div>' +
-        '<div class="muted">' + escapeHtml(fmtTime(item.timestamp)) + '</div>' +
+        '<div class="tl-header">' +
+          '<span class="tl-kind-badge ops_event">ops_event</span>' +
+          '<span class="tl-main">' + escapeHtml(evType) + '</span>' +
+          '<span class="tl-ts">' + escapeHtml(fmtTime(item.timestamp)) + '</span>' +
+        '</div>' +
       '</div>';
     }
 
+    // note
+    var noteText = item.note && item.note.text ? item.note.text : '';
+    var noteAuthor = item.note && item.note.authorLabel ? item.note.authorLabel : '';
     return '<div class="timeline-item note" data-kind="note" data-index="' + idx + '">' +
-      '<div class="pill">note</div>' +
-      '<div style="margin-top:6px;">[' + escapeHtml(safe(item.note && item.note.authorLabel)) + '] ' + escapeHtml(safe(item.note && item.note.text)) + '</div>' +
-      '<div class="muted">' + escapeHtml(fmtTime(item.timestamp)) + '</div>' +
+      '<div class="tl-header">' +
+        '<span class="tl-kind-badge note">note</span>' +
+        (noteAuthor ? '<span class="tl-sub">[' + escapeHtml(noteAuthor) + ']</span>' : '') +
+        '<span class="tl-ts">' + escapeHtml(fmtTime(item.timestamp)) + '</span>' +
+      '</div>' +
+      '<div class="tl-main" style="margin-top:2px;">' + escapeHtml(noteText.slice(0, 120)) + '</div>' +
     '</div>';
   }).join('');
-
-  $timelineList.dataset.timeline = JSON.stringify(timeline);
 }
 
 function renderArchiveRows(rows) {
@@ -126,13 +170,21 @@ function renderArchiveRows(rows) {
     return;
   }
 
+  var FINALIZE_LABELS = { server_shutdown: 'shutdown', session_stale: 'stale' };
+
   $archivesBody.innerHTML = rows.map(function (row) {
+    var finalizeLabel = FINALIZE_LABELS[row.finalizeReason] || safe(row.finalizeReason);
+    var finalizeClass = 'finalize-chip ' + (row.finalizeReason || '');
+
     return '<tr>' +
-      '<td>' + escapeHtml(row.sessionId) + '</td>' +
-      '<td>' + escapeHtml(fmtTime(row.endedAt)) + '</td>' +
+      '<td style="font-family:monospace;font-size:11px;">' + escapeHtml(row.sessionId) + '</td>' +
       '<td>' + escapeHtml(fmtDuration(row.durationMs)) + '</td>' +
-      '<td>snap=' + escapeHtml(safe(row.snapshotCount)) + ', ops=' + escapeHtml(safe(row.opsEventCount)) + ', note=' + escapeHtml(safe(row.noteCount)) + '</td>' +
+      '<td>' +
+        '<div>snap: ' + escapeHtml(safe(row.snapshotCount)) + '</div>' +
+        '<div class="muted">ops: ' + escapeHtml(safe(row.opsEventCount)) + ', note: ' + escapeHtml(safe(row.noteCount)) + '</div>' +
+      '</td>' +
       '<td>' + escapeHtml(safe(row.lastRecommendation)) + '</td>' +
+      '<td><span class="' + escapeHtml(finalizeClass) + '">' + escapeHtml(finalizeLabel) + '</span></td>' +
       '<td><button class="open-archive" data-session-id="' + escapeHtml(row.sessionId) + '">열기</button></td>' +
     '</tr>';
   }).join('');
@@ -147,7 +199,10 @@ async function fetchArchiveList() {
 
   archiveRows = data.archives || [];
   $summary.textContent = 'count=' + archiveRows.length + ', updated=' + new Date().toLocaleTimeString();
-  renderArchiveRows(archiveRows);
+
+  var q = document.getElementById('archive-search').value.trim().toLowerCase();
+  var filtered = q ? archiveRows.filter(function(r) { return r.sessionId.toLowerCase().includes(q); }) : archiveRows;
+  renderArchiveRows(filtered);
 
   if (!selectedSessionId && archiveRows.length > 0) {
     selectedSessionId = archiveRows[0].sessionId;
@@ -186,6 +241,13 @@ async function refreshAll() {
 }
 
 document.getElementById('reload').addEventListener('click', refreshAll);
+
+// Archive search filter
+document.getElementById('archive-search').addEventListener('input', function() {
+  var q = this.value.trim().toLowerCase();
+  var filtered = q ? archiveRows.filter(function(r) { return r.sessionId.toLowerCase().includes(q); }) : archiveRows;
+  renderArchiveRows(filtered);
+});
 
 $archivesBody.addEventListener('click', function (e) {
   if (e.target && e.target.classList && e.target.classList.contains('open-archive')) {

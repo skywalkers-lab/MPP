@@ -3,8 +3,7 @@
 ## 1. 실행
 
 ```bash
-npm install
-npm run relay
+
 ```
 
 - Relay WebSocket: `4000`

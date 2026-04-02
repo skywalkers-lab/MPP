@@ -42,6 +42,9 @@ app.get('/ops', (req, res) => {
 app.get('/archives', (req, res) => {
   res.sendFile(path.join(process.cwd(), 'public', 'archives.html'));
 });
+app.get('/overlay/:sessionId', (req, res) => {
+  res.sendFile(path.join(process.cwd(), 'public', 'overlay.html'));
+});
 
 const HTTP_PORT = process.env.VIEWER_HTTP_PORT ? parseInt(process.env.VIEWER_HTTP_PORT) : 4100;
 app.listen(HTTP_PORT, () => {

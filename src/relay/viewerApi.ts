@@ -187,6 +187,13 @@ export function createViewerApiRouter(relayServer: RelayServer) {
     res.json({ sessionId, timeline, count: timeline.length, limit });
   });
 
+  // GET /api/viewer/health/:sessionId
+  router.get('/health/:sessionId', (req, res) => {
+    const { sessionId } = req.params;
+    const health = relayServer.getSessionHealth(sessionId);
+    res.json(health);
+  });
+
   // GET /api/viewer/sessions/:sessionId
   router.get('/sessions/:sessionId', (req, res) => {
     const sessionId = req.params.sessionId;

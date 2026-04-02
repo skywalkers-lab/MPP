@@ -84,6 +84,37 @@
     .pill.ok { color: var(--ok); border-color: #2e6843; background: #12281c; }
     .pill.warn { color: var(--warn); border-color: #6b5325; background: #2c2110; }
 
+    .status-chip {
+      display: inline-flex;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .health-healthy   { color: var(--ok);   border-color: #2e6843; background: #12281c; }
+    .health-delayed   { color: var(--warn); border-color: #6b5325; background: #2c2110; }
+    .health-stale_risk{ color: #ff9f57;     border-color: #7a4d25; background: #2d1e0f; }
+    .health-stale     { color: var(--danger); border-color: #7b3939; background: #2c1818; }
+
+    .health-bar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .health-metric {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #0f1823;
+      color: var(--muted);
+      font-size: 11px;
+      padding: 1px 7px;
+    }
+
     .inline {
       display: flex;
       flex-wrap: wrap;
@@ -243,6 +274,7 @@
   <div class="wrap">
     <h1>Host Control Panel</h1>
     <p class="desc">내부 운영자용 세션 공유 제어면입니다. 외부 viewer는 joinCode 링크로 read-only 접근만 가능합니다.</p>
+    <p class="desc"><span data-role-preset class="status-chip" style="color:#8ad0ff;border-color:#345068;background:#112030;">preset: host</span></p>
     <p class="desc"><a class="link" href="/ops">Session Ops Control Plane로 이동</a></p>
     <p class="desc"><a class="link" href="/archives">Archives / Replay로 이동</a></p>
 
@@ -265,8 +297,12 @@
       <div class="inline">
         <a id="join-url" class="value link" href="#">-</a>
         <button id="copy-url">링크 복사</button>
+        <a id="overlay-link" class="link" href="#" target="_blank" rel="noopener">overlay surface</a>
       </div>
       <div class="muted" style="margin-top: 8px;">공유 중이 아닐 때 외부 사용자는 not_shared 상태를 보게 됩니다.</div>
+      <div class="row" style="margin-top: 12px;">Session Health</div>
+      <div id="health-chip"></div>
+      <div id="health-bar" class="health-bar"></div>
     </div>
 
     <div class="card">
@@ -352,6 +388,7 @@
     </div>
   </div>
 
+  <script src="/uiCommon.js"></script>
   <script src="/host.js"></script>
 </body>
 </html>

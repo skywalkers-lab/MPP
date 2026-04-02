@@ -163,11 +163,24 @@
     .tl-main {
       font-size: 12px;
       color: var(--text);
+      font-weight: 600;
     }
 
     .tl-sub {
       font-size: 11px;
       color: var(--muted);
+    }
+
+    .timeline-item.ops_event .tl-main {
+      color: #a6efc2;
+    }
+
+    .timeline-item.note .tl-main {
+      color: #ffe1a3;
+    }
+
+    .timeline-item.snapshot .tl-main {
+      color: #bfe6ff;
     }
 
     .pill {
@@ -220,6 +233,14 @@
       gap: 6px;
     }
 
+    body[data-preset="replay"] .timeline-item {
+      padding: 9px 11px;
+    }
+
+    body[data-preset="replay"] .chip strong {
+      font-size: 13px;
+    }
+
     @media (max-width: 980px) {
       .grid {
         grid-template-columns: 1fr;
@@ -235,7 +256,21 @@
     <div class="card toolbar">
       <button id="reload" class="primary">아카이브 새로고침</button>
       <a href="/ops" class="link">Ops Control Plane</a>
+      <span data-role-preset class="pill" style="color:#8ad0ff;border-color:#35556e;background:#122033;">preset: replay</span>
       <input id="archive-search" type="text" placeholder="session ID 검색..." style="border:1px solid var(--line);background:#13202e;color:var(--text);border-radius:8px;padding:6px 10px;font-size:13px;width:200px;">
+      <label for="archive-finalize" class="muted">finalize</label>
+      <select id="archive-finalize" style="border:1px solid var(--line);background:#13202e;color:var(--text);border-radius:8px;padding:6px 10px;font-size:13px;">
+        <option value="all">all</option>
+        <option value="session_stale">session_stale</option>
+        <option value="server_shutdown">server_shutdown</option>
+      </select>
+      <label for="timeline-kind" class="muted">timeline</label>
+      <select id="timeline-kind" style="border:1px solid var(--line);background:#13202e;color:var(--text);border-radius:8px;padding:6px 10px;font-size:13px;">
+        <option value="all">all</option>
+        <option value="snapshot">snapshot</option>
+        <option value="ops_event">ops_event</option>
+        <option value="note">note</option>
+      </select>
       <span id="summary" class="muted"></span>
     </div>
 
@@ -277,6 +312,7 @@
     </div>
   </div>
 
+  <script src="/uiCommon.js"></script>
   <script src="/archives.js"></script>
 </body>
 </html>

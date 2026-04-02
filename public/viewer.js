@@ -8,11 +8,27 @@ const sessionId = !joinCode ? location.pathname.split('/').pop() : null;
 const apiUrl = joinCode
   ? `/api/viewer/join/${encodeURIComponent(joinCode)}`
   : `/api/viewer/sessions/${encodeURIComponent(sessionId)}`;
+const preset = window.UiCommon ? window.UiCommon.applyPreset(joinCode ? 'broadcast' : 'ops') : 'ops';
+const presetIndicator = document.getElementById('preset-indicator');
+if (presetIndicator) {
+  presetIndicator.textContent = 'preset: ' + preset;
+}
 
 const $accessCard = document.getElementById('access-card');
 const $sessionCard = document.getElementById('session-card');
 const $snapshotSummary = document.getElementById('snapshot-summary');
 const $eventLog = document.getElementById('event-log');
+
+async function fetchHealth(resolvedSessionId) {
+  if (!resolvedSessionId) return null;
+  try {
+    const healthRes = await fetch(`/api/viewer/health/${encodeURIComponent(resolvedSessionId)}`);
+    if (!healthRes.ok) return null;
+    return await healthRes.json();
+  } catch (err) {
+    return null;
+  }
+}
 
 function fmtTime(ts) {
   if (!ts) return '-';
@@ -48,11 +64,25 @@ function clearAccessError() {
   $accessCard.innerHTML = '';
 }
 
-function renderSessionCard(data) {
+function renderSessionCard(data, healthData) {
   const access = data.access || null;
+  const healthLevel = healthData && healthData.healthLevel ? healthData.healthLevel : 'stale';
+  const healthChip = window.UiCommon
+    ? window.UiCommon.healthChipHtml(healthLevel)
+    : safe(healthLevel);
+  const healthBar = window.UiCommon
+    ? window.UiCommon.freshnessBarHtml({
+      heartbeatAgeMs: healthData && healthData.heartbeatAgeMs,
+      snapshotFreshnessMs: healthData && healthData.snapshotFreshnessMs,
+      relayFreshnessMs: healthData && healthData.relayFreshnessMs,
+    })
+    : '';
+
   $sessionCard.innerHTML = `
     <div><span class="label">Session ID:</span> <span class="value">${safe(data.sessionId || sessionId)}</span></div>
     <div><span class="label">Viewer Status:</span> <span class="status">${safe(data.viewerStatus)}</span></div>
+    <div><span class="label">Health:</span> ${healthChip}</div>
+    ${healthBar}
     <div><span class="label">Relay Status:</span> ${safe(data.relayStatus)}</div>
     <div><span class="label">Share Enabled:</span> ${safe(access ? access.shareEnabled : data.shareEnabled)}</div>
     <div><span class="label">Visibility:</span> ${safe(access ? access.visibility : data.visibility)}</div>
@@ -108,7 +138,7 @@ function renderEventLog(data) {
     recent.map(e => `<li>${e.type || '-'} <span style="color:#aaa">${fmtTime(e.timestamp)}</span></li>`).join('') + '</ul>';
 }
 
-function renderStatus(data, opts = {}) {
+function renderStatus(data, healthData, opts = {}) {
   if (data.viewerStatus === 'not_found') {
     let msg = '<span class="error">존재하지 않는 세션입니다.</span>';
     if (opts.pollError) msg += '<div class="error" style="margin-top:8px;">API 갱신 실패, 재시도 중...</div>';
@@ -118,7 +148,7 @@ function renderStatus(data, opts = {}) {
     return;
   }
 
-  renderSessionCard(data);
+  renderSessionCard(data, healthData);
 
   if (data.viewerStatus === 'waiting') {
     renderSnapshotSummary(data, {
@@ -186,12 +216,14 @@ async function pollLoop() {
     }
 
     clearAccessError();
+    const resolvedSessionId = data.sessionId || sessionId;
+    const healthData = await fetchHealth(resolvedSessionId);
     lastGoodData = data;
-    renderStatus(data);
+    renderStatus(data, healthData);
     pollDelay = 1000;
   } catch (e) {
     if (lastGoodData) {
-      renderStatus(lastGoodData, { pollError: true });
+      renderStatus(lastGoodData, null, { pollError: true });
     } else {
       $sessionCard.innerHTML = '<span class="error">API 오류: ' + (e.message || e) + '</span>';
       $snapshotSummary.innerHTML = '';

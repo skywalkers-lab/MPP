@@ -4,7 +4,7 @@ import { WebSocketServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { ConsoleLogger } from '../debug/ConsoleLogger';
 import express from 'express';
-import { CompositeOpsNotifier, ConsoleOpsNotifier, InMemoryRecentOpsEvents, serializeSessionOpsSummary, } from './ops';
+import { CompositeOpsNotifier, ConsoleOpsNotifier, deriveSessionHealthLevel, InMemoryRecentOpsEvents, serializeSessionOpsSummary, } from './ops';
 import { InMemorySessionNotesStore, } from './notes';
 import { StrategyEngine } from './strategyEngine';
 import { InMemorySessionArchiveStore, toArchiveRecommendationSnapshot, } from './archive';
@@ -178,7 +178,7 @@ export class RelayServer {
         return this.archiveStore.getArchiveTimeline(sessionId, limit);
     }
     /**
-     * 세션 접근 정책을 업데이트한다 (shareEnabled, visibility)
+     * 세션 접근 정책을 업데이트 (shareEnabled, visibility)
      * PATCH /api/viewer/session-access/:sessionId에서 호출
      */
     updateSessionAccess(sessionId, patch) {
@@ -234,32 +234,23 @@ export class RelayServer {
                 sessionFound: false,
                 relayStatus: 'not_found',
                 heartbeatAgeMs: -1,
+                relayFreshnessMs: -1,
+                snapshotFreshnessMs: -1,
                 healthLevel: 'stale',
                 checkedAt: now,
             };
         }
         const heartbeatAgeMs = now - session.lastHeartbeatAt;
-        let healthLevel;
-        if (session.status !== 'active') {
-            healthLevel = 'stale';
-        }
-        else if (heartbeatAgeMs < 3000) {
-            healthLevel = 'healthy';
-        }
-        else if (heartbeatAgeMs < 6000) {
-            healthLevel = 'delayed';
-        }
-        else if (heartbeatAgeMs < 10000) {
-            healthLevel = 'stale_risk';
-        }
-        else {
-            healthLevel = 'stale';
-        }
+        const relayFreshnessMs = now - session.updatedAt;
+        const snapshotFreshnessMs = session.latestState ? relayFreshnessMs : -1;
+        const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs);
         return {
             sessionId,
             sessionFound: true,
             relayStatus: session.status,
             heartbeatAgeMs,
+            relayFreshnessMs,
+            snapshotFreshnessMs,
             healthLevel,
             checkedAt: now,
         };

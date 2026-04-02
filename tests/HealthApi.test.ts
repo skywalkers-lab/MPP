@@ -39,6 +39,8 @@ describe('GET /api/viewer/health/:sessionId', () => {
     expect(res.body.relayStatus).toBe('not_found');
     expect(res.body.healthLevel).toBe('stale');
     expect(res.body.heartbeatAgeMs).toBe(-1);
+    expect(res.body.relayFreshnessMs).toBe(-1);
+    expect(res.body.snapshotFreshnessMs).toBe(-1);
     expect(res.body.sessionId).toBe('NONEXISTENT');
     expect(typeof res.body.checkedAt).toBe('number');
   });
@@ -52,6 +54,8 @@ describe('GET /api/viewer/health/:sessionId', () => {
     expect(res.body).toHaveProperty('sessionFound');
     expect(res.body).toHaveProperty('relayStatus');
     expect(res.body).toHaveProperty('heartbeatAgeMs');
+    expect(res.body).toHaveProperty('relayFreshnessMs');
+    expect(res.body).toHaveProperty('snapshotFreshnessMs');
     expect(res.body).toHaveProperty('healthLevel');
     expect(res.body).toHaveProperty('checkedAt');
   });
@@ -78,6 +82,8 @@ describe('RelayServer.getSessionHealth()', () => {
     expect(health.healthLevel).toBe('stale');
     expect(health.relayStatus).toBe('not_found');
     expect(health.heartbeatAgeMs).toBe(-1);
+    expect(health.relayFreshnessMs).toBe(-1);
+    expect(health.snapshotFreshnessMs).toBe(-1);
   });
 
   it('includes checkedAt as a recent timestamp', () => {

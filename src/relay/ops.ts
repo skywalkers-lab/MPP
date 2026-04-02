@@ -71,6 +71,10 @@ export type ViewerAccessLabel =
 export interface SessionOpsSummary {
   sessionId: string;
   relayStatus: RelaySession['status'];
+  healthLevel: 'healthy' | 'delayed' | 'stale_risk' | 'stale';
+  heartbeatAgeMs: number;
+  relayFreshnessMs: number;
+  snapshotFreshnessMs: number;
   viewerStatus: ViewerStatus;
   shareEnabled: boolean;
   visibility: SessionAccessRecord['visibility'] | 'unknown';
@@ -106,16 +110,25 @@ export function serializeSessionOpsSummary(
   session: RelaySession,
   access: SessionAccessRecord | undefined
 ): SessionOpsSummary {
+  const now = Date.now();
   const viewerStatus = getViewerStatus(session);
   const hasSnapshot = !!session.latestState;
   const shareEnabled = access?.shareEnabled === true;
   const visibility = access?.visibility ?? 'unknown';
   const joinCode = access?.joinCode ?? null;
   const hasViewerAccess = shareEnabled && access?.visibility === 'code';
+  const heartbeatAgeMs = Math.max(0, now - (session.lastHeartbeatAt || now));
+  const relayFreshnessMs = Math.max(0, now - session.updatedAt);
+  const snapshotFreshnessMs = hasSnapshot ? relayFreshnessMs : -1;
+  const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs);
 
   return {
     sessionId: session.sessionId,
     relayStatus: session.status,
+    healthLevel,
+    heartbeatAgeMs,
+    relayFreshnessMs,
+    snapshotFreshnessMs,
     viewerStatus,
     shareEnabled,
     visibility,
@@ -127,4 +140,15 @@ export function serializeSessionOpsSummary(
     latestSequence: session.latestSequence ?? null,
     hasSnapshot,
   };
+}
+
+export function deriveSessionHealthLevel(
+  relayStatus: RelaySession['status'] | 'not_found',
+  heartbeatAgeMs: number
+): 'healthy' | 'delayed' | 'stale_risk' | 'stale' {
+  if (relayStatus !== 'active') return 'stale';
+  if (heartbeatAgeMs < 3000) return 'healthy';
+  if (heartbeatAgeMs < 6000) return 'delayed';
+  if (heartbeatAgeMs < 10000) return 'stale_risk';
+  return 'stale';
 }

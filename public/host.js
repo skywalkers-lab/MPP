@@ -8,6 +8,8 @@ var accessApiUrl = '/api/viewer/session-access/' + encodeURIComponent(sessionId)
 var notesApiUrl = '/api/viewer/notes/' + encodeURIComponent(sessionId);
 var timelineApiUrl = '/api/viewer/timeline/' + encodeURIComponent(sessionId) + '?limit=120';
 var strategyApiUrl = '/api/viewer/strategy/' + encodeURIComponent(sessionId);
+var healthApiUrl = '/api/viewer/health/' + encodeURIComponent(sessionId);
+var preset = window.UiCommon ? window.UiCommon.applyPreset('host') : 'host';
 
 var $sessionId = document.getElementById('session-id');
 var $joinCode = document.getElementById('join-code');
@@ -17,6 +19,9 @@ var $visibility = document.getElementById('visibility');
 var $sharePill = document.getElementById('share-pill');
 var $visibilityPill = document.getElementById('visibility-pill');
 var $message = document.getElementById('message');
+var $overlayLink = document.getElementById('overlay-link');
+var $healthChip = document.getElementById('health-chip');
+var $healthBar = document.getElementById('health-bar');
 var $noteText = document.getElementById('note-text');
 var $noteAuthor = document.getElementById('note-author');
 var $noteCategory = document.getElementById('note-category');
@@ -66,6 +71,10 @@ function buildJoinUrl(joinCode) {
   return window.location.origin + '/join/' + encodeURIComponent(joinCode);
 }
 
+function buildOverlayUrl(id) {
+  return window.location.origin + '/overlay/' + encodeURIComponent(id) + '?preset=broadcast';
+}
+
 function applyAccess(access) {
   if (!access) return;
 
@@ -85,6 +94,28 @@ function applyAccess(access) {
   var joinUrl = buildJoinUrl(access.joinCode);
   $joinUrl.textContent = joinUrl;
   $joinUrl.href = joinUrl;
+
+  if ($overlayLink) {
+    var overlayUrl = buildOverlayUrl(access.sessionId || sessionId);
+    $overlayLink.href = overlayUrl;
+  }
+}
+
+function renderHealth(health) {
+  if (!$healthChip || !$healthBar) return;
+
+  var level = health && health.healthLevel ? health.healthLevel : 'stale';
+  $healthChip.innerHTML = window.UiCommon
+    ? window.UiCommon.healthChipHtml(level)
+    : safe(level);
+
+  $healthBar.innerHTML = window.UiCommon
+    ? window.UiCommon.freshnessBarHtml({
+        heartbeatAgeMs: health && health.heartbeatAgeMs,
+        snapshotFreshnessMs: health && health.snapshotFreshnessMs,
+        relayFreshnessMs: health && health.relayFreshnessMs,
+      })
+    : '';
 }
 
 async function fetchAccess() {
@@ -286,6 +317,15 @@ async function fetchStrategy() {
   renderStrategy(data);
 }
 
+async function fetchHealth() {
+  var res = await fetch(healthApiUrl);
+  var data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'health_fetch_failed');
+  }
+  renderHealth(data);
+}
+
 async function saveAccess() {
   setMessage('', '');
   try {
@@ -351,11 +391,11 @@ $notesList.addEventListener('click', function (e) {
 
 $sessionId.textContent = sessionId || '-';
 setInterval(function () {
-  Promise.all([fetchNotes(), fetchTimeline(), fetchStrategy()]).catch(function (err) {
+  Promise.all([fetchNotes(), fetchTimeline(), fetchStrategy(), fetchHealth()]).catch(function (err) {
     setNotesMessage('주기 갱신 실패: ' + (err && err.message ? err.message : err), 'err');
   });
 }, 4000);
 
-Promise.all([fetchAccess(), fetchNotes(), fetchTimeline(), fetchStrategy()]).catch(function (err) {
+Promise.all([fetchAccess(), fetchNotes(), fetchTimeline(), fetchStrategy(), fetchHealth()]).catch(function (err) {
   setNotesMessage('초기 로드 실패: ' + (err && err.message ? err.message : err), 'err');
 });

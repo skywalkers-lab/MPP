@@ -3,21 +3,31 @@
 
   // Extract sessionId from URL: /overlay/:sessionId
   var pathParts = window.location.pathname.split('/').filter(Boolean);
-  // pathParts[0] === 'overlay', pathParts[1] === sessionId
-  var sessionId = pathParts.length >= 2 ? pathParts[1] : null;
+  var joinCode = null;
+  var sessionId = null;
 
-  if (!sessionId) {
+  // pathParts[0] === 'overlay', pathParts[1] === sessionId
+  // or pathParts[0] === 'overlay', pathParts[1] === 'join', pathParts[2] === joinCode
+  if (pathParts.length >= 3 && pathParts[1] === 'join') {
+    joinCode = pathParts[2];
+  } else if (pathParts.length >= 2) {
+    sessionId = pathParts[1];
+  }
+
+  if (!sessionId && !joinCode) {
     document.getElementById('overlay-root').innerHTML =
       '<div class="error-msg">URL에 세션 ID가 필요합니다: /overlay/{sessionId}</div>';
     return;
   }
 
-  var sessionApiUrl = '/api/viewer/sessions/' + encodeURIComponent(sessionId);
-  var strategyApiUrl = '/api/viewer/strategy/' + encodeURIComponent(sessionId);
-  var healthApiUrl = '/api/viewer/health/' + encodeURIComponent(sessionId);
+  var sessionApiUrl = '';
+  var strategyApiUrl = '';
+  var healthApiUrl = '';
+  var joinApiUrl = joinCode ? '/api/viewer/join/' + encodeURIComponent(joinCode) : '';
 
   var $headerSession = document.getElementById('header-session');
   var $healthChip = document.getElementById('health-chip');
+  var $healthBar = document.getElementById('health-bar');
   var $statLap = document.getElementById('stat-lap');
   var $statLapTotal = document.getElementById('stat-lap-total');
   var $statPos = document.getElementById('stat-pos');
@@ -31,8 +41,17 @@
   var $recSeverity = document.getElementById('rec-severity');
   var $footerSession = document.getElementById('footer-session');
   var $footerUpdated = document.getElementById('footer-updated');
+  var $presetIndicator = document.getElementById('preset-indicator');
 
-  document.title = 'Overlay — ' + sessionId;
+  var preset = window.UiCommon ? window.UiCommon.applyPreset('broadcast') : 'broadcast';
+  if ($presetIndicator) {
+    $presetIndicator.textContent = 'preset:' + preset;
+    var params = new URLSearchParams(window.location.search);
+    params.set('preset', 'replay');
+    $presetIndicator.href = '/archives?' + params.toString();
+  }
+
+  document.title = 'Overlay — ' + (sessionId || joinCode || 'unknown');
 
   var TYRE_MAP = {
     soft:   { label: 'SOFT',   cls: 'compound tyre-soft' },
@@ -75,6 +94,41 @@
     var safeLevel = HEALTH_LABELS[level] ? level : 'connecting';
     $healthChip.className = 'health-chip ' + safeLevel;
     $healthChip.textContent = HEALTH_LABELS[safeLevel] || 'UNKNOWN';
+  }
+
+  function applyHealthBar(health) {
+    if (!$healthBar) return;
+    if (!window.UiCommon) {
+      $healthBar.textContent = '';
+      return;
+    }
+
+    $healthBar.innerHTML = window.UiCommon.freshnessBarHtml({
+      heartbeatAgeMs: health && health.heartbeatAgeMs,
+      snapshotFreshnessMs: health && health.snapshotFreshnessMs,
+      relayFreshnessMs: health && health.relayFreshnessMs,
+    });
+  }
+
+  async function resolveSessionId() {
+    if (sessionId) return sessionId;
+    if (!joinApiUrl) return null;
+
+    var joinRes = await fetch(joinApiUrl);
+    var joinData = await joinRes.json();
+    if (!joinRes.ok) {
+      var message = (joinData && joinData.accessError && joinData.accessError.message)
+        ? joinData.accessError.message
+        : 'overlay session resolve failed';
+      throw new Error(message);
+    }
+
+    if (!joinData.sessionId) {
+      throw new Error('join resolve missing sessionId');
+    }
+
+    sessionId = joinData.sessionId;
+    return sessionId;
   }
 
   function applySnapshot(snap) {
@@ -145,6 +199,15 @@
 
   async function refresh() {
     try {
+      var resolvedSessionId = await resolveSessionId();
+      if (!resolvedSessionId) {
+        throw new Error('session not resolved');
+      }
+
+      sessionApiUrl = '/api/viewer/sessions/' + encodeURIComponent(resolvedSessionId);
+      strategyApiUrl = '/api/viewer/strategy/' + encodeURIComponent(resolvedSessionId);
+      healthApiUrl = '/api/viewer/health/' + encodeURIComponent(resolvedSessionId);
+
       var results = await Promise.all([
         fetch(sessionApiUrl).then(function (r) { return r.json(); }),
         fetch(strategyApiUrl).then(function (r) { return r.json(); }),
@@ -156,15 +219,21 @@
       var healthData = results[2];
 
       setHealth(healthData.healthLevel || 'connecting');
+      applyHealthBar(healthData || null);
 
-      $headerSession.textContent = sessionId;
-      $footerSession.textContent = 'session: ' + sessionId;
+      $headerSession.textContent = resolvedSessionId;
+      $footerSession.textContent = joinCode
+        ? ('join: ' + joinCode + ' / session: ' + resolvedSessionId)
+        : ('session: ' + resolvedSessionId);
       $footerUpdated.textContent = 'updated: ' + fmtTimestamp(Date.now());
 
       applySnapshot(sessionData.snapshot || null);
       applyStrategy(strategyData, sessionData.relayStatus);
     } catch (err) {
       setHealth('connecting');
+      if ($recPrimary) {
+        $recPrimary.textContent = err && err.message ? String(err.message) : 'Awaiting session...';
+      }
     }
   }
 

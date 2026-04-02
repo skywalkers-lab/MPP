@@ -10,6 +10,7 @@ import express from 'express';
 import {
   CompositeOpsNotifier,
   ConsoleOpsNotifier,
+  deriveSessionHealthLevel,
   InMemoryRecentOpsEvents,
   OpsEvent,
   OpsEventType,
@@ -284,7 +285,7 @@ export class RelayServer {
   }
 
   /**
-   * 세션 접근 정책을 업데이트한다 (shareEnabled, visibility)
+   * 세션 접근 정책을 업데이트 (shareEnabled, visibility)
    * PATCH /api/viewer/session-access/:sessionId에서 호출
    */
   public updateSessionAccess(
@@ -349,6 +350,8 @@ export class RelayServer {
     sessionFound: boolean;
     relayStatus: string;
     heartbeatAgeMs: number;
+    relayFreshnessMs: number;
+    snapshotFreshnessMs: number;
     healthLevel: 'healthy' | 'delayed' | 'stale_risk' | 'stale';
     checkedAt: number;
   } {
@@ -361,31 +364,26 @@ export class RelayServer {
         sessionFound: false,
         relayStatus: 'not_found',
         heartbeatAgeMs: -1,
+        relayFreshnessMs: -1,
+        snapshotFreshnessMs: -1,
         healthLevel: 'stale',
         checkedAt: now,
       };
     }
 
     const heartbeatAgeMs = now - session.lastHeartbeatAt;
+    const relayFreshnessMs = now - session.updatedAt;
+    const snapshotFreshnessMs = session.latestState ? relayFreshnessMs : -1;
 
-    let healthLevel: 'healthy' | 'delayed' | 'stale_risk' | 'stale';
-    if (session.status !== 'active') {
-      healthLevel = 'stale';
-    } else if (heartbeatAgeMs < 3000) {
-      healthLevel = 'healthy';
-    } else if (heartbeatAgeMs < 6000) {
-      healthLevel = 'delayed';
-    } else if (heartbeatAgeMs < 10000) {
-      healthLevel = 'stale_risk';
-    } else {
-      healthLevel = 'stale';
-    }
+    const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs);
 
     return {
       sessionId,
       sessionFound: true,
       relayStatus: session.status,
       heartbeatAgeMs,
+      relayFreshnessMs,
+      snapshotFreshnessMs,
       healthLevel,
       checkedAt: now,
     };

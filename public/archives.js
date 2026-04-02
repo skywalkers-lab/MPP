@@ -5,9 +5,13 @@ var $summary = document.getElementById('summary');
 var $archiveSummary = document.getElementById('archive-summary');
 var $timelineList = document.getElementById('timeline-list');
 var $snapshotFocus = document.getElementById('snapshot-focus');
+var $archiveFinalize = document.getElementById('archive-finalize');
+var $timelineKind = document.getElementById('timeline-kind');
 
 var archiveRows = [];
 var selectedSessionId = null;
+var selectedTimeline = [];
+var preset = window.UiCommon ? window.UiCommon.applyPreset('replay') : 'replay';
 
 function fmtTime(ts) {
   if (!ts) return '-';
@@ -107,15 +111,22 @@ function renderSnapshotFocus(snapshot) {
 }
 
 function renderTimeline(timeline) {
-  if (!timeline || timeline.length === 0) {
+  selectedTimeline = Array.isArray(timeline) ? timeline : [];
+
+  var kindFilter = $timelineKind ? $timelineKind.value : 'all';
+  var rows = kindFilter && kindFilter !== 'all'
+    ? selectedTimeline.filter(function (item) { return item.kind === kindFilter; })
+    : selectedTimeline;
+
+  if (!rows || rows.length === 0) {
     $timelineList.innerHTML = '<div class="muted">타임라인 항목이 없습니다.</div>';
     $timelineList.dataset.timeline = '[]';
     return;
   }
 
-  $timelineList.dataset.timeline = JSON.stringify(timeline);
+  $timelineList.dataset.timeline = JSON.stringify(rows);
 
-  $timelineList.innerHTML = timeline.map(function (item, idx) {
+  $timelineList.innerHTML = rows.map(function (item, idx) {
     if (item.kind === 'snapshot') {
       var snap = item.snapshot || {};
       var rec = snap.recommendation ? snap.recommendation.recommendation : null;
@@ -133,7 +144,7 @@ function renderTimeline(timeline) {
           (lapStr ? '<span class="tl-main">' + escapeHtml(lapStr) + '</span>' : '') +
           '<span class="tl-ts">' + escapeHtml(fmtTime(item.timestamp)) + '</span>' +
         '</div>' +
-        '<div class="tl-sub">seq=' + escapeHtml(safe(item.sequence)) +
+        '<div class="tl-sub">telemetry frame · seq=' + escapeHtml(safe(item.sequence)) +
           (rec ? ' → ' + escapeHtml(rec) : '') +
         '</div>' +
       '</div>';
@@ -144,9 +155,10 @@ function renderTimeline(timeline) {
       return '<div class="timeline-item ops_event" data-kind="ops_event" data-index="' + idx + '">' +
         '<div class="tl-header">' +
           '<span class="tl-kind-badge ops_event">ops_event</span>' +
-          '<span class="tl-main">' + escapeHtml(evType) + '</span>' +
+          '<span class="tl-main">⚙ ' + escapeHtml(evType) + '</span>' +
           '<span class="tl-ts">' + escapeHtml(fmtTime(item.timestamp)) + '</span>' +
         '</div>' +
+        '<div class="tl-sub">control-plane operation</div>' +
       '</div>';
     }
 
@@ -156,10 +168,10 @@ function renderTimeline(timeline) {
     return '<div class="timeline-item note" data-kind="note" data-index="' + idx + '">' +
       '<div class="tl-header">' +
         '<span class="tl-kind-badge note">note</span>' +
-        (noteAuthor ? '<span class="tl-sub">[' + escapeHtml(noteAuthor) + ']</span>' : '') +
+        (noteAuthor ? '<span class="tl-sub">[' + escapeHtml(noteAuthor) + ']</span>' : '<span class="tl-sub">[Observer]</span>') +
         '<span class="tl-ts">' + escapeHtml(fmtTime(item.timestamp)) + '</span>' +
       '</div>' +
-      '<div class="tl-main" style="margin-top:2px;">' + escapeHtml(noteText.slice(0, 120)) + '</div>' +
+      '<div class="tl-main" style="margin-top:2px;">📝 ' + escapeHtml(noteText.slice(0, 120)) + '</div>' +
     '</div>';
   }).join('');
 }
@@ -198,14 +210,27 @@ async function fetchArchiveList() {
   }
 
   archiveRows = data.archives || [];
-  $summary.textContent = 'count=' + archiveRows.length + ', updated=' + new Date().toLocaleTimeString();
+  $summary.textContent = 'count=' + archiveRows.length + ', updated=' + new Date().toLocaleTimeString() + ', preset=' + preset;
 
   var q = document.getElementById('archive-search').value.trim().toLowerCase();
-  var filtered = q ? archiveRows.filter(function(r) { return r.sessionId.toLowerCase().includes(q); }) : archiveRows;
+  var finalizeFilter = $archiveFinalize ? $archiveFinalize.value : 'all';
+  var filtered = archiveRows.filter(function (r) {
+    if (q && !r.sessionId.toLowerCase().includes(q)) return false;
+    if (finalizeFilter !== 'all' && r.finalizeReason !== finalizeFilter) return false;
+    return true;
+  });
   renderArchiveRows(filtered);
 
-  if (!selectedSessionId && archiveRows.length > 0) {
-    selectedSessionId = archiveRows[0].sessionId;
+  var params = new URLSearchParams(window.location.search);
+  var requestedSession = params.get('session');
+  if (!selectedSessionId && requestedSession) {
+    selectedSessionId = requestedSession;
+    await openArchive(selectedSessionId);
+    return;
+  }
+
+  if (!selectedSessionId && filtered.length > 0) {
+    selectedSessionId = filtered[0].sessionId;
     await openArchive(selectedSessionId);
   }
 }
@@ -245,9 +270,26 @@ document.getElementById('reload').addEventListener('click', refreshAll);
 // Archive search filter
 document.getElementById('archive-search').addEventListener('input', function() {
   var q = this.value.trim().toLowerCase();
-  var filtered = q ? archiveRows.filter(function(r) { return r.sessionId.toLowerCase().includes(q); }) : archiveRows;
+  var finalizeFilter = $archiveFinalize ? $archiveFinalize.value : 'all';
+  var filtered = archiveRows.filter(function (r) {
+    if (q && !r.sessionId.toLowerCase().includes(q)) return false;
+    if (finalizeFilter !== 'all' && r.finalizeReason !== finalizeFilter) return false;
+    return true;
+  });
   renderArchiveRows(filtered);
 });
+
+if ($archiveFinalize) {
+  $archiveFinalize.addEventListener('change', function () {
+    refreshAll();
+  });
+}
+
+if ($timelineKind) {
+  $timelineKind.addEventListener('change', function () {
+    renderTimeline(selectedTimeline || []);
+  });
+}
 
 $archivesBody.addEventListener('click', function (e) {
   if (e.target && e.target.classList && e.target.classList.contains('open-archive')) {

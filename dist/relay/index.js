@@ -38,6 +38,9 @@ app.get('/archives', (req, res) => {
 app.get('/overlay/:sessionId', (req, res) => {
     res.sendFile(path.join(process.cwd(), 'public', 'overlay.html'));
 });
+app.get('/overlay/join/:joinCode', (req, res) => {
+    res.sendFile(path.join(process.cwd(), 'public', 'overlay.html'));
+});
 const HTTP_PORT = process.env.VIEWER_HTTP_PORT ? parseInt(process.env.VIEWER_HTTP_PORT) : 4100;
 app.listen(HTTP_PORT, () => {
     logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);

@@ -83,6 +83,24 @@
     .health-chip.stale     { color: var(--danger); border-color: #7b3939; background: #2c1818; }
     .health-chip.connecting{ color: var(--muted);  border-color: #3a4d60; background: #1a2333; }
 
+    .health-bar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(11, 18, 27, 0.95);
+    }
+
+    .health-metric {
+      font-size: 10px;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      background: #162131;
+    }
+
     /* Stats row */
     .stats-row {
       display: flex;
@@ -217,6 +235,11 @@
       text-decoration: none;
     }
     .info-bar a:hover { color: var(--action); }
+
+    body[data-preset="broadcast"] .overlay {
+      width: 540px;
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.48);
+    }
   </style>
 </head>
 <body>
@@ -226,6 +249,8 @@
       <span class="header-session" id="header-session">connecting...</span>
       <span class="health-chip connecting" id="health-chip">CONNECTING</span>
     </div>
+
+    <div class="health-bar" id="health-bar"></div>
 
     <div class="stats-row">
       <div class="stat-cell">
@@ -266,11 +291,13 @@
     </div>
 
     <div class="info-bar">
+      <a href="#" id="preset-indicator">preset</a>
       <a href="/ops" target="_blank">ops</a>
       <a href="/archives" target="_blank">archives</a>
     </div>
   </div>
 
+  <script src="/uiCommon.js"></script>
   <script src="/overlay.js"></script>
 </body>
 </html>

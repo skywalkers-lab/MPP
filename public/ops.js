@@ -1,12 +1,17 @@
 var sessionsApiUrl = '/api/viewer/ops/sessions';
 var eventsApiUrl = '/api/viewer/ops/events/recent?limit=25';
+var archivesApiUrl = '/api/viewer/archives?limit=500';
 
 var $sessionsBody = document.getElementById('sessions-body');
 var $events = document.getElementById('events');
 var $summary = document.getElementById('summary');
 var $statusFilter = document.getElementById('status-filter');
+var $healthFilter = document.getElementById('health-filter');
+var $surfaceFilter = document.getElementById('surface-filter');
 
 var allSessions = [];
+var archivedSessionIds = {};
+var preset = window.UiCommon ? window.UiCommon.applyPreset('ops') : 'ops';
 
 function fmtTime(ts) {
   if (!ts) return '-';
@@ -30,19 +35,14 @@ function relayClass(status) {
   return 'relay-closed';
 }
 
-// Compute health level client-side from heartbeatAt + relayStatus
-function computeHealthLevel(s) {
+function getHealthLevel(s) {
+  if (s.healthLevel) return s.healthLevel;
   if (s.relayStatus !== 'active') return 'stale';
   var age = Date.now() - (s.lastHeartbeatAt || 0);
   if (age < 3000) return 'healthy';
   if (age < 6000) return 'delayed';
   if (age < 10000) return 'stale_risk';
   return 'stale';
-}
-
-function healthBadge(level) {
-  var labels = { healthy: 'healthy', delayed: 'delayed', stale_risk: 'stale risk', stale: 'STALE' };
-  return '<span class="status-chip health-' + level + '">' + (labels[level] || level) + '</span>';
 }
 
 function escapeHtml(v) {
@@ -76,10 +76,20 @@ async function copyText(text) {
 }
 
 function filterSessions(sessions) {
-  var filter = $statusFilter.value;
-  if (!filter || filter === 'all') return sessions;
   return sessions.filter(function (s) {
-    return s.relayStatus === filter;
+    var statusFilter = $statusFilter.value;
+    var healthFilter = $healthFilter.value;
+    var surfaceFilter = $surfaceFilter.value;
+    var healthLevel = getHealthLevel(s);
+
+    if (statusFilter && statusFilter !== 'all' && s.relayStatus !== statusFilter) return false;
+    if (healthFilter && healthFilter !== 'all' && healthLevel !== healthFilter) return false;
+
+    if (surfaceFilter === 'live' && !['active'].includes(s.relayStatus)) return false;
+    if (surfaceFilter === 'stale' && !(healthLevel === 'stale' || healthLevel === 'stale_risk')) return false;
+    if (surfaceFilter === 'archive' && !archivedSessionIds[s.sessionId]) return false;
+
+    return true;
   });
 }
 
@@ -95,8 +105,10 @@ function renderSummary(sessions) {
     if (s.relayStatus === 'stale') stale += 1;
     if (s.relayStatus === 'closed') closed += 1;
     if (s.hasViewerAccess) shared += 1;
-    if (computeHealthLevel(s) === 'stale_risk') staleRisk += 1;
+    if (getHealthLevel(s) === 'stale_risk') staleRisk += 1;
   });
+
+  var archivedCount = sessions.filter(function (s) { return !!archivedSessionIds[s.sessionId]; }).length;
 
   $summary.textContent =
     'total ' + sessions.length +
@@ -104,6 +116,7 @@ function renderSummary(sessions) {
     ' | stale ' + stale +
     ' | closed ' + closed +
     ' | shared ' + shared +
+    ' | archive ' + archivedCount +
     (staleRisk > 0 ? ' | ⚠ stale_risk ' + staleRisk : '');
 }
 
@@ -115,18 +128,35 @@ function renderSessionsTable(sessions) {
 
   var rows = sessions.map(function (s) {
     var joinUrl = buildJoinUrl(s.joinCode);
-    var healthLevel = computeHealthLevel(s);
+    var healthLevel = getHealthLevel(s);
     var rowClass = (healthLevel === 'stale_risk' || healthLevel === 'stale') ? ' class="row-' + healthLevel + '"' : '';
+    var archiveUrl = '/archives?session=' + encodeURIComponent(s.sessionId) + '&preset=replay';
+    var overlayJoinUrl = s.joinCode
+      ? '/overlay/join/' + encodeURIComponent(s.joinCode) + '?preset=broadcast'
+      : null;
+    var shareBadgeClass = s.shareEnabled ? 'on' : 'off';
+    var shareBadgeLabel = s.shareEnabled ? 'share ON' : 'share OFF';
+    var freshnessHtml = window.UiCommon
+      ? window.UiCommon.freshnessBarHtml({
+          heartbeatAgeMs: s.heartbeatAgeMs,
+          snapshotFreshnessMs: s.snapshotFreshnessMs,
+          relayFreshnessMs: s.relayFreshnessMs,
+        })
+      : '';
 
     return '<tr' + rowClass + '>' +
       '<td data-label="Session">' +
         '<div style="font-family:monospace;font-size:12px;">' + escapeHtml(s.sessionId) + '</div>' +
         '<div class="muted">seq: ' + safe(s.latestSequence) + '</div>' +
       '</td>' +
-      '<td data-label="Health">' + healthBadge(healthLevel) + '</td>' +
+      '<td data-label="Health">' +
+        (window.UiCommon ? window.UiCommon.healthChipHtml(healthLevel) : safe(healthLevel)) +
+        freshnessHtml +
+      '</td>' +
       '<td data-label="Relay"><span class="status-chip ' + relayClass(s.relayStatus) + '">' + safe(s.relayStatus) + '</span></td>' +
       '<td data-label="Viewer">' + safe(s.viewerStatus) + '</td>' +
       '<td data-label="Share">' +
+        '<div class="share-emphasis ' + shareBadgeClass + '">' + shareBadgeLabel + '</div>' +
         '<div class="' + accessClass(s.viewerAccessLabel) + '">' + safe(s.viewerAccessLabel) + '</div>' +
         '<div class="muted">shared=' + safe(s.shareEnabled) + ', ' + safe(s.visibility) + '</div>' +
       '</td>' +
@@ -149,16 +179,19 @@ function renderSessionsTable(sessions) {
         '<div>' + safe(s.strategyLabel || '-') + '</div>' +
         '<div class="muted">alt=' + safe(s.strategySecondaryLabel || '-') + '</div>' +
         '<div class="muted">sev=' + safe(s.strategySeverity || '-') + ', traffic=' + safe(s.strategyTrafficBand || '-') + '</div>' +
+        '<div class="muted">generated=' + fmtTime(s.strategyGeneratedAt) + '</div>' +
       '</td>' +
       '<td data-label="Heartbeat">' +
-        '<div>' + fmtAgeSeconds(s.lastHeartbeatAt) + '</div>' +
+        '<div>' + (Number.isFinite(s.heartbeatAgeMs) && s.heartbeatAgeMs >= 0 ? Math.round(s.heartbeatAgeMs / 1000) + 's ago' : fmtAgeSeconds(s.lastHeartbeatAt)) + '</div>' +
         '<div class="muted" style="font-size:11px;">' + fmtTime(s.lastHeartbeatAt) + '</div>' +
       '</td>' +
       '<td data-label="Updated">' + fmtTime(s.updatedAt) + '</td>' +
       '<td data-label="Control">' +
         '<div class="inline-actions">' +
-          '<a href="/host/' + encodeURIComponent(s.sessionId) + '" class="mini-btn">host</a>' +
-          '<a href="/overlay/' + encodeURIComponent(s.sessionId) + '" class="mini-btn" target="_blank" rel="noopener">overlay</a>' +
+          '<a href="/host/' + encodeURIComponent(s.sessionId) + '?preset=host" class="mini-btn">host</a>' +
+          '<a href="/overlay/' + encodeURIComponent(s.sessionId) + '?preset=broadcast" class="mini-btn" target="_blank" rel="noopener">overlay</a>' +
+          (overlayJoinUrl ? '<a href="' + overlayJoinUrl + '" class="mini-btn" target="_blank" rel="noopener">overlay/join</a>' : '') +
+          '<a href="' + archiveUrl + '" class="mini-btn">archive</a>' +
         '</div>' +
       '</td>' +
     '</tr>';
@@ -195,6 +228,19 @@ async function fetchSessions() {
   renderSessionsTable(filtered);
 }
 
+async function fetchArchives() {
+  var res = await fetch(archivesApiUrl);
+  var data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'archives_failed');
+  }
+
+  archivedSessionIds = {};
+  (data.archives || []).forEach(function (row) {
+    if (row && row.sessionId) archivedSessionIds[row.sessionId] = true;
+  });
+}
+
 async function fetchEvents() {
   var res = await fetch(eventsApiUrl);
   var data = await res.json();
@@ -206,7 +252,7 @@ async function fetchEvents() {
 
 async function refreshAll() {
   try {
-    await Promise.all([fetchSessions(), fetchEvents()]);
+    await Promise.all([fetchArchives(), fetchSessions(), fetchEvents()]);
   } catch (err) {
     var msg = err && err.message ? err.message : String(err);
     $events.innerHTML = '<div class="muted">데이터 로드 실패: ' + escapeHtml(msg) + '</div>';
@@ -215,6 +261,16 @@ async function refreshAll() {
 
 document.getElementById('refresh').addEventListener('click', refreshAll);
 $statusFilter.addEventListener('change', function () {
+  var filtered = filterSessions(allSessions);
+  renderSessionsTable(filtered);
+});
+
+$healthFilter.addEventListener('change', function () {
+  var filtered = filterSessions(allSessions);
+  renderSessionsTable(filtered);
+});
+
+$surfaceFilter.addEventListener('change', function () {
   var filtered = filterSessions(allSessions);
   renderSessionsTable(filtered);
 });

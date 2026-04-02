@@ -49,15 +49,24 @@ export function getViewerAccessLabel(access) {
     return 'code_required';
 }
 export function serializeSessionOpsSummary(session, access) {
+    const now = Date.now();
     const viewerStatus = getViewerStatus(session);
     const hasSnapshot = !!session.latestState;
     const shareEnabled = access?.shareEnabled === true;
     const visibility = access?.visibility ?? 'unknown';
     const joinCode = access?.joinCode ?? null;
     const hasViewerAccess = shareEnabled && access?.visibility === 'code';
+    const heartbeatAgeMs = Math.max(0, now - (session.lastHeartbeatAt || now));
+    const relayFreshnessMs = Math.max(0, now - session.updatedAt);
+    const snapshotFreshnessMs = hasSnapshot ? relayFreshnessMs : -1;
+    const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs);
     return {
         sessionId: session.sessionId,
         relayStatus: session.status,
+        healthLevel,
+        heartbeatAgeMs,
+        relayFreshnessMs,
+        snapshotFreshnessMs,
         viewerStatus,
         shareEnabled,
         visibility,
@@ -69,4 +78,15 @@ export function serializeSessionOpsSummary(session, access) {
         latestSequence: session.latestSequence ?? null,
         hasSnapshot,
     };
+}
+export function deriveSessionHealthLevel(relayStatus, heartbeatAgeMs) {
+    if (relayStatus !== 'active')
+        return 'stale';
+    if (heartbeatAgeMs < 3000)
+        return 'healthy';
+    if (heartbeatAgeMs < 6000)
+        return 'delayed';
+    if (heartbeatAgeMs < 10000)
+        return 'stale_risk';
+    return 'stale';
 }

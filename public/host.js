@@ -25,6 +25,8 @@ var $notesMessage = document.getElementById('notes-message');
 var $notesList = document.getElementById('notes-list');
 var $timelineList = document.getElementById('timeline-list');
 var $strategyCard = document.getElementById('strategy-card');
+var latestNoteContext = null;
+var latestTimelineContext = null;
 
 function setMessage(text, type) {
   if (!text) {
@@ -101,6 +103,7 @@ async function fetchAccess() {
 
 function renderNotes(notes) {
   if (!notes || notes.length === 0) {
+    latestNoteContext = null;
     $notesList.innerHTML = '<div class="muted">아직 노트가 없습니다.</div>';
     return;
   }
@@ -108,6 +111,7 @@ function renderNotes(notes) {
   var items = notes.slice().sort(function (a, b) {
     return b.timestamp - a.timestamp;
   });
+  latestNoteContext = items[0] || null;
 
   $notesList.innerHTML = items.map(function (note) {
     return '<div class="note-item" data-note-id="' + escapeHtml(note.noteId) + '">' +
@@ -127,9 +131,12 @@ function renderNotes(notes) {
 
 function renderTimeline(items) {
   if (!items || items.length === 0) {
+    latestTimelineContext = null;
     $timelineList.innerHTML = '<div class="muted">타임라인 항목이 없습니다.</div>';
     return;
   }
+
+  latestTimelineContext = items[0] || null;
 
   $timelineList.innerHTML = items.map(function (item) {
     if (item.kind === 'note' && item.note) {
@@ -172,6 +179,12 @@ function renderStrategy(data) {
   var signals = data.signals || {};
   var primary = data.primaryRecommendation || data.recommendation || 'STAY OUT';
   var secondary = data.secondaryRecommendation || '-';
+  var noteContext = latestNoteContext
+    ? ('recent note: [' + safe(latestNoteContext.category || 'general') + '] ' + safe(latestNoteContext.text || '-'))
+    : 'recent note: -';
+  var timelineContext = latestTimelineContext
+    ? ('recent timeline: ' + safe(latestTimelineContext.kind || '-') + ' @ ' + fmtTime(latestTimelineContext.timestamp))
+    : 'recent timeline: -';
 
   $strategyCard.innerHTML = '<div class="note-item">' +
     '<div class="note-meta"><span>severity: ' + escapeHtml(sev) + '</span><span>' + fmtTime(data.generatedAt) + '</span></div>' +
@@ -194,6 +207,8 @@ function renderStrategy(data) {
       ', pit=' + safe(signals.pitWindowHint) +
       ', rejoin=' + safe(signals.rejoinRiskHint) +
     '</div>' +
+    '<div class="muted" style="margin-top:6px;">' + escapeHtml(noteContext) + '</div>' +
+    '<div class="muted">' + escapeHtml(timelineContext) + '</div>' +
   '</div>';
 }
 

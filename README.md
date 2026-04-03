@@ -9,6 +9,9 @@
 
 주의: `Source code (zip/tar.gz)`는 설치 파일이 아닙니다. Windows 사용자는 반드시 `.exe` 자산을 받으세요.
 
+Windows `.exe`를 실행하면 기본 브라우저에서 대시보드(`/ops`)를 자동으로 엽니다.
+자동 오픈을 끄려면 실행 환경에서 `MPP_AUTO_OPEN_DASHBOARD=false`를 설정하세요.
+
 ## Product Value Snapshot
 
 MPP는 단순 텔레메트리 뷰어가 아니라, 아래 세 가지를 동시에 제공하는 운영 도구입니다.

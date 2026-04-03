@@ -6,6 +6,7 @@ import { ConsoleLogger } from '../debug/ConsoleLogger.js';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createViewerApiRouter } from './viewerApi.js';
 
@@ -19,6 +20,41 @@ const relayServer = new RelayServer({
   logger,
   heartbeatTimeoutMs: 10000,
 });
+
+function shouldAutoOpenDashboard(): boolean {
+  const flag = String(process.env.MPP_AUTO_OPEN_DASHBOARD || '').toLowerCase();
+  if (flag === '0' || flag === 'false' || flag === 'off' || flag === 'no') {
+    return false;
+  }
+
+  const isPackaged = !!(process as NodeJS.Process & { pkg?: unknown }).pkg;
+  const isExe = process.platform === 'win32' && process.execPath.toLowerCase().endsWith('.exe');
+  return isPackaged || isExe;
+}
+
+function openBrowser(url: string): void {
+  try {
+    if (process.platform === 'win32') {
+      const child = spawn('cmd', ['/c', 'start', '', url], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+      return;
+    }
+
+    if (process.platform === 'darwin') {
+      const child = spawn('open', [url], { detached: true, stdio: 'ignore' });
+      child.unref();
+      return;
+    }
+
+    const child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
+    child.unref();
+  } catch (err) {
+    logger.warn(`[Viewer] Failed to auto-open dashboard: ${err}`);
+  }
+}
 
 function resolvePublicDir(): string {
   const moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -74,4 +110,10 @@ const HTTP_PORT = process.env.VIEWER_HTTP_PORT ? parseInt(process.env.VIEWER_HTT
 app.listen(HTTP_PORT, () => {
   logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);
   logger.info(`[Viewer] Static assets from: ${publicDir}`);
+
+  if (shouldAutoOpenDashboard()) {
+    const dashboardUrl = `http://localhost:${HTTP_PORT}/ops?preset=ops`;
+    logger.info(`[Viewer] Auto-opening dashboard: ${dashboardUrl}`);
+    setTimeout(() => openBrowser(dashboardUrl), 600);
+  }
 });

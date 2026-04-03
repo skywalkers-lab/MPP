@@ -38,7 +38,7 @@
   function getPreset(defaultPreset) {
     var params = new URLSearchParams(window.location.search);
     var preset = params.get('preset') || defaultPreset || 'ops';
-    var allowed = ['broadcast', 'ops', 'host', 'replay'];
+    var allowed = ['broadcast', 'ops', 'host', 'replay', 'live', 'console-live', 'console-replay'];
     if (allowed.indexOf(preset) < 0) preset = defaultPreset || 'ops';
     return preset;
   }

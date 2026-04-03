@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Session Ops Control Plane</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #10151d;
+      --panel: #182230;
+      --line: #2a3a50;
+      --text: #edf2f7;
+      --muted: #95a3b8;
+      --ok: #72dc98;
+      --warn: #f0c26b;
+      --bad: #ff8f8f;
+      --info: #8ad0ff;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 0% 0%, #26384f 0%, #10151d 45%);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+
+    .wrap { max-width: 1200px; margin: 26px auto; padding: 0 16px 26px; }
+    h1 { margin: 0 0 8px; font-size: 30px; }
+    .desc { margin: 0 0 16px; color: var(--muted); }
+
+    .panel {
+      background: linear-gradient(150deg, var(--panel) 0%, #121b27 100%);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    button, select {
+      border: 1px solid var(--line);
+      background: #142131;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+
+    button { cursor: pointer; }
+
+    .status-chip {
+      display: inline-flex;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .relay-active { color: var(--ok); border-color: #2c6d45; background: #12231a; }
+    .relay-stale { color: var(--warn); border-color: #785b24; background: #2d2413; }
+    .relay-closed { color: var(--bad); border-color: #7b3939; background: #2c1818; }
+
+    .access-shared { color: var(--ok); }
+    .access-private, .access-not_shared { color: var(--warn); }
+
+    /* Session health */
+    .health-healthy   { color: var(--ok);   border-color: #2c6d45; background: #12231a; }
+    .health-delayed   { color: var(--warn);  border-color: #785b24; background: #2d2413; }
+    .health-stale_risk{ color: #ff9f57;      border-color: #7a4d25; background: #2d1e0f; }
+    .health-stale     { color: var(--bad);   border-color: #7b3939; background: #2c1818; }
+    .health-connecting{ color: var(--muted); border-color: #3a4d60; background: #1a2333; }
+
+    .health-bar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+
+    .health-metric {
+      font-size: 11px;
+      color: var(--muted);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 1px 7px;
+      background: #132030;
+    }
+
+    .share-emphasis {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 11px;
+      padding: 2px 8px;
+      margin-bottom: 4px;
+    }
+
+    .share-emphasis.on {
+      color: var(--ok);
+      border-color: #2c6d45;
+      background: #12231a;
+    }
+
+    .share-emphasis.off {
+      color: var(--warn);
+      border-color: #785b24;
+      background: #2d2413;
+    }
+
+    /* Row-level highlight for stale risk */
+    tr.row-stale_risk td { background: rgba(100, 55, 20, 0.09); }
+    tr.row-stale td      { background: rgba(100, 30, 30, 0.09); }
+
+    .inline-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .mini-btn {
+      padding: 2px 8px;
+      font-size: 12px;
+      border: 1px solid var(--line);
+      background: #112030;
+      color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .mini-btn:hover {
+      background: #1a3045;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th { color: var(--muted); font-weight: 600; }
+
+    .muted { color: var(--muted); font-size: 12px; }
+
+    a { color: var(--info); text-decoration: none; }
+
+    .event-item {
+      border-bottom: 1px solid var(--line);
+      padding: 8px 0;
+    }
+
+    .event-type { color: var(--info); font-weight: 600; }
+
+    .event-type.rebound { color: #9fd8ff; }
+    .event-message { margin-top: 2px; color: var(--text); }
+    .relay-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 10px;
+      background: #102031;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .relay-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #7a8ca3;
+    }
+
+    .relay-dot.connected { background: var(--ok); }
+    .relay-dot.idle { background: var(--warn); }
+
+    body[data-preset="broadcast"] .panel {
+      background: linear-gradient(150deg, #131c28 0%, #0f1620 100%);
+    }
+
+    body[data-preset="broadcast"] .muted {
+      color: #8da0b7;
+    }
+
+    @media (max-width: 920px) {
+      table, thead, tbody, tr, th, td { display: block; }
+      thead { display: none; }
+      td { border: 0; padding: 6px 0; }
+      tr { border-bottom: 1px solid var(--line); padding: 10px 0; }
+      td::before {
+        content: attr(data-label);
+        display: inline-block;
+        color: var(--muted);
+        margin-right: 8px;
+        min-width: 120px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Session Ops Control Plane</h1>
+    <p class="desc">다중 세션 운영 상태 관찰, stale 감시, host 제어 진입, 운영 이벤트 확인을 위한 내부 제어면입니다.</p>
+
+    <div class="panel toolbar">
+      <button id="refresh">새로고침</button>
+      <a href="/archives" class="mini-btn" style="text-decoration:none; display:inline-block;">archives</a>
+      <span data-role-preset class="status-chip" style="color:#8ad0ff;border-color:#37516c;background:#132132;">preset: ops</span>
+      <span id="auto-refresh-label" class="muted" style="font-size:11px;">auto 2.5s</span>
+      <label for="status-filter" class="muted">상태 필터</label>
+      <select id="status-filter">
+        <option value="all">all</option>
+        <option value="active">active</option>
+        <option value="stale">stale</option>
+        <option value="closed">closed</option>
+      </select>
+      <label for="health-filter" class="muted">health</label>
+      <select id="health-filter">
+        <option value="all">all</option>
+        <option value="healthy">healthy</option>
+        <option value="delayed">delayed</option>
+        <option value="stale_risk">stale_risk</option>
+        <option value="connecting">connecting</option>
+        <option value="stale">stale</option>
+      </select>
+      <label for="surface-filter" class="muted">surface</label>
+      <select id="surface-filter">
+        <option value="all">all</option>
+        <option value="live">live</option>
+        <option value="stale">stale</option>
+        <option value="archive">archive</option>
+      </select>
+      <span id="relay-pill" class="relay-pill">
+        <span id="relay-dot" class="relay-dot"></span>
+        <span id="relay-endpoint">relay: -</span>
+      </span>
+      <span id="summary" class="muted"></span>
+    </div>
+
+    <div class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th>Session</th>
+            <th>Health</th>
+            <th>Relay</th>
+            <th>Viewer</th>
+            <th>Share</th>
+            <th>Join</th>
+            <th>Notes</th>
+            <th>Strategy</th>
+            <th>Heartbeat</th>
+            <th>Updated</th>
+            <th>Control</th>
+          </tr>
+        </thead>
+        <tbody id="sessions-body"></tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 10px;">Recent Ops Events</h3>
+      <div id="events"></div>
+    </div>
+  </div>
+
+  <script src="/uiCommon.js"></script>
+  <script src="/ops.js"></script>
+</body>
+</html>

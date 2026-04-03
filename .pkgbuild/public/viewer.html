@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Remote F1 Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #0f1319;
+      --panel: #1a2430;
+      --line: #2b3a4e;
+      --text: #eef4ff;
+      --muted: #9babc1;
+      --bad: #ff8f8f;
+    }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; background: radial-gradient(circle at 10% 5%, #243246 0%, #0f1319 46%); color: var(--text); margin: 0; padding: 0; }
+    .container { max-width: 760px; margin: 36px auto; background: linear-gradient(150deg, #1f2b39, #121921); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 36px #0007; padding: 18px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .status-chip { display:inline-flex; border-radius:999px; border:1px solid #3a4c63; background:#132131; color:#9bcfff; padding:2px 8px; font-size:12px; text-transform:uppercase; }
+    .access-card { background: #2b1f1f; border: 1px solid #6d3f3f; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+    .session-card { background: #151d27; border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; }
+    .status { font-weight: bold; }
+    .snapshot-summary { background: #151b24; border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 14px; }
+    .event-log { background: #111821; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+    .event-log ul { margin: 0; padding-left: 20px; }
+    .label { color: var(--muted); font-size: 0.95em; }
+    .value { color: #fff; font-size: 1.1em; }
+    .error { color: #ff6b6b; }
+    .health-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .health-metric { font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:1px 8px; background:#152130; }
+    .health-healthy { color:#7ddc9a; border-color:#2e6843; background:#12281c; }
+    .health-delayed { color:#f8b84e; border-color:#6b5325; background:#2c2110; }
+    .health-stale_risk { color:#ff9f57; border-color:#7a4d25; background:#2d1e0f; }
+    .health-connecting { color:var(--muted); border-color:#3a4d60; background:#1a2333; }
+    .health-stale { color:#ff8f8f; border-color:#7b3939; background:#2c1818; }
+    .info-banner { background:#132131; border:1px solid #355a78; color:#8ad0ff; border-radius:8px; padding:10px 12px; margin-bottom:12px; display:none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="toolbar">
+      <span data-role-preset id="preset-indicator" class="status-chip">preset: ops</span>
+      <a href="/ops" style="color:#8ad0ff;text-decoration:none;">ops</a>
+      <a href="/archives?preset=replay" style="color:#8ad0ff;text-decoration:none;">archives</a>
+    </div>
+    <div id="rebound-banner" class="info-banner"></div>
+    <div id="access-card" class="access-card" style="display:none;"></div>
+    <div id="session-card" class="session-card"></div>
+    <div id="snapshot-summary" class="snapshot-summary"></div>
+    <div id="event-log" class="event-log"></div>
+  </div>
+  <script src="/uiCommon.js"></script>
+  <script src="/viewer.js"></script>
+</body>
+</html>

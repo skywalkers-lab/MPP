@@ -29,6 +29,8 @@ export class RelayServer {
         this.connToLastSequence = new Map();
         this.sessionToConnections = new Map();
         this.telemetrySessionUidToSessionId = new Map();
+        this.sessionAliasToCanonical = new Map();
+        this.sessionSyncUntil = new Map();
         // 5단계: joinCode → sessionId 매핑 및 access record 관리
         this.joinCodeToSessionId = new Map();
         this.sessionAccess = new Map();
@@ -84,14 +86,65 @@ export class RelayServer {
         const sessionId = this.joinCodeToSessionId.get(joinCode);
         if (!sessionId)
             return {};
-        const access = this.sessionAccess.get(sessionId);
-        return { sessionId, access };
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        const access = this.sessionAccess.get(resolved.canonicalSessionId);
+        return { sessionId: resolved.canonicalSessionId, access };
+    }
+    resolveCanonicalSessionId(sessionId) {
+        let cursor = sessionId;
+        let rebound = null;
+        const visited = new Set();
+        while (true) {
+            if (visited.has(cursor)) {
+                break;
+            }
+            visited.add(cursor);
+            const alias = this.sessionAliasToCanonical.get(cursor);
+            if (!alias) {
+                break;
+            }
+            rebound = {
+                previousSessionId: cursor,
+                telemetrySessionUid: alias.telemetrySessionUid,
+                mergedAt: alias.mergedAt,
+            };
+            cursor = alias.canonicalSessionId;
+        }
+        return {
+            canonicalSessionId: cursor,
+            rebound,
+        };
+    }
+    getRelayRuntimeInfo() {
+        const sessions = Array.from(this.sessions.values());
+        const activeSessions = sessions.filter((s) => s.status === 'active').length;
+        const staleSessions = sessions.filter((s) => s.status === 'stale').length;
+        const viewerBaseUrl = this.options.publicViewerBaseUrl || 'http://127.0.0.1:4100';
+        const relayWsUrl = this.options.publicRelayWsUrl || `ws://127.0.0.1:${this.options.wsPort}`;
+        const relayNamespace = this.options.relayNamespace || viewerBaseUrl;
+        const relayLabel = this.options.relayLabel || (relayNamespace.includes('127.0.0.1') || relayNamespace.includes('localhost') ? 'local-relay' : 'public-relay');
+        return {
+            relayWsPort: this.options.wsPort,
+            relayWsUrl,
+            relayLabel,
+            relayNamespace,
+            viewerBaseUrl,
+            shareJoinBaseUrl: `${viewerBaseUrl.replace(/\/$/, '')}/join`,
+            debugHttpEnabled: this.options.debugHttpEnabled === true,
+            corsEnabled: this.options.corsEnabled === true,
+            heartbeatTimeoutMs: this.heartbeatTimeoutMs,
+            totalSessions: sessions.length,
+            activeSessions,
+            staleSessions,
+            checkedAt: Date.now(),
+        };
     }
     /**
      * 세션의 접근/공유 메타데이터 반환
      */
     getSessionAccess(sessionId) {
-        return this.sessionAccess.get(sessionId);
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        return this.sessionAccess.get(resolved.canonicalSessionId);
     }
     listSessionOpsSummaries() {
         return Array.from(this.sessions.values())
@@ -161,12 +214,19 @@ export class RelayServer {
                     : strategy.signals.lapsRemaining,
                 strategyGeneratedAt: strategy.generatedAt,
                 strategyUnavailable: strategy.strategyUnavailable,
+                strategySyncingCanonicalSession: strategy.strategyUnavailable
+                    ? false
+                    : strategy.syncingCanonicalSession,
+                strategySyncingUntil: strategy.strategyUnavailable
+                    ? null
+                    : strategy.syncingUntil,
             };
         })
             .sort((a, b) => b.updatedAt - a.updatedAt);
     }
     getSessionStrategy(sessionId) {
-        const session = this.sessions.get(sessionId);
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        const session = this.sessions.get(resolved.canonicalSessionId);
         if (!session) {
             return {
                 strategyUnavailable: true,
@@ -182,19 +242,24 @@ export class RelayServer {
         return this.recentOpsEvents.getRecent(limit);
     }
     listSessionNotes(sessionId) {
-        return this.notesStore.listNotes(sessionId);
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        return this.notesStore.listNotes(resolved.canonicalSessionId);
     }
     addSessionNote(sessionId, payload) {
-        const note = this.notesStore.addNote(sessionId, payload);
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        const note = this.notesStore.addNote(resolved.canonicalSessionId, payload);
         this.archiveStore.recordNote(note);
         return note;
     }
     deleteSessionNote(sessionId, noteId) {
-        return this.notesStore.deleteNote(sessionId, noteId);
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        return this.notesStore.deleteNote(resolved.canonicalSessionId, noteId);
     }
     getSessionTimeline(sessionId, limit = 100) {
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        const canonicalSessionId = resolved.canonicalSessionId;
         const notes = this.notesStore
-            .listNotes(sessionId)
+            .listNotes(canonicalSessionId)
             .map((note) => ({
             kind: 'note',
             timestamp: note.timestamp,
@@ -202,7 +267,7 @@ export class RelayServer {
         }));
         const opsEvents = this.recentOpsEvents
             .getRecent(300)
-            .filter((event) => event.sessionId === sessionId)
+            .filter((event) => event.sessionId === canonicalSessionId)
             .map((event) => ({
             kind: 'ops_event',
             timestamp: event.timestamp,
@@ -216,20 +281,25 @@ export class RelayServer {
         return this.archiveStore.listArchiveSummaries(limit);
     }
     getSessionArchive(sessionId) {
-        return this.archiveStore.getArchiveBySession(sessionId);
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        return this.archiveStore.getArchiveBySession(resolved.canonicalSessionId);
     }
     getSessionArchiveSummary(sessionId) {
-        return this.archiveStore.getArchiveSummary(sessionId);
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        return this.archiveStore.getArchiveSummary(resolved.canonicalSessionId);
     }
     getSessionArchiveTimeline(sessionId, limit = 500) {
-        return this.archiveStore.getArchiveTimeline(sessionId, limit);
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        return this.archiveStore.getArchiveTimeline(resolved.canonicalSessionId, limit);
     }
     /**
      * 세션 접근 정책을 업데이트 (shareEnabled, visibility)
      * PATCH /api/viewer/session-access/:sessionId에서 호출
      */
     updateSessionAccess(sessionId, patch) {
-        const access = this.sessionAccess.get(sessionId);
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        const canonicalSessionId = resolved.canonicalSessionId;
+        const access = this.sessionAccess.get(canonicalSessionId);
         if (!access)
             return undefined;
         let changed = false;
@@ -238,7 +308,7 @@ export class RelayServer {
             const previousShareEnabled = access.shareEnabled;
             access.shareEnabled = patch.shareEnabled;
             changed = true;
-            this.emitOpsEvent('share_enabled_changed', sessionId, {
+            this.emitOpsEvent('share_enabled_changed', canonicalSessionId, {
                 previousShareEnabled,
                 nextShareEnabled: access.shareEnabled,
             });
@@ -248,14 +318,14 @@ export class RelayServer {
             const previousVisibility = access.visibility;
             access.visibility = patch.visibility;
             changed = true;
-            this.emitOpsEvent('visibility_changed', sessionId, {
+            this.emitOpsEvent('visibility_changed', canonicalSessionId, {
                 previousVisibility,
                 nextVisibility: access.visibility,
             });
         }
         if (changed) {
             access.updatedAt = Date.now();
-            this.archiveStore.updateAccessMetadata(sessionId, {
+            this.archiveStore.updateAccessMetadata(canonicalSessionId, {
                 joinCode: access.joinCode,
                 visibility: access.visibility,
             });
@@ -266,7 +336,8 @@ export class RelayServer {
      * 세션ID로 세션을 조회합니다. (향후 joinCode/visibility validation 확장 가능)
      */
     getSession(sessionId) {
-        return this.sessions.get(sessionId);
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        return this.sessions.get(resolved.canonicalSessionId);
     }
     /**
      * 세션 health 상태를 계산합니다.
@@ -274,10 +345,12 @@ export class RelayServer {
      */
     getSessionHealth(sessionId) {
         const now = Date.now();
-        const session = this.sessions.get(sessionId);
+        const resolved = this.resolveCanonicalSessionId(sessionId);
+        const canonicalSessionId = resolved.canonicalSessionId;
+        const session = this.sessions.get(canonicalSessionId);
         if (!session) {
             return {
-                sessionId,
+                sessionId: canonicalSessionId,
                 sessionFound: false,
                 relayStatus: 'not_found',
                 heartbeatAgeMs: -1,
@@ -292,7 +365,7 @@ export class RelayServer {
         const snapshotFreshnessMs = session.latestState ? relayFreshnessMs : -1;
         const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs, !!session.latestState);
         return {
-            sessionId,
+            sessionId: canonicalSessionId,
             sessionFound: true,
             relayStatus: session.status,
             heartbeatAgeMs,
@@ -301,6 +374,17 @@ export class RelayServer {
             healthLevel,
             checkedAt: now,
         };
+    }
+    isSyncingCanonicalSession(sessionId) {
+        const syncingUntil = this.sessionSyncUntil.get(sessionId) ?? null;
+        if (syncingUntil == null) {
+            return { syncingCanonicalSession: false, syncingUntil: null };
+        }
+        if (Date.now() > syncingUntil) {
+            this.sessionSyncUntil.delete(sessionId);
+            return { syncingCanonicalSession: false, syncingUntil: null };
+        }
+        return { syncingCanonicalSession: true, syncingUntil };
     }
     computeSessionStrategy(session) {
         const cached = this.strategyCache.get(session.sessionId);
@@ -335,6 +419,7 @@ export class RelayServer {
     }
     buildStrategyInput(session, previousStrategy) {
         const now = Date.now();
+        const syncing = this.isSyncingCanonicalSession(session.sessionId);
         const hasSnapshot = !!session.latestState;
         const state = session.latestState;
         if (!hasSnapshot || !state) {
@@ -342,6 +427,8 @@ export class RelayServer {
                 sessionId: session.sessionId,
                 relayStatus: session.status,
                 isStale: session.status === 'stale',
+                syncingCanonicalSession: syncing.syncingCanonicalSession,
+                syncingUntil: syncing.syncingUntil,
                 hasSnapshot: false,
                 latestSequence: session.latestSequence ?? null,
                 currentLap: null,
@@ -375,6 +462,8 @@ export class RelayServer {
             sessionId: session.sessionId,
             relayStatus: session.status,
             isStale: session.status === 'stale',
+            syncingCanonicalSession: syncing.syncingCanonicalSession,
+            syncingUntil: syncing.syncingUntil,
             hasSnapshot,
             latestSequence: session.latestSequence ?? null,
             currentLap: playerCar.currentLapNum ?? state.sessionMeta?.currentLap ?? null,
@@ -668,6 +757,7 @@ export class RelayServer {
             this.telemetrySessionUidToSessionId.set(telemetrySessionUid, currentSessionId);
             return currentSessionId;
         }
+        const mergedAt = Date.now();
         this.untrackConnectionForSession(connId, currentSessionId);
         this.trackConnectionForSession(connId, mapped);
         this.connToSession.set(connId, mapped);
@@ -675,16 +765,29 @@ export class RelayServer {
         if (sourceJoinCode) {
             this.joinCodeToSessionId.set(sourceJoinCode, mapped);
         }
+        this.archiveStore.mergeActiveRecordings(currentSessionId, mapped);
+        const sourceCache = this.strategyCache.get(currentSessionId);
+        const targetCache = this.strategyCache.get(mapped);
+        if (!targetCache && sourceCache) {
+            this.strategyCache.set(mapped, sourceCache);
+        }
         this.sessions.delete(currentSessionId);
         this.sessionAccess.delete(currentSessionId);
         this.strategyCache.delete(currentSessionId);
-        targetSession.updatedAt = Date.now();
-        targetSession.lastHeartbeatAt = Date.now();
-        targetSession.status = 'active';
-        this.emitOpsEvent('session_recovered', mapped, {
-            reason: 'telemetry_uid_merge',
-            mergedFromSessionId: currentSessionId,
+        this.sessionAliasToCanonical.set(currentSessionId, {
+            canonicalSessionId: mapped,
             telemetrySessionUid,
+            mergedAt,
+        });
+        this.sessionSyncUntil.set(mapped, mergedAt + 8000);
+        targetSession.updatedAt = mergedAt;
+        targetSession.lastHeartbeatAt = mergedAt;
+        targetSession.status = 'active';
+        this.emitOpsEvent('session_rebound', mapped, {
+            previousSessionId: currentSessionId,
+            canonicalSessionId: mapped,
+            telemetrySessionUid,
+            mergedAt,
         });
         const ws = this.connToWs.get(connId);
         if (ws) {
@@ -693,6 +796,7 @@ export class RelayServer {
                 sessionId: mapped,
                 previousSessionId: currentSessionId,
                 telemetrySessionUid,
+                mergedAt,
             }));
         }
         this.logger.info(`[Relay] Merged telemetry session ${telemetrySessionUid}: ${currentSessionId} -> ${mapped}`);

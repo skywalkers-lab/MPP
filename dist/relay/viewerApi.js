@@ -4,6 +4,26 @@ import { serializeSessionAccess } from './RelayServer';
 import { NOTE_ALLOWED_AUTHOR_LABELS, NOTE_ALLOWED_CATEGORIES, NOTE_ALLOWED_SEVERITIES, NOTE_MAX_TEXT_LENGTH, } from './notes';
 export function createViewerApiRouter(relayServer) {
     const router = express.Router();
+    function getRelayInfo() {
+        if (typeof relayServer.getRelayRuntimeInfo !== 'function') {
+            return null;
+        }
+        return relayServer.getRelayRuntimeInfo();
+    }
+    function buildAbsoluteJoinUrl(joinCode) {
+        const info = getRelayInfo();
+        const base = info?.viewerBaseUrl || '';
+        if (!base) {
+            return `/join/${joinCode}`;
+        }
+        return `${String(base).replace(/\/$/, '')}/join/${joinCode}`;
+    }
+    function resolveSession(sessionId) {
+        if (typeof relayServer.resolveCanonicalSessionId === 'function') {
+            return relayServer.resolveCanonicalSessionId(sessionId);
+        }
+        return { canonicalSessionId: sessionId, rebound: null };
+    }
     function parseNotePayload(body) {
         const text = typeof body?.text === 'string' ? body.text.trim() : '';
         if (!text) {
@@ -78,6 +98,14 @@ export function createViewerApiRouter(relayServer) {
             .slice(0, limit);
         res.json({ events, count: events.length, limit });
     });
+    // GET /api/viewer/relay-info
+    router.get('/relay-info', (_req, res) => {
+        const info = getRelayInfo();
+        if (!info) {
+            return res.status(501).json({ error: 'relay_info_unavailable' });
+        }
+        res.json(info);
+    });
     // GET /api/viewer/notes/:sessionId
     router.get('/notes/:sessionId', (req, res) => {
         const { sessionId } = req.params;
@@ -113,12 +141,13 @@ export function createViewerApiRouter(relayServer) {
     });
     // GET /api/viewer/strategy/:sessionId
     router.get('/strategy/:sessionId', (req, res) => {
-        const { sessionId } = req.params;
-        const strategy = relayServer.getSessionStrategy(sessionId);
+        const { sessionId: requestedSessionId } = req.params;
+        const resolution = resolveSession(requestedSessionId);
+        const strategy = relayServer.getSessionStrategy(resolution.canonicalSessionId);
         if (strategy.strategyUnavailable && strategy.reason === 'session_not_found') {
-            return res.status(404).json({ sessionId, ...strategy });
+            return res.status(404).json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, ...strategy });
         }
-        res.json({ sessionId, ...strategy });
+        res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, ...strategy });
     });
     // GET /api/viewer/archives?limit=100
     router.get('/archives', (req, res) => {
@@ -129,48 +158,56 @@ export function createViewerApiRouter(relayServer) {
     });
     // GET /api/viewer/archive/:sessionId
     router.get('/archive/:sessionId', (req, res) => {
-        const { sessionId } = req.params;
-        const archive = relayServer.getSessionArchive(sessionId);
+        const { sessionId: requestedSessionId } = req.params;
+        const resolution = resolveSession(requestedSessionId);
+        const archive = relayServer.getSessionArchive(resolution.canonicalSessionId);
         if (!archive) {
             return res.status(404).json({ error: 'not_found' });
         }
-        res.json({ sessionId, archive });
+        res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, archive });
     });
     // GET /api/viewer/archive/:sessionId/summary
     router.get('/archive/:sessionId/summary', (req, res) => {
-        const { sessionId } = req.params;
-        const summary = relayServer.getSessionArchiveSummary(sessionId);
+        const { sessionId: requestedSessionId } = req.params;
+        const resolution = resolveSession(requestedSessionId);
+        const summary = relayServer.getSessionArchiveSummary(resolution.canonicalSessionId);
         if (!summary) {
             return res.status(404).json({ error: 'not_found' });
         }
-        res.json({ sessionId, summary });
+        res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, summary });
     });
     // GET /api/viewer/archive/:sessionId/timeline?limit=500
     router.get('/archive/:sessionId/timeline', (req, res) => {
-        const { sessionId } = req.params;
-        const summary = relayServer.getSessionArchiveSummary(sessionId);
+        const { sessionId: requestedSessionId } = req.params;
+        const resolution = resolveSession(requestedSessionId);
+        const summary = relayServer.getSessionArchiveSummary(resolution.canonicalSessionId);
         if (!summary) {
             return res.status(404).json({ error: 'not_found' });
         }
         const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 500;
         const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(5000, limitRaw)) : 500;
-        const timeline = relayServer.getSessionArchiveTimeline(sessionId, limit);
-        res.json({ sessionId, timeline, count: timeline.length, limit });
+        const timeline = relayServer.getSessionArchiveTimeline(resolution.canonicalSessionId, limit);
+        res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, timeline, count: timeline.length, limit });
     });
     // GET /api/viewer/health/:sessionId
     router.get('/health/:sessionId', (req, res) => {
-        const { sessionId } = req.params;
-        const health = relayServer.getSessionHealth(sessionId);
-        res.json(health);
+        const { sessionId: requestedSessionId } = req.params;
+        const resolution = resolveSession(requestedSessionId);
+        const health = relayServer.getSessionHealth(resolution.canonicalSessionId);
+        res.json({ ...health, requestedSessionId, rebound: resolution.rebound });
     });
     // GET /api/viewer/sessions/:sessionId
     router.get('/sessions/:sessionId', (req, res) => {
-        const sessionId = req.params.sessionId;
+        const requestedSessionId = req.params.sessionId;
+        const resolution = resolveSession(requestedSessionId);
+        const sessionId = resolution.canonicalSessionId;
         const session = relayServer.getSession(sessionId);
         const payload = serializeViewerSession(session);
         const access = serializeSessionAccess(relayServer.getSessionAccess(sessionId));
         const response = {
             ...payload,
+            requestedSessionId,
+            rebound: resolution.rebound,
             access,
             joinCode: access?.joinCode,
             shareEnabled: access?.shareEnabled,
@@ -185,18 +222,24 @@ export function createViewerApiRouter(relayServer) {
     });
     // GET /api/viewer/session-access/:sessionId
     router.get('/session-access/:sessionId', (req, res) => {
-        const { sessionId } = req.params;
+        const { sessionId: requestedSessionId } = req.params;
+        const resolution = resolveSession(requestedSessionId);
+        const sessionId = resolution.canonicalSessionId;
         const access = serializeSessionAccess(relayServer.getSessionAccess(sessionId));
         if (!access) {
             return res.status(404).json({ error: 'not_found' });
         }
         res.json({
             sessionId,
+            requestedSessionId,
+            rebound: resolution.rebound,
             access,
             joinCode: access.joinCode,
             shareEnabled: access.shareEnabled,
             visibility: access.visibility,
             joinPath: `/join/${access.joinCode}`,
+            joinUrl: buildAbsoluteJoinUrl(access.joinCode),
+            relay: getRelayInfo(),
         });
     });
     // GET /api/viewer/join/:joinCode
@@ -235,6 +278,9 @@ export function createViewerApiRouter(relayServer) {
             joinCode,
             shareEnabled: accessSummary?.shareEnabled,
             visibility: accessSummary?.visibility,
+            joinPath: `/join/${joinCode}`,
+            joinUrl: buildAbsoluteJoinUrl(joinCode),
+            relay: getRelayInfo(),
         });
     });
     // PATCH /api/viewer/session-access/:sessionId
@@ -252,6 +298,9 @@ export function createViewerApiRouter(relayServer) {
             shareEnabled: access?.shareEnabled,
             visibility: access?.visibility,
             updatedAt: access?.updatedAt,
+            joinPath: access?.joinCode ? `/join/${access.joinCode}` : undefined,
+            joinUrl: access?.joinCode ? buildAbsoluteJoinUrl(access.joinCode) : undefined,
+            relay: getRelayInfo(),
         });
     });
     return router;

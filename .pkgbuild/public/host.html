@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Session Host Control</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #0f141b;
+      --panel: #1a232f;
+      --panel-soft: #111821;
+      --text: #edf2f7;
+      --muted: #96a2b5;
+      --ok: #7ddc9a;
+      --warn: #f8b84e;
+      --danger: #ff8f8f;
+      --line: #273446;
+      --action: #7cc8ff;
+      --action-2: #96f0c8;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background: radial-gradient(circle at 15% 10%, #1d2a3a 0%, #0f141b 45%), #0f141b;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      min-height: 100vh;
+    }
+
+    .wrap {
+      max-width: 860px;
+      margin: 32px auto;
+      padding: 0 16px 28px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      letter-spacing: 0.02em;
+    }
+
+    .desc {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .card {
+      background: linear-gradient(145deg, var(--panel) 0%, var(--panel-soft) 100%);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .row {
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .value {
+      color: var(--text);
+      font-size: 16px;
+      word-break: break-all;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: 12px;
+      border: 1px solid transparent;
+    }
+
+    .pill.ok { color: var(--ok); border-color: #2e6843; background: #12281c; }
+    .pill.warn { color: var(--warn); border-color: #6b5325; background: #2c2110; }
+
+    .status-chip {
+      display: inline-flex;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .health-healthy   { color: var(--ok);   border-color: #2e6843; background: #12281c; }
+    .health-delayed   { color: var(--warn); border-color: #6b5325; background: #2c2110; }
+    .health-stale_risk{ color: #ff9f57;     border-color: #7a4d25; background: #2d1e0f; }
+    .health-stale     { color: var(--danger); border-color: #7b3939; background: #2c1818; }
+    .health-connecting{ color: var(--muted); border-color: #3a4d60; background: #1a2333; }
+
+    .health-bar {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .health-metric {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #0f1823;
+      color: var(--muted);
+      font-size: 11px;
+      padding: 1px 7px;
+    }
+
+    .inline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button, select {
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #13202e;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+
+    button {
+      cursor: pointer;
+      transition: transform 0.08s ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+
+    .primary {
+      border-color: #3b6f93;
+      background: linear-gradient(140deg, var(--action) 0%, #4d85ae 100%);
+      color: #0a1620;
+      font-weight: 600;
+    }
+
+    .secondary {
+      border-color: #3f6f5a;
+      background: linear-gradient(140deg, var(--action-2) 0%, #6bc09f 100%);
+      color: #0a1a14;
+      font-weight: 600;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .msg {
+      margin-top: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      border: 1px solid transparent;
+    }
+
+    .msg.ok { color: var(--ok); border-color: #2e6843; background: #12281c; }
+    .msg.err { color: var(--danger); border-color: #7a3838; background: #2d1717; }
+    .msg.info { color: #8ad0ff; border-color: #355a78; background: #122131; }
+
+    .link {
+      color: #a6dcff;
+      text-decoration: none;
+    }
+
+    .notes-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .note-item {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: #101722;
+    }
+
+    .note-meta {
+      color: var(--muted);
+      font-size: 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .note-text {
+      margin-top: 6px;
+      font-size: 14px;
+      line-height: 1.35;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .input, .textarea {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #13202e;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+
+    .textarea {
+      min-height: 88px;
+      resize: vertical;
+    }
+
+    .timeline-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .timeline-item {
+      border-left: 3px solid #35506b;
+      padding: 6px 0 6px 10px;
+    }
+
+    .timeline-item.note {
+      border-left-color: #4a6f94;
+    }
+
+    .timeline-item.ops_event {
+      border-left-color: #54724d;
+    }
+
+    .strategy-rec {
+      font-size: 18px;
+      font-weight: 700;
+      margin: 4px 0;
+    }
+
+    .sev-info { color: #9fc3de; }
+    .sev-caution { color: #f8d07a; }
+    .sev-warning { color: #ffb567; }
+    .sev-critical { color: #ff8f8f; }
+
+    .metric-grid {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .metric-chip {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 12px;
+      color: var(--muted);
+      background: #0f1823;
+    }
+
+    .pitwall-grid {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .pitwall-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px;
+      background: #0f1823;
+    }
+
+    .pitwall-title {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+    }
+
+    .pitwall-sub {
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 6px;
+      line-height: 1.25;
+    }
+
+    .pitwall-value {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .pitwall-gauge {
+      height: 8px;
+      border-radius: 999px;
+      background: #182434;
+      border: 1px solid var(--line);
+      overflow: hidden;
+    }
+
+    .pitwall-gauge-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #52b788 0%, #ffd166 65%, #ff6b6b 100%);
+    }
+
+    @media (max-width: 680px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+      .pitwall-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Host Control Panel</h1>
+    <p class="desc">내부 운영자용 세션 공유 제어면입니다. 외부 viewer는 joinCode 링크로 read-only 접근만 가능합니다.</p>
+    <p class="desc"><span data-role-preset class="status-chip" style="color:#8ad0ff;border-color:#345068;background:#112030;">preset: host</span></p>
+    <p class="desc"><a class="link" href="/ops">Session Ops Control Plane로 이동</a></p>
+    <p class="desc"><a class="link" href="/archives">Archives / Replay로 이동</a></p>
+
+    <div class="card">
+      <div class="grid">
+        <div>
+          <div class="row">Session ID</div>
+          <div id="session-id" class="value">-</div>
+        </div>
+        <div>
+          <div class="row">Join Code</div>
+          <div class="inline">
+            <div id="join-code" class="value">-</div>
+            <button id="copy-code">코드 복사</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 12px;">Join URL</div>
+      <div class="inline">
+        <a id="join-url" class="value link" href="#">-</a>
+        <button id="copy-url">링크 복사</button>
+        <a id="overlay-link" class="link" href="#" target="_blank" rel="noopener">overlay surface</a>
+      </div>
+      <div class="muted" style="margin-top: 8px;">공유 중이 아닐 때 외부 사용자는 not_shared 상태를 보게 됩니다.</div>
+      <div class="row" style="margin-top: 12px;">Session Health</div>
+      <div id="health-chip"></div>
+      <div id="health-bar" class="health-bar"></div>
+      <div class="row" style="margin-top: 12px;">Relay Endpoint</div>
+      <div class="inline">
+        <span id="relay-endpoint" class="value" style="font-size:14px;">-</span>
+        <span id="relay-status" class="status-chip health-connecting">CONNECTING</span>
+      </div>
+      <div id="relay-meta" class="muted" style="margin-top:6px;">-</div>
+    </div>
+
+    <div class="card">
+      <div class="grid">
+        <div>
+          <div class="row">Share Enabled</div>
+          <div id="share-pill" class="pill warn">OFF</div>
+        </div>
+        <div>
+          <div class="row">Visibility</div>
+          <div id="visibility-pill" class="pill warn">private</div>
+        </div>
+      </div>
+
+      <div class="inline" style="margin-top: 12px;">
+        <label class="muted" for="share-enabled">공유</label>
+        <select id="share-enabled">
+          <option value="false">OFF</option>
+          <option value="true">ON</option>
+        </select>
+
+        <label class="muted" for="visibility">가시성</label>
+        <select id="visibility">
+          <option value="private">private</option>
+          <option value="code">code</option>
+        </select>
+
+        <button id="save" class="primary">적용</button>
+        <button id="reload" class="secondary">새로고침</button>
+      </div>
+
+      <div id="message"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin: 0 0 8px;">Session Notes</h3>
+      <div class="grid">
+        <div>
+          <label class="row" for="note-text">Note Text</label>
+          <textarea id="note-text" class="textarea" maxlength="400" placeholder="예: Lap 14 진입 직전 프론트 타이어 온도 급상승, 보수적 푸시 권장"></textarea>
+        </div>
+        <div>
+          <label class="row" for="note-author">Author Label</label>
+          <select id="note-author" class="input">
+            <option value="Engineer">Engineer</option>
+            <option value="Strategist">Strategist</option>
+            <option value="Pit Wall">Pit Wall</option>
+            <option value="Observer">Observer</option>
+          </select>
+
+          <label class="row" for="note-category" style="margin-top: 8px;">Category</label>
+          <select id="note-category" class="input">
+            <option value="general">general</option>
+            <option value="strategy">strategy</option>
+            <option value="incident">incident</option>
+            <option value="pit">pit</option>
+            <option value="risk">risk</option>
+          </select>
+
+          <label class="row" for="note-lap" style="margin-top: 8px;">Lap (optional)</label>
+          <input id="note-lap" class="input" type="number" min="0" step="1" placeholder="예: 14" />
+        </div>
+      </div>
+
+      <div class="inline" style="margin-top: 10px;">
+        <button id="add-note" class="primary">노트 추가</button>
+        <button id="reload-notes" class="secondary">노트 새로고침</button>
+      </div>
+      <div id="notes-message"></div>
+      <div id="notes-list" class="notes-list"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin: 0 0 8px;">Session Timeline (Ops + Notes)</h3>
+      <div class="muted">운영 이벤트와 사람 메모를 같은 시간축으로 확인합니다.</div>
+      <div id="timeline-list" class="timeline-list"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin: 0 0 8px;">Strategy Engine v2</h3>
+      <div class="muted">설명 가능한 비교형 룰 기반 추천입니다. undercut/overcut/traffic/degradation 신호를 함께 보여줍니다.</div>
+      <div id="strategy-card" class="notes-list"></div>
+    </div>
+  </div>
+
+  <script src="/uiCommon.js"></script>
+  <script src="/host.js"></script>
+</body>
+</html>

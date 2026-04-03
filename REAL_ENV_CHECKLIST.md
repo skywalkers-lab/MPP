@@ -50,6 +50,13 @@
 - 네트워크 지연/패킷 유실 시 부분 상태 일관성
 - 드라이버명 등 문자열 인코딩 이슈
 
+## 6. Public Relay 검증
+- Host/Ops/Overlay에서 동일 relay namespace(label + endpoint)가 표시되는지 확인
+- Host의 공유 링크가 절대 URL(`RELAY_PUBLIC_URL/join/{joinCode}`)로 생성되는지 확인
+- 서로 다른 네트워크 클라이언트가 같은 Public Relay join 링크로 동일 canonical session을 보는지 확인
+- session_rebound 직후 host command bar에 syncing 문구가 잠시 표시되고 이후 안정화되는지 확인
+- debug endpoint가 기본 비활성(`RELAY_ENABLE_DEBUG_HTTP=false`)인지 확인
+
 ---
 
 이 체크리스트를 따라가며 실제 게임과 /state, 콘솔 로그를 비교하면 실환경 검증이 가능합니다.

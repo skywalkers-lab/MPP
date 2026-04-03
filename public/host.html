@@ -2,449 +2,491 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>Session Host Control</title>
+  <title>Pit Wall Host Console</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     :root {
-      --bg: #0f141b;
-      --panel: #1a232f;
-      --panel-soft: #111821;
-      --text: #edf2f7;
-      --muted: #96a2b5;
-      --ok: #7ddc9a;
-      --warn: #f8b84e;
-      --danger: #ff8f8f;
-      --line: #273446;
-      --action: #7cc8ff;
-      --action-2: #96f0c8;
+      --bg: #070b11;
+      --panel: #0f1621;
+      --panel-soft: #111c2b;
+      --line: #233246;
+      --line-strong: #2e415b;
+      --text: #e8eef8;
+      --muted: #8b9cb3;
+      --cyan: #6fc7ff;
+      --blue: #78a9ff;
+      --green: #7ad9a2;
+      --amber: #f0bf62;
+      --red: #ff8f8f;
     }
 
     * { box-sizing: border-box; }
     body {
       margin: 0;
       color: var(--text);
-      background: radial-gradient(circle at 15% 10%, #1d2a3a 0%, #0f141b 45%), #0f141b;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background:
+        radial-gradient(circle at 15% 5%, #172233 0%, #0a1019 35%, #070b11 100%),
+        #070b11;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
       min-height: 100vh;
     }
 
     .wrap {
-      max-width: 860px;
-      margin: 32px auto;
-      padding: 0 16px 28px;
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 12px;
     }
 
-    h1 {
-      margin: 0 0 8px;
-      font-size: 28px;
-      letter-spacing: 0.02em;
-    }
-
-    .desc {
-      margin: 0 0 16px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .card {
-      background: linear-gradient(145deg, var(--panel) 0%, var(--panel-soft) 100%);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 14px;
-      margin-bottom: 14px;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .row {
-      margin-bottom: 8px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .value {
-      color: var(--text);
-      font-size: 16px;
-      word-break: break-all;
-    }
-
-    .pill {
-      display: inline-flex;
+    .top-links {
+      display: flex;
       align-items: center;
-      border-radius: 999px;
-      padding: 3px 10px;
-      font-size: 12px;
-      border: 1px solid transparent;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 10px;
     }
 
-    .pill.ok { color: var(--ok); border-color: #2e6843; background: #12281c; }
-    .pill.warn { color: var(--warn); border-color: #6b5325; background: #2c2110; }
-
-    .status-chip {
-      display: inline-flex;
+    .top-links a {
+      color: var(--cyan);
+      text-decoration: none;
+      border: 1px solid var(--line);
       padding: 2px 8px;
       border-radius: 999px;
-      border: 1px solid transparent;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
+      background: #0c1522;
     }
 
-    .health-healthy   { color: var(--ok);   border-color: #2e6843; background: #12281c; }
-    .health-delayed   { color: var(--warn); border-color: #6b5325; background: #2c2110; }
-    .health-stale_risk{ color: #ff9f57;     border-color: #7a4d25; background: #2d1e0f; }
-    .health-stale     { color: var(--danger); border-color: #7b3939; background: #2c1818; }
-    .health-connecting{ color: var(--muted); border-color: #3a4d60; background: #1a2333; }
+    .console {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr) 330px;
+      grid-template-rows: auto minmax(280px, auto) auto;
+      gap: 8px;
+    }
 
-    .health-bar {
+    .panel {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, var(--panel) 0%, #0b121d 100%);
+      padding: 10px;
+    }
+
+    .command-bar {
+      grid-column: 1 / -1;
+      border: 1px solid var(--line-strong);
+      background: linear-gradient(90deg, #0e1a2b 0%, #0c1320 100%);
+      padding: 10px;
+    }
+
+    .cmd-top {
       display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .title {
+      font-size: 13px;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .primary-call {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: var(--cyan);
+    }
+
+    .secondary-call {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .sync-banner {
+      padding: 4px 8px;
+      border: 1px solid #325a7d;
+      color: #a3d9ff;
+      background: rgba(16, 35, 52, 0.8);
+      font-size: 11px;
+      display: none;
+    }
+
+    .cmd-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
       gap: 6px;
-      flex-wrap: wrap;
+      font-family: "IBM Plex Mono", "Consolas", monospace;
+    }
+
+    .cmd-metric {
+      border: 1px solid var(--line);
+      background: #0b141f;
+      padding: 6px;
+      min-height: 60px;
+    }
+
+    .cmd-label {
+      font-size: 9px;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+
+    .cmd-value {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    .cmd-sub {
+      margin-top: 4px;
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.3;
+    }
+
+    .score-low .cmd-value { color: var(--green); }
+    .score-caution .cmd-value { color: var(--amber); }
+    .score-urgent .cmd-value { color: var(--red); }
+
+    .driver-panel { grid-column: 1; grid-row: 2; }
+    .tactical-panel { grid-column: 2; grid-row: 2; }
+    .analysis-panel { grid-column: 3; grid-row: 2; }
+    .comms-panel { grid-column: 1 / -1; grid-row: 3; }
+
+    .driver-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      font-family: "IBM Plex Mono", "Consolas", monospace;
+    }
+
+    .driver-item {
+      border: 1px solid var(--line);
+      background: #0c1622;
+      padding: 6px;
+      min-height: 58px;
+    }
+
+    .driver-value {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .driver-sub {
+      margin-top: 4px;
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .tactical-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .cluster {
+      border: 1px solid var(--line);
+      background: #0b141f;
+      padding: 8px;
+      min-height: 200px;
+    }
+
+    .strategy-card, .timeline-list, .notes-list {
+      display: grid;
+      gap: 6px;
       margin-top: 8px;
     }
 
-    .health-metric {
+    .note-item, .timeline-item {
       border: 1px solid var(--line);
-      border-radius: 999px;
-      background: #0f1823;
-      color: var(--muted);
-      font-size: 11px;
-      padding: 1px 7px;
-    }
-
-    .inline {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-    }
-
-    button, select {
-      border-radius: 8px;
-      border: 1px solid var(--line);
-      background: #13202e;
-      color: var(--text);
-      padding: 8px 10px;
-      font-size: 14px;
-    }
-
-    button {
-      cursor: pointer;
-      transition: transform 0.08s ease;
-    }
-
-    button:hover { transform: translateY(-1px); }
-
-    .primary {
-      border-color: #3b6f93;
-      background: linear-gradient(140deg, var(--action) 0%, #4d85ae 100%);
-      color: #0a1620;
-      font-weight: 600;
-    }
-
-    .secondary {
-      border-color: #3f6f5a;
-      background: linear-gradient(140deg, var(--action-2) 0%, #6bc09f 100%);
-      color: #0a1a14;
-      font-weight: 600;
-    }
-
-    .muted {
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .msg {
-      margin-top: 10px;
-      padding: 8px 10px;
-      border-radius: 8px;
-      font-size: 13px;
-      border: 1px solid transparent;
-    }
-
-    .msg.ok { color: var(--ok); border-color: #2e6843; background: #12281c; }
-    .msg.err { color: var(--danger); border-color: #7a3838; background: #2d1717; }
-    .msg.info { color: #8ad0ff; border-color: #355a78; background: #122131; }
-
-    .link {
-      color: #a6dcff;
-      text-decoration: none;
-    }
-
-    .notes-list {
-      display: grid;
-      gap: 8px;
-      margin-top: 10px;
-    }
-
-    .note-item {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 8px 10px;
-      background: #101722;
+      background: #0c1521;
+      padding: 7px;
     }
 
     .note-meta {
-      color: var(--muted);
-      font-size: 12px;
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 10px;
+      margin-bottom: 4px;
+      font-family: "IBM Plex Mono", "Consolas", monospace;
     }
 
     .note-text {
-      margin-top: 6px;
-      font-size: 14px;
+      font-size: 12px;
       line-height: 1.35;
-      white-space: pre-wrap;
       word-break: break-word;
+      white-space: pre-wrap;
     }
 
-    .input, .textarea {
-      width: 100%;
-      border-radius: 8px;
-      border: 1px solid var(--line);
-      background: #13202e;
-      color: var(--text);
-      padding: 8px 10px;
-      font-size: 14px;
-    }
-
-    .textarea {
-      min-height: 88px;
-      resize: vertical;
-    }
-
-    .timeline-list {
+    .analysis-grid {
       display: grid;
-      gap: 8px;
-      margin-top: 10px;
-    }
-
-    .timeline-item {
-      border-left: 3px solid #35506b;
-      padding: 6px 0 6px 10px;
-    }
-
-    .timeline-item.note {
-      border-left-color: #4a6f94;
-    }
-
-    .timeline-item.ops_event {
-      border-left-color: #54724d;
-    }
-
-    .strategy-rec {
-      font-size: 18px;
-      font-weight: 700;
-      margin: 4px 0;
-    }
-
-    .sev-info { color: #9fc3de; }
-    .sev-caution { color: #f8d07a; }
-    .sev-warning { color: #ffb567; }
-    .sev-critical { color: #ff8f8f; }
-
-    .metric-grid {
-      margin-top: 8px;
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: 1fr;
       gap: 6px;
     }
 
     .metric-chip {
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 6px 8px;
-      font-size: 12px;
+      background: #0c1623;
+      padding: 6px;
+      font-size: 11px;
       color: var(--muted);
-      background: #0f1823;
+      font-family: "IBM Plex Mono", "Consolas", monospace;
     }
 
-    .pitwall-grid {
-      margin-top: 10px;
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-    }
-
-    .pitwall-card {
+    .controls {
+      margin-top: 8px;
       border: 1px solid var(--line);
-      border-radius: 10px;
+      background: #0b141f;
       padding: 8px;
-      background: #0f1823;
     }
 
-    .pitwall-title {
+    .row {
       color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .value {
+      color: var(--text);
+      font-family: "IBM Plex Mono", "Consolas", monospace;
+      font-size: 13px;
+      word-break: break-all;
+    }
+
+    .inline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .pill, .status-chip {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 8px;
+      border: 1px solid transparent;
       font-size: 11px;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-bottom: 4px;
+      letter-spacing: 0.05em;
     }
 
-    .pitwall-sub {
-      color: var(--muted);
-      font-size: 11px;
-      margin-bottom: 6px;
-      line-height: 1.25;
-    }
+    .pill.ok, .health-healthy { color: var(--green); border-color: #2f6e4b; background: #10251b; }
+    .pill.warn, .health-delayed { color: var(--amber); border-color: #7b5e2d; background: #2a2113; }
+    .health-stale_risk { color: #ffad63; border-color: #7e4f25; background: #2d1d0f; }
+    .health-stale { color: var(--red); border-color: #7e3b3b; background: #2b1616; }
+    .health-connecting { color: var(--muted); border-color: #3a4d60; background: #182232; }
 
-    .pitwall-value {
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--text);
-      margin-bottom: 6px;
-    }
-
-    .pitwall-gauge {
-      height: 8px;
-      border-radius: 999px;
-      background: #182434;
+    button, select, .input, .textarea {
       border: 1px solid var(--line);
-      overflow: hidden;
+      background: #102033;
+      color: var(--text);
+      border-radius: 4px;
+      padding: 6px 8px;
+      font-size: 12px;
     }
 
-    .pitwall-gauge-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #52b788 0%, #ffd166 65%, #ff6b6b 100%);
+    .textarea {
+      width: 100%;
+      min-height: 72px;
+      resize: vertical;
     }
 
-    @media (max-width: 680px) {
-      .grid {
+    .msg {
+      margin-top: 6px;
+      padding: 6px 8px;
+      border: 1px solid transparent;
+      font-size: 11px;
+    }
+
+    .msg.ok { color: var(--green); border-color: #2f6e4b; background: #10251b; }
+    .msg.err { color: var(--red); border-color: #7e3b3b; background: #2b1616; }
+    .msg.info { color: #9fd8ff; border-color: #335979; background: #132232; }
+
+    .link { color: var(--cyan); text-decoration: none; }
+
+    @media (max-width: 1220px) {
+      .console {
         grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto auto auto;
       }
-      .pitwall-grid {
-        grid-template-columns: 1fr;
+      .driver-panel, .tactical-panel, .analysis-panel, .comms-panel {
+        grid-column: 1;
       }
+      .driver-panel { grid-row: 2; }
+      .tactical-panel { grid-row: 3; }
+      .analysis-panel { grid-row: 4; }
+      .comms-panel { grid-row: 5; }
+      .cmd-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .tactical-columns { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Host Control Panel</h1>
-    <p class="desc">내부 운영자용 세션 공유 제어면입니다. 외부 viewer는 joinCode 링크로 read-only 접근만 가능합니다.</p>
-    <p class="desc"><span data-role-preset class="status-chip" style="color:#8ad0ff;border-color:#345068;background:#112030;">preset: host</span></p>
-    <p class="desc"><a class="link" href="/ops">Session Ops Control Plane로 이동</a></p>
-    <p class="desc"><a class="link" href="/archives">Archives / Replay로 이동</a></p>
+    <div class="top-links">
+      <span data-role-preset class="status-chip" style="color:#8ad0ff;border-color:#345068;background:#112030;">preset: host</span>
+      <a href="/ops">ops</a>
+      <a href="/archives">archives</a>
+    </div>
 
-    <div class="card">
-      <div class="grid">
-        <div>
-          <div class="row">Session ID</div>
-          <div id="session-id" class="value">-</div>
-        </div>
-        <div>
-          <div class="row">Join Code</div>
-          <div class="inline">
-            <div id="join-code" class="value">-</div>
-            <button id="copy-code">코드 복사</button>
+    <div class="console">
+      <section class="command-bar">
+        <div class="cmd-top">
+          <div>
+            <div class="title">Strategy Command Bar</div>
+            <div id="cmd-primary" class="primary-call">Awaiting telemetry...</div>
+            <div id="cmd-secondary" class="secondary-call">secondary: -</div>
+          </div>
+          <div>
+            <span id="cmd-health" class="status-chip health-connecting">CONNECTING</span>
           </div>
         </div>
-      </div>
-
-      <div class="row" style="margin-top: 12px;">Join URL</div>
-      <div class="inline">
-        <a id="join-url" class="value link" href="#">-</a>
-        <button id="copy-url">링크 복사</button>
-        <a id="overlay-link" class="link" href="#" target="_blank" rel="noopener">overlay surface</a>
-      </div>
-      <div class="muted" style="margin-top: 8px;">공유 중이 아닐 때 외부 사용자는 not_shared 상태를 보게 됩니다.</div>
-      <div class="row" style="margin-top: 12px;">Session Health</div>
-      <div id="health-chip"></div>
-      <div id="health-bar" class="health-bar"></div>
-      <div class="row" style="margin-top: 12px;">Relay Endpoint</div>
-      <div class="inline">
-        <span id="relay-endpoint" class="value" style="font-size:14px;">-</span>
-        <span id="relay-status" class="status-chip health-connecting">CONNECTING</span>
-      </div>
-      <div id="relay-meta" class="muted" style="margin-top:6px;">-</div>
-    </div>
-
-    <div class="card">
-      <div class="grid">
-        <div>
-          <div class="row">Share Enabled</div>
-          <div id="share-pill" class="pill warn">OFF</div>
+        <div id="sync-banner" class="sync-banner">syncing canonical session...</div>
+        <div class="cmd-grid">
+          <div id="metric-confidence" class="cmd-metric">
+            <div class="cmd-label">Call Confidence</div>
+            <div id="cmd-confidence" class="cmd-value">-</div>
+            <div class="cmd-sub">primary 대비 대안 격차 기반</div>
+          </div>
+          <div id="metric-stability" class="cmd-metric">
+            <div class="cmd-label">Stability</div>
+            <div id="cmd-stability" class="cmd-value">-</div>
+            <div class="cmd-sub">임계값 경계/변동성 보정</div>
+          </div>
+          <div id="metric-pit-eta" class="cmd-metric">
+            <div class="cmd-label">Pit Window ETA</div>
+            <div id="cmd-pit-eta" class="cmd-value">-</div>
+            <div class="cmd-sub">Tyre · PitLoss · Progress</div>
+          </div>
+          <div id="metric-traffic" class="cmd-metric">
+            <div class="cmd-label">Traffic Exposure</div>
+            <div id="cmd-traffic" class="cmd-value">-</div>
+            <div class="cmd-sub">TrafficRisk · !CleanAir</div>
+          </div>
+          <div id="metric-stress" class="cmd-metric">
+            <div class="cmd-label">Tyre/Fuel Stress</div>
+            <div id="cmd-stress" class="cmd-value">-</div>
+            <div class="cmd-sub">Tyre · Fuel · Degrade</div>
+          </div>
+          <div id="metric-exec" class="cmd-metric">
+            <div class="cmd-label">Execution Readiness</div>
+            <div id="cmd-exec" class="cmd-value">-</div>
+            <div class="cmd-sub">Undercut · Overcut · !PitLoss</div>
+          </div>
+          <div id="metric-clean-air" class="cmd-metric">
+            <div class="cmd-label">Clean Air Prob.</div>
+            <div id="cmd-clean-air" class="cmd-value">-</div>
+            <div class="cmd-sub">Position · RejoinBand · Density</div>
+          </div>
         </div>
-        <div>
-          <div class="row">Visibility</div>
-          <div id="visibility-pill" class="pill warn">private</div>
+      </section>
+
+      <section class="panel driver-panel">
+        <div class="title">Driver / Car State</div>
+        <div class="driver-grid">
+          <div class="driver-item"><div class="cmd-label">Lap</div><div id="driver-lap" class="driver-value">-</div><div id="driver-lap-total" class="driver-sub">-</div></div>
+          <div class="driver-item"><div class="cmd-label">Position</div><div id="driver-pos" class="driver-value">-</div><div id="driver-best" class="driver-sub">best -</div></div>
+          <div class="driver-item"><div class="cmd-label">Compound</div><div id="driver-compound" class="driver-value">-</div><div id="driver-tyre-age" class="driver-sub">age -</div></div>
+          <div class="driver-item"><div class="cmd-label">Fuel Laps</div><div id="driver-fuel-laps" class="driver-value">-</div><div id="driver-fuel-kg" class="driver-sub">fuel -</div></div>
+          <div class="driver-item"><div class="cmd-label">ERS</div><div id="driver-ers" class="driver-value">-</div><div id="driver-last" class="driver-sub">last -</div></div>
+          <div class="driver-item"><div class="cmd-label">Session</div><div id="session-id" class="driver-value">-</div><div id="join-code" class="driver-sub">join -</div></div>
         </div>
-      </div>
 
-      <div class="inline" style="margin-top: 12px;">
-        <label class="muted" for="share-enabled">공유</label>
-        <select id="share-enabled">
-          <option value="false">OFF</option>
-          <option value="true">ON</option>
-        </select>
+        <div class="controls">
+          <div class="row">Relay Namespace</div>
+          <div class="inline"><span id="relay-endpoint" class="value">-</span><span id="relay-status" class="status-chip health-connecting">CONNECTING</span></div>
+          <div id="relay-meta" class="row" style="margin-top:6px;text-transform:none;letter-spacing:0;">-</div>
 
-        <label class="muted" for="visibility">가시성</label>
-        <select id="visibility">
-          <option value="private">private</option>
-          <option value="code">code</option>
-        </select>
+          <div class="row" style="margin-top:10px;">Share Link</div>
+          <div class="inline">
+            <a id="join-url" class="value link" href="#">-</a>
+            <button id="copy-url">copy</button>
+            <button id="copy-code">code</button>
+            <a id="overlay-link" class="link" href="#" target="_blank" rel="noopener">overlay</a>
+          </div>
 
-        <button id="save" class="primary">적용</button>
-        <button id="reload" class="secondary">새로고침</button>
-      </div>
-
-      <div id="message"></div>
-    </div>
-
-    <div class="card">
-      <h3 style="margin: 0 0 8px;">Session Notes</h3>
-      <div class="grid">
-        <div>
-          <label class="row" for="note-text">Note Text</label>
-          <textarea id="note-text" class="textarea" maxlength="400" placeholder="예: Lap 14 진입 직전 프론트 타이어 온도 급상승, 보수적 푸시 권장"></textarea>
+          <div class="inline" style="margin-top:8px;">
+            <span id="share-pill" class="pill warn">OFF</span>
+            <span id="visibility-pill" class="pill warn">private</span>
+            <label class="row" for="share-enabled" style="margin:0;">share</label>
+            <select id="share-enabled">
+              <option value="false">OFF</option>
+              <option value="true">ON</option>
+            </select>
+            <label class="row" for="visibility" style="margin:0;">visibility</label>
+            <select id="visibility">
+              <option value="private">private</option>
+              <option value="code">code</option>
+            </select>
+            <button id="save">apply</button>
+            <button id="reload">reload</button>
+          </div>
+          <div id="message"></div>
         </div>
-        <div>
-          <label class="row" for="note-author">Author Label</label>
-          <select id="note-author" class="input">
-            <option value="Engineer">Engineer</option>
-            <option value="Strategist">Strategist</option>
-            <option value="Pit Wall">Pit Wall</option>
-            <option value="Observer">Observer</option>
-          </select>
+      </section>
 
-          <label class="row" for="note-category" style="margin-top: 8px;">Category</label>
-          <select id="note-category" class="input">
-            <option value="general">general</option>
-            <option value="strategy">strategy</option>
-            <option value="incident">incident</option>
-            <option value="pit">pit</option>
-            <option value="risk">risk</option>
-          </select>
-
-          <label class="row" for="note-lap" style="margin-top: 8px;">Lap (optional)</label>
-          <input id="note-lap" class="input" type="number" min="0" step="1" placeholder="예: 14" />
+      <section class="panel tactical-panel">
+        <div class="title">Main Tactical Area</div>
+        <div class="tactical-columns">
+          <div class="cluster">
+            <div class="cmd-label">Strategy Shift / Notes</div>
+            <div id="strategy-card" class="strategy-card"></div>
+          </div>
+          <div class="cluster">
+            <div class="cmd-label">Timeline / Ops Events</div>
+            <div id="timeline-list" class="timeline-list"></div>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div class="inline" style="margin-top: 10px;">
-        <button id="add-note" class="primary">노트 추가</button>
-        <button id="reload-notes" class="secondary">노트 새로고침</button>
-      </div>
-      <div id="notes-message"></div>
-      <div id="notes-list" class="notes-list"></div>
-    </div>
+      <section class="panel analysis-panel">
+        <div class="title">Pit Wall Analysis Column</div>
+        <div id="analysis-grid" class="analysis-grid"></div>
 
-    <div class="card">
-      <h3 style="margin: 0 0 8px;">Session Timeline (Ops + Notes)</h3>
-      <div class="muted">운영 이벤트와 사람 메모를 같은 시간축으로 확인합니다.</div>
-      <div id="timeline-list" class="timeline-list"></div>
-    </div>
+        <div class="controls" style="margin-top:8px;">
+          <div class="cmd-label">Engineer Notes</div>
+          <label class="row" for="note-text">text</label>
+          <textarea id="note-text" class="textarea" maxlength="400" placeholder="예: undercut 준비, outlap traffic 재평가 필요"></textarea>
+          <div class="inline" style="margin-top:6px;">
+            <select id="note-author" class="input">
+              <option value="Engineer">Engineer</option>
+              <option value="Strategist">Strategist</option>
+              <option value="Pit Wall">Pit Wall</option>
+              <option value="Observer">Observer</option>
+            </select>
+            <select id="note-category" class="input">
+              <option value="general">general</option>
+              <option value="strategy">strategy</option>
+              <option value="incident">incident</option>
+              <option value="pit">pit</option>
+              <option value="risk">risk</option>
+            </select>
+            <input id="note-lap" class="input" type="number" min="0" step="1" placeholder="lap" style="width:72px;" />
+          </div>
+          <div class="inline" style="margin-top:6px;">
+            <button id="add-note">add note</button>
+            <button id="reload-notes">refresh</button>
+          </div>
+          <div id="notes-message"></div>
+        </div>
+      </section>
 
-    <div class="card">
-      <h3 style="margin: 0 0 8px;">Strategy Engine v2</h3>
-      <div class="muted">설명 가능한 비교형 룰 기반 추천입니다. undercut/overcut/traffic/degradation 신호를 함께 보여줍니다.</div>
-      <div id="strategy-card" class="notes-list"></div>
+      <section class="panel comms-panel">
+        <div class="title">Comms / Event Rail</div>
+        <div id="health-chip"></div>
+        <div id="health-bar"></div>
+        <div id="notes-list" class="notes-list" style="margin-top:8px;"></div>
+      </section>
     </div>
   </div>
 

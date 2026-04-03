@@ -158,6 +158,7 @@ describe('Relay telemetry session merge', () => {
       const joinRes = await request(app).get('/api/viewer/join/' + encodeURIComponent(accessB!.joinCode));
       expect(joinRes.status).toBe(200);
       expect(joinRes.body.sessionId).toBe('S-JOINA1');
+      expect(joinRes.body.joinUrl).toBe(`http://127.0.0.1:4100/join/${accessB!.joinCode}`);
 
       (relayServer as any).handleClose('conn-a');
       (relayServer as any).handleClose('conn-b');

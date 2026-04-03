@@ -13,6 +13,22 @@ import {
 export function createViewerApiRouter(relayServer: RelayServer) {
   const router = express.Router();
 
+  function getRelayInfo() {
+    if (typeof (relayServer as any).getRelayRuntimeInfo !== 'function') {
+      return null;
+    }
+    return (relayServer as any).getRelayRuntimeInfo();
+  }
+
+  function buildAbsoluteJoinUrl(joinCode: string): string {
+    const info = getRelayInfo();
+    const base = info?.viewerBaseUrl || '';
+    if (!base) {
+      return `/join/${joinCode}`;
+    }
+    return `${String(base).replace(/\/$/, '')}/join/${joinCode}`;
+  }
+
   function resolveSession(sessionId: string) {
     if (typeof (relayServer as any).resolveCanonicalSessionId === 'function') {
       return (relayServer as any).resolveCanonicalSessionId(sessionId);
@@ -106,10 +122,10 @@ export function createViewerApiRouter(relayServer: RelayServer) {
 
   // GET /api/viewer/relay-info
   router.get('/relay-info', (_req, res) => {
-    if (typeof (relayServer as any).getRelayRuntimeInfo !== 'function') {
+    const info = getRelayInfo();
+    if (!info) {
       return res.status(501).json({ error: 'relay_info_unavailable' });
     }
-    const info = (relayServer as any).getRelayRuntimeInfo();
     res.json(info);
   });
 
@@ -258,6 +274,8 @@ export function createViewerApiRouter(relayServer: RelayServer) {
       shareEnabled: access.shareEnabled,
       visibility: access.visibility,
       joinPath: `/join/${access.joinCode}`,
+      joinUrl: buildAbsoluteJoinUrl(access.joinCode),
+      relay: getRelayInfo(),
     });
   });
 
@@ -300,6 +318,9 @@ export function createViewerApiRouter(relayServer: RelayServer) {
       joinCode,
       shareEnabled: accessSummary?.shareEnabled,
       visibility: accessSummary?.visibility,
+      joinPath: `/join/${joinCode}`,
+      joinUrl: buildAbsoluteJoinUrl(joinCode),
+      relay: getRelayInfo(),
     });
   });
 
@@ -317,6 +338,9 @@ export function createViewerApiRouter(relayServer: RelayServer) {
       shareEnabled: access?.shareEnabled,
       visibility: access?.visibility,
       updatedAt: access?.updatedAt,
+      joinPath: access?.joinCode ? `/join/${access.joinCode}` : undefined,
+      joinUrl: access?.joinCode ? buildAbsoluteJoinUrl(access.joinCode) : undefined,
+      relay: getRelayInfo(),
     });
   });
 

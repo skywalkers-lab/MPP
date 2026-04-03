@@ -322,7 +322,17 @@ export class StrategyEngine {
         };
         const confidenceScore = computeConfidenceScore(scoreByRecommendation);
         const stabilityScore = computeStabilityScore(signals, input.previousStrategy?.signals);
-        const recommendationChanged = !!input.previousStrategy && input.previousStrategy.recommendation !== recommendation;
+        const rawRecommendationChanged = !!input.previousStrategy && input.previousStrategy.recommendation !== recommendation;
+        const syncingCanonicalSession = input.syncingCanonicalSession === true;
+        let finalConfidence = confidenceScore;
+        let finalStability = stabilityScore;
+        let recommendationChanged = rawRecommendationChanged;
+        if (syncingCanonicalSession) {
+            finalConfidence = Math.min(finalConfidence, 55);
+            finalStability = Math.min(finalStability, 45);
+            recommendationChanged = false;
+            reasons.push('canonical session sync in progress; confidence/stability are temporarily conservative');
+        }
         const trendReason = buildTrendReason(recommendationChanged, signals, input.previousStrategy?.signals);
         if (confidenceScore >= 85) {
             reasons.push('high-confidence recommendation with aligned strategy signals');
@@ -339,10 +349,12 @@ export class StrategyEngine {
             primaryRecommendation: recommendation,
             secondaryRecommendation,
             severity,
-            confidenceScore,
-            stabilityScore,
+            confidenceScore: finalConfidence,
+            stabilityScore: finalStability,
             recommendationChanged,
             trendReason,
+            syncingCanonicalSession,
+            syncingUntil: input.syncingUntil ?? null,
             reasons,
             signals,
             generatedAt: input.generatedAt,

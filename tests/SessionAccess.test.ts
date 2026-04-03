@@ -48,6 +48,8 @@ describe('Session Access/Invite (joinCode) API', () => {
     expect(res.body.access.shareEnabled).toBe(false);
     expect(res.body.access.visibility).toBe('private');
     expect(res.body.joinPath).toBe(`/join/${joinCode}`);
+    expect(res.body.joinUrl).toBe(`http://127.0.0.1:4100/join/${joinCode}`);
+    expect(res.body.relay.viewerBaseUrl).toBe('http://127.0.0.1:4100');
   });
 
   it('존재하지 않는 세션 access 조회는 404를 반환한다', async () => {
@@ -88,6 +90,8 @@ describe('Session Access/Invite (joinCode) API', () => {
     expect(res.body.access.joinCode).toBe(joinCode);
     expect(res.body.shareEnabled).toBe(true);
     expect(res.body.visibility).toBe('code');
+    expect(res.body.joinUrl).toBe(`http://127.0.0.1:4100/join/${joinCode}`);
+    expect(res.body.relay.relayWsUrl).toBe('ws://127.0.0.1:0');
 
     res = await request(app).get(`/api/viewer/join/ZZZZZZ`);
     expect(res.status).toBe(404);

@@ -87,6 +87,12 @@ export interface RelayServerOptions {
   debugHttpPort?: number;
   logger?: ConsoleLogger;
   heartbeatTimeoutMs?: number;
+  publicViewerBaseUrl?: string;
+  publicRelayWsUrl?: string;
+  relayLabel?: string;
+  relayNamespace?: string;
+  debugHttpEnabled?: boolean;
+  corsEnabled?: boolean;
 }
 
 export interface CanonicalSessionResolution {
@@ -101,6 +107,12 @@ export interface CanonicalSessionResolution {
 export interface RelayRuntimeInfo {
   relayWsPort: number;
   relayWsUrl: string;
+  relayLabel: string;
+  relayNamespace: string;
+  viewerBaseUrl: string;
+  shareJoinBaseUrl: string;
+  debugHttpEnabled: boolean;
+  corsEnabled: boolean;
   heartbeatTimeoutMs: number;
   totalSessions: number;
   activeSessions: number;
@@ -233,10 +245,20 @@ export class RelayServer {
     const sessions = Array.from(this.sessions.values());
     const activeSessions = sessions.filter((s) => s.status === 'active').length;
     const staleSessions = sessions.filter((s) => s.status === 'stale').length;
+    const viewerBaseUrl = this.options.publicViewerBaseUrl || 'http://127.0.0.1:4100';
+    const relayWsUrl = this.options.publicRelayWsUrl || `ws://127.0.0.1:${this.options.wsPort}`;
+    const relayNamespace = this.options.relayNamespace || viewerBaseUrl;
+    const relayLabel = this.options.relayLabel || (relayNamespace.includes('127.0.0.1') || relayNamespace.includes('localhost') ? 'local-relay' : 'public-relay');
 
     return {
       relayWsPort: this.options.wsPort,
-      relayWsUrl: `ws://127.0.0.1:${this.options.wsPort}`,
+      relayWsUrl,
+      relayLabel,
+      relayNamespace,
+      viewerBaseUrl,
+      shareJoinBaseUrl: `${viewerBaseUrl.replace(/\/$/, '')}/join`,
+      debugHttpEnabled: this.options.debugHttpEnabled === true,
+      corsEnabled: this.options.corsEnabled === true,
       heartbeatTimeoutMs: this.heartbeatTimeoutMs,
       totalSessions: sessions.length,
       activeSessions,

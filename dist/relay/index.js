@@ -15,6 +15,12 @@ const logger = new ConsoleLogger('info');
 const WS_PORT = readPortFromEnv('RELAY_WS_PORT', 4000);
 const DEBUG_HTTP_PORT = readPortFromEnv('RELAY_DEBUG_HTTP_PORT', 4001);
 const HTTP_PORT = readPortFromEnv('VIEWER_HTTP_PORT', 4100);
+const ENABLE_DEBUG_HTTP = readBooleanFromEnv('RELAY_ENABLE_DEBUG_HTTP', false);
+const ENABLE_CORS = readBooleanFromEnv('RELAY_ENABLE_CORS', false);
+const ALLOWED_ORIGINS = readListFromEnv('RELAY_ALLOWED_ORIGINS');
+const PUBLIC_VIEWER_BASE_URL = readPublicUrlFromEnv('RELAY_PUBLIC_URL', `http://127.0.0.1:${HTTP_PORT}`);
+const PUBLIC_RELAY_WS_URL = readPublicWsUrlFromEnv('RELAY_PUBLIC_WS_URL', PUBLIC_VIEWER_BASE_URL, WS_PORT);
+const RELAY_LABEL = (process.env.RELAY_LABEL || '').trim() || inferRelayLabel(PUBLIC_VIEWER_BASE_URL);
 let embeddedUdp = null;
 let embeddedRelayClient = null;
 let embeddedAgentStarted = false;
@@ -30,6 +36,77 @@ function readPortFromEnv(name, fallback) {
     }
     logger.warn(`[Config] Invalid ${name}=${raw}; using default ${fallback}`);
     return fallback;
+}
+function readBooleanFromEnv(name, fallback) {
+    const raw = process.env[name];
+    if (!raw || raw.trim().length === 0) {
+        return fallback;
+    }
+    const value = raw.trim().toLowerCase();
+    if (['1', 'true', 'on', 'yes'].includes(value))
+        return true;
+    if (['0', 'false', 'off', 'no'].includes(value))
+        return false;
+    logger.warn(`[Config] Invalid ${name}=${raw}; using default ${String(fallback)}`);
+    return fallback;
+}
+function readListFromEnv(name) {
+    const raw = process.env[name];
+    if (!raw)
+        return [];
+    return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+}
+function readPublicUrlFromEnv(name, fallback) {
+    const raw = process.env[name];
+    if (!raw || raw.trim().length === 0) {
+        return fallback;
+    }
+    try {
+        const url = new URL(raw);
+        return `${url.protocol}//${url.host}`;
+    }
+    catch {
+        logger.warn(`[Config] Invalid ${name}=${raw}; using default ${fallback}`);
+        return fallback;
+    }
+}
+function readPublicWsUrlFromEnv(name, viewerBaseUrl, wsPort) {
+    const raw = process.env[name];
+    if (raw && raw.trim().length > 0) {
+        try {
+            const wsUrl = new URL(raw);
+            if (wsUrl.protocol !== 'ws:' && wsUrl.protocol !== 'wss:') {
+                throw new Error('invalid_ws_protocol');
+            }
+            return `${wsUrl.protocol}//${wsUrl.host}${wsUrl.pathname}`;
+        }
+        catch {
+            logger.warn(`[Config] Invalid ${name}=${raw}; deriving from RELAY_PUBLIC_URL`);
+        }
+    }
+    try {
+        const url = new URL(viewerBaseUrl);
+        const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${wsProtocol}//${url.host}`;
+    }
+    catch {
+        return `ws://127.0.0.1:${wsPort}`;
+    }
+}
+function inferRelayLabel(viewerBaseUrl) {
+    try {
+        const host = new URL(viewerBaseUrl).hostname;
+        if (host === '127.0.0.1' || host === 'localhost') {
+            return 'local-relay';
+        }
+        return 'public-relay';
+    }
+    catch {
+        return 'custom-relay';
+    }
 }
 function resolveCrashLogPath() {
     const exeDir = path.dirname(process.execPath);
@@ -60,9 +137,15 @@ process.on('unhandledRejection', (reason) => {
 });
 const relayServer = new RelayServer({
     wsPort: WS_PORT,
-    debugHttpPort: DEBUG_HTTP_PORT,
+    debugHttpPort: ENABLE_DEBUG_HTTP ? DEBUG_HTTP_PORT : undefined,
     logger,
     heartbeatTimeoutMs: 10000,
+    publicViewerBaseUrl: PUBLIC_VIEWER_BASE_URL,
+    publicRelayWsUrl: PUBLIC_RELAY_WS_URL,
+    relayLabel: RELAY_LABEL,
+    relayNamespace: PUBLIC_VIEWER_BASE_URL,
+    debugHttpEnabled: ENABLE_DEBUG_HTTP,
+    corsEnabled: ENABLE_CORS,
 });
 registerProcessShutdown();
 if (shouldStartEmbeddedAgent()) {
@@ -251,6 +334,27 @@ function resolvePublicDir() {
 }
 // Viewer API 및 정적 파일 서버
 const app = express();
+if (ENABLE_CORS) {
+    app.use((req, res, next) => {
+        const origin = req.headers.origin;
+        const allowAny = ALLOWED_ORIGINS.length === 0;
+        const allowed = allowAny || (origin ? ALLOWED_ORIGINS.includes(origin) : false);
+        if (allowAny) {
+            res.setHeader('Access-Control-Allow-Origin', '*');
+        }
+        else if (allowed && origin) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+            res.setHeader('Vary', 'Origin');
+        }
+        res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        if (req.method === 'OPTIONS') {
+            res.status(204).end();
+            return;
+        }
+        next();
+    });
+}
 app.use(express.json()); // PATCH body parsing
 const publicDir = resolvePublicDir();
 app.use(express.static(publicDir)); // 루트 static 서빙
@@ -265,6 +369,12 @@ app.get('/healthz', (_req, res) => {
         relay: {
             wsPort: WS_PORT,
             viewerPort: HTTP_PORT,
+            label: RELAY_LABEL,
+            viewerBaseUrl: PUBLIC_VIEWER_BASE_URL,
+            relayWsUrl: PUBLIC_RELAY_WS_URL,
+            debugHttpEnabled: ENABLE_DEBUG_HTTP,
+            corsEnabled: ENABLE_CORS,
+            corsAllowedOrigins: ALLOWED_ORIGINS,
         },
         embeddedAgent: {
             enabled: shouldStartEmbeddedAgent(),
@@ -298,6 +408,12 @@ app.get('/ops', (req, res) => {
 });
 app.get('/archives', (req, res) => {
     res.sendFile(path.join(publicDir, 'archives.html'));
+});
+app.get('/console/live', (req, res) => {
+    res.sendFile(path.join(publicDir, 'console-live.html'));
+});
+app.get('/console/replay', (req, res) => {
+    res.sendFile(path.join(publicDir, 'console-replay.html'));
 });
 app.get('/overlay/:sessionId', (req, res) => {
     res.sendFile(path.join(publicDir, 'overlay.html'));

@@ -17,10 +17,19 @@ describe('Viewer API', () => {
       updateSessionAccess: () => undefined,
       resolveCanonicalSessionId: (id: string) => ({ canonicalSessionId: id, rebound: null }),
       getRelayRuntimeInfo: () => ({
-        endpoint: 'ws://127.0.0.1:8787',
-        status: 'active',
-        hostCount: 1,
-        activeSessionCount: 1,
+        relayWsPort: 8787,
+        relayWsUrl: 'ws://127.0.0.1:8787',
+        relayLabel: 'local-relay',
+        relayNamespace: 'http://127.0.0.1:4100',
+        viewerBaseUrl: 'http://127.0.0.1:4100',
+        shareJoinBaseUrl: 'http://127.0.0.1:4100/join',
+        debugHttpEnabled: false,
+        corsEnabled: false,
+        heartbeatTimeoutMs: 10000,
+        totalSessions: 1,
+        activeSessions: 1,
+        staleSessions: 0,
+        checkedAt: 1000,
       }),
     };
     app = express();
@@ -30,10 +39,10 @@ describe('Viewer API', () => {
   it('relay runtime info endpoint를 제공한다', async () => {
     const res = await request(app).get('/api/viewer/relay-info');
     expect(res.status).toBe(200);
-    expect(res.body.endpoint).toBe('ws://127.0.0.1:8787');
-    expect(res.body.status).toBe('active');
-    expect(res.body.hostCount).toBe(1);
-    expect(res.body.activeSessionCount).toBe(1);
+    expect(res.body.relayWsUrl).toBe('ws://127.0.0.1:8787');
+    expect(res.body.relayLabel).toBe('local-relay');
+    expect(res.body.viewerBaseUrl).toBe('http://127.0.0.1:4100');
+    expect(res.body.activeSessions).toBe(1);
   });
 
   it('세션 없음 → 404 + not_found', async () => {

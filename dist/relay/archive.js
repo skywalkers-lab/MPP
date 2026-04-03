@@ -74,6 +74,39 @@ export class InMemorySessionArchiveStore {
             active.visibility = patch.visibility;
         }
     }
+    mergeActiveRecordings(fromSessionId, toSessionId) {
+        if (fromSessionId === toSessionId)
+            return;
+        const source = this.activeBySession.get(fromSessionId);
+        if (!source)
+            return;
+        let target = this.activeBySession.get(toSessionId);
+        if (!target) {
+            this.activeBySession.set(toSessionId, {
+                ...source,
+                sessionId: toSessionId,
+            });
+            this.activeBySession.delete(fromSessionId);
+            return;
+        }
+        target.snapshots.push(...source.snapshots);
+        target.opsEvents.push(...source.opsEvents);
+        target.notes.push(...source.notes);
+        target.lastRecordedSequence = Math.max(target.lastRecordedSequence ?? 0, source.lastRecordedSequence ?? 0);
+        target.startedAt = Math.min(target.startedAt, source.startedAt);
+        target.createdAt = Math.min(target.createdAt, source.createdAt);
+        if (!target.joinCode && source.joinCode) {
+            target.joinCode = source.joinCode;
+        }
+        if (target.visibility === 'unknown' && source.visibility !== 'unknown') {
+            target.visibility = source.visibility;
+        }
+        target.snapshots.sort((a, b) => a.sequence - b.sequence);
+        if (target.snapshots.length > this.maxSnapshotsPerSession) {
+            target.snapshots.splice(0, target.snapshots.length - this.maxSnapshotsPerSession);
+        }
+        this.activeBySession.delete(fromSessionId);
+    }
     finalizeSessionArchive(sessionId, input) {
         const active = this.activeBySession.get(sessionId);
         if (!active)

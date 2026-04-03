@@ -9,8 +9,15 @@ var notesApiUrl = '/api/viewer/notes/' + encodeURIComponent(sessionId);
 var timelineApiUrl = '/api/viewer/timeline/' + encodeURIComponent(sessionId) + '?limit=120';
 var strategyApiUrl = '/api/viewer/strategy/' + encodeURIComponent(sessionId);
 var healthApiUrl = '/api/viewer/health/' + encodeURIComponent(sessionId);
+var sessionApiUrl = '/api/viewer/sessions/' + encodeURIComponent(sessionId);
 var relayInfoApiUrl = '/api/viewer/relay-info';
 var preset = window.UiCommon ? window.UiCommon.applyPreset('host') : 'host';
+
+var relayInfoCache = null;
+var lastReboundEventId = null;
+var latestNoteContext = null;
+var latestTimelineContext = null;
+var messageTimer = null;
 
 var $sessionId = document.getElementById('session-id');
 var $joinCode = document.getElementById('join-code');
@@ -34,10 +41,83 @@ var $notesMessage = document.getElementById('notes-message');
 var $notesList = document.getElementById('notes-list');
 var $timelineList = document.getElementById('timeline-list');
 var $strategyCard = document.getElementById('strategy-card');
-var latestNoteContext = null;
-var latestTimelineContext = null;
-var messageTimer = null;
-var lastReboundEventId = null;
+var $analysisGrid = document.getElementById('analysis-grid');
+
+var $cmdPrimary = document.getElementById('cmd-primary');
+var $cmdSecondary = document.getElementById('cmd-secondary');
+var $cmdConfidence = document.getElementById('cmd-confidence');
+var $cmdStability = document.getElementById('cmd-stability');
+var $cmdPitEta = document.getElementById('cmd-pit-eta');
+var $cmdTraffic = document.getElementById('cmd-traffic');
+var $cmdStress = document.getElementById('cmd-stress');
+var $cmdExec = document.getElementById('cmd-exec');
+var $cmdCleanAir = document.getElementById('cmd-clean-air');
+var $cmdHealth = document.getElementById('cmd-health');
+var $syncBanner = document.getElementById('sync-banner');
+
+var $driverLap = document.getElementById('driver-lap');
+var $driverLapTotal = document.getElementById('driver-lap-total');
+var $driverPos = document.getElementById('driver-pos');
+var $driverCompound = document.getElementById('driver-compound');
+var $driverTyreAge = document.getElementById('driver-tyre-age');
+var $driverFuelLaps = document.getElementById('driver-fuel-laps');
+var $driverFuelKg = document.getElementById('driver-fuel-kg');
+var $driverErs = document.getElementById('driver-ers');
+var $driverLast = document.getElementById('driver-last');
+var $driverBest = document.getElementById('driver-best');
+
+function safe(v) {
+  return v === null || v === undefined ? '-' : String(v);
+}
+
+function num(v) {
+  return Number.isFinite(v) ? Number(v) : null;
+}
+
+function fmtTime(ts) {
+  if (!ts) return '-';
+  return new Date(ts).toLocaleString();
+}
+
+function fmtPct(v) {
+  var n = num(v);
+  if (n === null) return '-';
+  return String(Math.round(Math.max(0, Math.min(100, n)))) + '%';
+}
+
+function fmtLapTime(v) {
+  var n = num(v);
+  if (n === null || n <= 0) return '-';
+  if (window.UiCommon && typeof window.UiCommon.fmtMs === 'function') {
+    return window.UiCommon.fmtMs(n);
+  }
+  return String(Math.round(n)) + 'ms';
+}
+
+function escapeHtml(v) {
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function scoreBandClass(value) {
+  var n = num(value);
+  if (n === null) return '';
+  if (n >= 70) return 'score-urgent';
+  if (n >= 40) return 'score-caution';
+  return 'score-low';
+}
+
+function setMetricBand(id, value) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('score-low', 'score-caution', 'score-urgent');
+  var band = scoreBandClass(value);
+  if (band) el.classList.add(band);
+}
 
 function setMessage(text, type) {
   if (messageTimer) {
@@ -67,21 +147,6 @@ function setNotesMessage(text, type) {
   $notesMessage.innerHTML = '<div class="msg ' + type + '">' + text + '</div>';
 }
 
-function safe(v) {
-  return v === null || v === undefined ? '-' : String(v);
-}
-
-function num(v) {
-  return Number.isFinite(v) ? Number(v) : null;
-}
-
-function pct(v) {
-  var n = num(v);
-  if (n === null) return '-';
-  var clamped = Math.max(0, Math.min(100, n));
-  return String(Math.round(clamped));
-}
-
 function pitWindowEta(signals) {
   var hint = signals.pitWindowHint || 'unknown';
   var lapsRemaining = num(signals.lapsRemaining);
@@ -89,87 +154,48 @@ function pitWindowEta(signals) {
   if (hint === 'open_now') return 'NOW';
   if (hint === 'open_soon') return '1-2 laps';
   if (hint === 'monitor') return '3-5 laps';
-  if (hint === 'too_early') {
-    if (lapsRemaining !== null) {
-      return lapsRemaining > 12 ? '8+ laps' : '5-8 laps';
-    }
-    return '5+ laps';
-  }
+  if (hint === 'too_early') return lapsRemaining !== null && lapsRemaining > 12 ? '8+ laps' : '5-8 laps';
   return '-';
 }
 
-function pitwallGauge(title, subtitle, valueLabel, score) {
-  var width = num(score);
-  var normalizedWidth = width === null ? 0 : Math.max(0, Math.min(100, Math.round(width)));
-  return '<div class="pitwall-card">' +
-    '<div class="pitwall-title" title="' + escapeHtml(subtitle || '') + '">' + escapeHtml(title) + '</div>' +
-    '<div class="pitwall-sub">' + escapeHtml(subtitle || '-') + '</div>' +
-    '<div class="pitwall-value">' + escapeHtml(valueLabel) + '</div>' +
-    '<div class="pitwall-gauge"><div class="pitwall-gauge-fill" style="width:' + escapeHtml(normalizedWidth) + '%"></div></div>' +
-  '</div>';
+function relayViewerBase() {
+  return relayInfoCache && relayInfoCache.viewerBaseUrl
+    ? String(relayInfoCache.viewerBaseUrl).replace(/\/$/, '')
+    : window.location.origin;
 }
 
-function formatOpsEventText(event) {
-  if (!event) return '-';
-  if (event.type === 'session_rebound') {
-    var prev = event.payload && event.payload.previousSessionId ? String(event.payload.previousSessionId) : '-';
-    var next = event.payload && event.payload.canonicalSessionId ? String(event.payload.canonicalSessionId) : safe(event.sessionId);
-    var uid = event.payload && event.payload.telemetrySessionUid ? String(event.payload.telemetrySessionUid) : '-';
-    return '같은 경기 sessionUID(' + uid + ') 감지로 canonical 병합: ' + prev + ' -> ' + next;
-  }
-  if (event.type === 'session_stale') return '세션 heartbeat 지연으로 stale 전환';
-  if (event.type === 'session_recovered') return '세션 연결이 복구되어 active 상태로 전환';
-  if (event.type === 'session_started') return '새 host 연결로 세션이 시작됨';
-  if (event.type === 'share_enabled_changed') return '공유 설정(shareEnabled) 변경';
-  if (event.type === 'visibility_changed') return '가시성(visibility) 변경';
-  return safe(event.type);
-}
-
-function escapeHtml(v) {
-  return String(v)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-function fmtTime(ts) {
-  if (!ts) return '-';
-  return new Date(ts).toLocaleString();
-}
-
-function buildJoinUrl(joinCode) {
-  return window.location.origin + '/join/' + encodeURIComponent(joinCode);
+function buildJoinUrl(joinCode, absolute) {
+  if (!joinCode) return '-';
+  var root = absolute ? relayViewerBase() : window.location.origin;
+  return root + '/join/' + encodeURIComponent(joinCode);
 }
 
 function buildOverlayUrl(id) {
-  return window.location.origin + '/overlay/' + encodeURIComponent(id) + '?preset=broadcast';
+  return relayViewerBase() + '/overlay/' + encodeURIComponent(id) + '?preset=broadcast';
 }
 
-function applyAccess(access) {
+function applyAccess(access, joinUrlFromApi) {
   if (!access) return;
 
   $sessionId.textContent = safe(access.sessionId || sessionId);
-  $joinCode.textContent = safe(access.joinCode);
+  $joinCode.textContent = 'join ' + safe(access.joinCode);
 
   var shareOn = access.shareEnabled === true;
   $shareEnabled.value = String(shareOn);
   $visibility.value = access.visibility || 'private';
 
-  $sharePill.textContent = shareOn ? 'ON' : 'OFF';
+  $sharePill.textContent = shareOn ? 'share on' : 'share off';
   $sharePill.className = 'pill ' + (shareOn ? 'ok' : 'warn');
 
   $visibilityPill.textContent = access.visibility || '-';
   $visibilityPill.className = 'pill ' + (access.visibility === 'code' ? 'ok' : 'warn');
 
-  var joinUrl = buildJoinUrl(access.joinCode);
+  var joinUrl = joinUrlFromApi || buildJoinUrl(access.joinCode, true);
   $joinUrl.textContent = joinUrl;
   $joinUrl.href = joinUrl;
 
   if ($overlayLink) {
-    var overlayUrl = buildOverlayUrl(access.sessionId || sessionId);
-    $overlayLink.href = overlayUrl;
+    $overlayLink.href = buildOverlayUrl(access.sessionId || sessionId);
   }
 }
 
@@ -179,40 +205,33 @@ function maybeShowReboundBanner(rebound) {
   lastReboundEventId = rebound.mergedAt;
 
   setTransientInfoMessage(
-    '같은 경기 sessionUID가 감지되어 canonical session으로 병합되었습니다. ' +
-    safe(rebound.previousSessionId) + ' -> ' + safe(sessionId),
+    'canonical 병합 감지: ' + safe(rebound.previousSessionId) + ' -> ' + safe(sessionId),
     7000
   );
 }
 
 function renderHealth(health) {
-  if (!$healthChip || !$healthBar) return;
-
   var level = health && health.healthLevel ? health.healthLevel : 'connecting';
-  $healthChip.innerHTML = window.UiCommon
-    ? window.UiCommon.healthChipHtml(level)
-    : safe(level);
 
-  $healthBar.innerHTML = window.UiCommon
-    ? window.UiCommon.freshnessBarHtml({
-        heartbeatAgeMs: health && health.heartbeatAgeMs,
-        snapshotFreshnessMs: health && health.snapshotFreshnessMs,
-        relayFreshnessMs: health && health.relayFreshnessMs,
-      })
-    : '';
-}
+  if ($healthChip) {
+    $healthChip.innerHTML = window.UiCommon
+      ? window.UiCommon.healthChipHtml(level)
+      : safe(level);
+  }
 
-async function fetchAccess() {
-  try {
-    var res = await fetch(accessApiUrl);
-    var data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'not_found');
-    }
-    applyAccess(data.access || data);
-    maybeShowReboundBanner(data.rebound);
-  } catch (err) {
-    setMessage('세션 access 정보를 가져오지 못했습니다: ' + (err && err.message ? err.message : err), 'err');
+  if ($cmdHealth) {
+    $cmdHealth.className = 'status-chip health-' + level;
+    $cmdHealth.textContent = window.UiCommon ? window.UiCommon.healthLabel(level) : safe(level).toUpperCase();
+  }
+
+  if ($healthBar) {
+    $healthBar.innerHTML = window.UiCommon
+      ? window.UiCommon.freshnessBarHtml({
+          heartbeatAgeMs: health && health.heartbeatAgeMs,
+          snapshotFreshnessMs: health && health.snapshotFreshnessMs,
+          relayFreshnessMs: health && health.relayFreshnessMs,
+        })
+      : '';
   }
 }
 
@@ -220,6 +239,7 @@ function renderRelayInfo(data) {
   if (!$relayEndpoint || !$relayStatus || !$relayMeta) return;
 
   if (!data) {
+    relayInfoCache = null;
     $relayEndpoint.textContent = '-';
     $relayStatus.className = 'status-chip health-connecting';
     $relayStatus.textContent = 'UNKNOWN';
@@ -227,32 +247,59 @@ function renderRelayInfo(data) {
     return;
   }
 
-  $relayEndpoint.textContent = safe(data.relayWsUrl || ('ws://127.0.0.1:' + safe(data.relayWsPort)));
+  relayInfoCache = data;
+  var label = safe(data.relayLabel || 'relay');
+  var ns = safe(data.relayNamespace || data.viewerBaseUrl || '-');
+  $relayEndpoint.textContent = label + ' @ ' + ns;
+
   var active = Number(data.activeSessions || 0);
   $relayStatus.className = 'status-chip ' + (active > 0 ? 'health-healthy' : 'health-delayed');
   $relayStatus.textContent = active > 0 ? 'CONNECTED' : 'IDLE';
+
+  var cors = data.corsEnabled ? 'cors:on' : 'cors:off';
+  var debug = data.debugHttpEnabled ? 'debug:on' : 'debug:off';
   $relayMeta.textContent =
-    'active=' + safe(data.activeSessions) +
-    ', stale=' + safe(data.staleSessions) +
-    ', total=' + safe(data.totalSessions) +
-    ', heartbeatTimeout=' + safe(data.heartbeatTimeoutMs) + 'ms';
+    'ws=' + safe(data.relayWsUrl) +
+    ' | viewer=' + safe(data.viewerBaseUrl) +
+    ' | ' + cors + ' | ' + debug;
 }
 
-async function fetchRelayInfo() {
-  try {
-    var res = await fetch(relayInfoApiUrl);
-    var data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'relay_info_failed');
-    renderRelayInfo(data);
-  } catch (err) {
-    renderRelayInfo(null);
+function renderDriverState(sessionData) {
+  if (!sessionData || !sessionData.snapshot) {
+    $driverLap.textContent = '-';
+    $driverLapTotal.textContent = '-';
+    $driverPos.textContent = '-';
+    $driverCompound.textContent = '-';
+    $driverTyreAge.textContent = 'age -';
+    $driverFuelLaps.textContent = '-';
+    $driverFuelKg.textContent = 'fuel -';
+    $driverErs.textContent = '-';
+    $driverLast.textContent = 'last -';
+    $driverBest.textContent = 'best -';
+    return;
   }
+
+  var snapshot = sessionData.snapshot;
+  var idx = snapshot.playerCarIndex;
+  var player = snapshot.cars && idx !== null && idx !== undefined ? snapshot.cars[idx] : null;
+  var meta = snapshot.sessionMeta || {};
+
+  $driverLap.textContent = safe(player && player.currentLapNum !== undefined ? player.currentLapNum : meta.currentLap);
+  $driverLapTotal.textContent = meta.totalLaps ? '/ ' + meta.totalLaps : '-';
+  $driverPos.textContent = safe(player && player.position);
+  $driverCompound.textContent = safe(player && player.tyreCompound);
+  $driverTyreAge.textContent = player && player.tyreAgeLaps !== undefined ? 'age ' + player.tyreAgeLaps : 'age -';
+  $driverFuelLaps.textContent = player && player.fuelLapsRemaining !== undefined ? safe(Number(player.fuelLapsRemaining).toFixed(1)) : '-';
+  $driverFuelKg.textContent = player && player.fuelRemaining !== undefined ? 'fuel ' + Number(player.fuelRemaining).toFixed(1) : 'fuel -';
+  $driverErs.textContent = player && player.ersLevel !== undefined ? fmtPct(Number(player.ersLevel) * 100) : '-';
+  $driverLast.textContent = 'last ' + fmtLapTime(player && player.lastLapTimeInMs);
+  $driverBest.textContent = 'best ' + fmtLapTime(player && player.bestLapTimeInMs);
 }
 
 function renderNotes(notes) {
   if (!notes || notes.length === 0) {
     latestNoteContext = null;
-    $notesList.innerHTML = '<div class="muted">아직 노트가 없습니다.</div>';
+    $notesList.innerHTML = '<div class="note-item"><div class="note-text">엔지니어 노트가 아직 없습니다.</div></div>';
     return;
   }
 
@@ -271,16 +318,31 @@ function renderNotes(notes) {
       '</div>' +
       '<div class="note-text">' + escapeHtml(note.text || '') + '</div>' +
       '<div style="margin-top: 6px;">' +
-        '<button class="delete-note" data-note-id="' + escapeHtml(note.noteId) + '">삭제</button>' +
+        '<button class="delete-note" data-note-id="' + escapeHtml(note.noteId) + '">delete</button>' +
       '</div>' +
     '</div>';
   }).join('');
 }
 
+function formatOpsEventText(event) {
+  if (!event) return '-';
+  if (event.type === 'session_rebound') {
+    var prev = event.payload && event.payload.previousSessionId ? String(event.payload.previousSessionId) : '-';
+    var next = event.payload && event.payload.canonicalSessionId ? String(event.payload.canonicalSessionId) : safe(event.sessionId);
+    var uid = event.payload && event.payload.telemetrySessionUid ? String(event.payload.telemetrySessionUid) : '-';
+    return 'session_rebound: uid=' + uid + ' ' + prev + ' -> ' + next;
+  }
+  if (event.type === 'session_stale') return 'session_stale: heartbeat 지연';
+  if (event.type === 'session_recovered') return 'session_recovered: 연결 복구';
+  if (event.type === 'share_enabled_changed') return 'share_enabled_changed';
+  if (event.type === 'visibility_changed') return 'visibility_changed';
+  return safe(event.type);
+}
+
 function renderTimeline(items) {
   if (!items || items.length === 0) {
     latestTimelineContext = null;
-    $timelineList.innerHTML = '<div class="muted">타임라인 항목이 없습니다.</div>';
+    $timelineList.innerHTML = '<div class="timeline-item"><div class="note-text">타임라인 항목이 없습니다.</div></div>';
     return;
   }
 
@@ -288,14 +350,14 @@ function renderTimeline(items) {
 
   $timelineList.innerHTML = items.map(function (item) {
     if (item.kind === 'note' && item.note) {
-      return '<div class="timeline-item note">' +
+      return '<div class="timeline-item">' +
         '<div class="note-meta"><strong>note</strong><span>' + fmtTime(item.timestamp) + '</span></div>' +
         '<div class="note-text">[' + escapeHtml(item.note.authorLabel || 'Engineer') + '] ' + escapeHtml(item.note.text || '') + '</div>' +
       '</div>';
     }
 
     if (item.kind === 'ops_event' && item.event) {
-      return '<div class="timeline-item ops_event">' +
+      return '<div class="timeline-item">' +
         '<div class="note-meta"><strong>ops</strong><span>' + fmtTime(item.timestamp) + '</span></div>' +
         '<div class="note-text">' + escapeHtml(formatOpsEventText(item.event)) + '</div>' +
       '</div>';
@@ -307,102 +369,145 @@ function renderTimeline(items) {
 
 function renderStrategy(data) {
   if (!data) {
-    $strategyCard.innerHTML = '<div class="muted">전략 정보를 아직 불러오지 못했습니다.</div>';
+    $strategyCard.innerHTML = '<div class="note-item"><div class="note-text">전략 데이터를 아직 받지 못했습니다.</div></div>';
     return;
   }
 
   if (data.strategyUnavailable) {
+    $cmdPrimary.textContent = 'Awaiting telemetry...';
+    $cmdSecondary.textContent = 'secondary: -';
     $strategyCard.innerHTML = '<div class="note-item">' +
       '<div class="note-meta"><span>unavailable</span><span>' + fmtTime(data.generatedAt) + '</span></div>' +
       '<div class="note-text">reason: ' + escapeHtml(data.reason || 'unknown') + '</div>' +
-      '<div class="muted" style="margin-top:6px;">' +
-        escapeHtml((data.reasons || []).join(' | ') || 'strategy generation is paused') +
-      '</div>' +
-    '</div>';
+      '</div>';
+    if ($syncBanner) {
+      $syncBanner.style.display = 'none';
+    }
     return;
   }
 
-  var sev = String(data.severity || 'info').toLowerCase();
-  var reasons = Array.isArray(data.reasons) ? data.reasons : [];
   var signals = data.signals || {};
-  var primary = data.primaryRecommendation || data.recommendation || 'STAY OUT';
+  var primary = data.primaryRecommendation || data.recommendation || '-';
   var secondary = data.secondaryRecommendation || '-';
-  var confidence = data.confidenceScore;
-  var stability = data.stabilityScore;
-  var changed = data.recommendationChanged === true;
-  var trendReason = data.trendReason || '-';
-  var syncingCanonical = data.syncingCanonicalSession === true;
-  var lapsRemaining = num(signals.lapsRemaining);
-  var pitEta = pitWindowEta(signals);
-
+  var confidence = num(data.confidenceScore);
+  var stability = num(data.stabilityScore);
+  var trafficRisk = num(signals.trafficRiskScore);
+  var cleanAir = num(signals.cleanAirProbability);
   var tyreStress = num(signals.tyreUrgencyScore);
   var fuelStress = num(signals.fuelRiskScore);
   var degradationStress = num(signals.degradationTrend);
-  var trafficRisk = num(signals.trafficRiskScore);
-  var cleanAir = num(signals.cleanAirProbability);
-
-  var callStrength = num(confidence) !== null && num(stability) !== null
-    ? (num(confidence) * 0.6 + num(stability) * 0.4)
-    : num(confidence);
-
-  var stressIndex = tyreStress !== null || fuelStress !== null || degradationStress !== null
-    ? ((tyreStress || 0) * 0.45 + (fuelStress || 0) * 0.35 + (degradationStress || 0) * 0.2)
-    : null;
+  var undercut = num(signals.undercutScore);
+  var overcut = num(signals.overcutScore);
+  var pitLoss = num(signals.pitLossHeuristic);
 
   var trafficExposure = trafficRisk !== null || cleanAir !== null
     ? ((trafficRisk || 50) * 0.7 + (100 - (cleanAir || 50)) * 0.3)
     : null;
 
-  var executionReadiness = (num(signals.undercutScore) !== null || num(signals.overcutScore) !== null || num(signals.pitLossHeuristic) !== null)
-    ? ((num(signals.undercutScore) || 50) * 0.45 + (num(signals.overcutScore) || 50) * 0.25 + (100 - (num(signals.pitLossHeuristic) || 50)) * 0.3)
+  var stressIndex = tyreStress !== null || fuelStress !== null || degradationStress !== null
+    ? ((tyreStress || 0) * 0.45 + (fuelStress || 0) * 0.35 + (degradationStress || 0) * 0.2)
     : null;
 
+  var executionReadiness = undercut !== null || overcut !== null || pitLoss !== null
+    ? ((undercut || 50) * 0.45 + (overcut || 50) * 0.25 + (100 - (pitLoss || 50)) * 0.3)
+    : null;
+
+  var pitEta = pitWindowEta(signals);
+
+  $cmdPrimary.textContent = primary;
+  $cmdSecondary.textContent = 'secondary: ' + secondary;
+  $cmdConfidence.textContent = confidence === null ? '-' : Math.round(confidence) + '/100';
+  $cmdStability.textContent = stability === null ? '-' : Math.round(stability) + '/100';
+  $cmdPitEta.textContent = pitEta;
+  $cmdTraffic.textContent = trafficExposure === null ? '-' : Math.round(trafficExposure) + '/100';
+  $cmdStress.textContent = stressIndex === null ? '-' : Math.round(stressIndex) + '/100';
+  $cmdExec.textContent = executionReadiness === null ? '-' : Math.round(executionReadiness) + '/100';
+  $cmdCleanAir.textContent = cleanAir === null ? '-' : Math.round(cleanAir) + '%';
+
+  setMetricBand('metric-confidence', confidence);
+  setMetricBand('metric-stability', stability);
+  setMetricBand('metric-traffic', trafficExposure);
+  setMetricBand('metric-stress', stressIndex);
+  setMetricBand('metric-exec', executionReadiness);
+  setMetricBand('metric-clean-air', cleanAir === null ? null : 100 - cleanAir);
+
+  if ($syncBanner) {
+    $syncBanner.style.display = data.syncingCanonicalSession ? 'inline-block' : 'none';
+  }
+
+  var reasons = Array.isArray(data.reasons) ? data.reasons : [];
   var noteContext = latestNoteContext
-    ? ('recent note: [' + safe(latestNoteContext.category || 'general') + '] ' + safe(latestNoteContext.text || '-'))
+    ? 'recent note: [' + safe(latestNoteContext.category || 'general') + '] ' + safe(latestNoteContext.text || '-')
     : 'recent note: -';
   var timelineContext = latestTimelineContext
-    ? ('recent timeline: ' + safe(latestTimelineContext.kind || '-') + ' @ ' + fmtTime(latestTimelineContext.timestamp))
+    ? 'recent timeline: ' + safe(latestTimelineContext.kind || '-') + ' @ ' + fmtTime(latestTimelineContext.timestamp)
     : 'recent timeline: -';
 
   $strategyCard.innerHTML = '<div class="note-item">' +
-    '<div class="note-meta"><span>severity: ' + escapeHtml(sev) + '</span><span>' + fmtTime(data.generatedAt) + '</span></div>' +
-    '<div class="strategy-rec sev-' + escapeHtml(sev) + '">Primary: ' + escapeHtml(primary) + '</div>' +
-    '<div class="muted">Alternative: ' + escapeHtml(secondary) + '</div>' +
-    '<div class="muted">confidence: ' + escapeHtml(safe(confidence)) + ' | stability: ' + escapeHtml(safe(stability)) + ' | changed: ' + escapeHtml(String(changed)) + '</div>' +
-    '<div class="muted">trend: ' + escapeHtml(trendReason) + '</div>' +
-    (syncingCanonical
-      ? '<div class="muted" style="margin-top:6px;color:#8ad0ff;">syncing canonical session... recommendation stabilization active</div>'
-      : '') +
-    '<div class="pitwall-grid">' +
-      pitwallGauge('Call Strength', 'confidence + stability + recommendation severity aggregate', safe(Math.round(num(callStrength) || 0)) + '/100', callStrength) +
-      pitwallGauge('Pit Window ETA', 'tyre urgency, pit loss, trend 기반 추정 진입 타이밍', pitEta + (lapsRemaining !== null ? (' · L' + lapsRemaining + ' rem') : ''), num(signals.pitLossHeuristic) !== null ? (100 - num(signals.pitLossHeuristic)) : null) +
-      pitwallGauge('Traffic Exposure', 'projected rejoin traffic risk와 clean-air probability 조합', safe(Math.round(num(trafficExposure) || 0)) + '/100', trafficExposure) +
-      pitwallGauge('Tyre/Fuel Stress', 'tyre urgency + fuel risk + degradation 압력 종합 지표', safe(Math.round(num(stressIndex) || 0)) + '/100', stressIndex) +
-      pitwallGauge('Execution Readiness', 'undercut/overcut 기회와 pit loss 조건을 종합한 실행 가능성', safe(Math.round(num(executionReadiness) || 0)) + '/100', executionReadiness) +
-      pitwallGauge('Clean Air Probability', 'pit out 이후 클린에어 확보 예상 확률', safe(Math.round(num(cleanAir) || 0)) + '%', cleanAir) +
-    '</div>' +
-    '<div class="note-text">' +
-      reasons.slice(0, 3).map(function (r) { return '• ' + escapeHtml(r); }).join('<br/>') +
-    '</div>' +
-    '<div class="metric-grid">' +
-      '<div class="metric-chip">Undercut: ' + safe(signals.undercutScore) + '</div>' +
-      '<div class="metric-chip">Overcut: ' + safe(signals.overcutScore) + '</div>' +
-      '<div class="metric-chip">Traffic: ' + safe(signals.trafficRiskScore) + '</div>' +
-      '<div class="metric-chip">Degradation: ' + safe(signals.degradationTrend) + '</div>' +
-      '<div class="metric-chip">Pit Loss: ' + safe(signals.pitLossHeuristic) + '</div>' +
-      '<div class="metric-chip">Compound Bias: ' + safe(signals.compoundStintBias) + '</div>' +
-      '<div class="metric-chip">Rejoin Band: ' + safe(signals.expectedRejoinBand) + '</div>' +
-      '<div class="metric-chip">Clean Air %: ' + safe(signals.cleanAirProbability) + '</div>' +
-    '</div>' +
-    '<div class="muted" style="margin-top:6px;">' +
-      'signals: tyre=' + safe(signals.tyreUrgencyScore) +
-      ', fuel=' + safe(signals.fuelRiskScore) +
-      ', pit=' + safe(signals.pitWindowHint) +
-      ', rejoin=' + safe(signals.rejoinRiskHint) +
-    '</div>' +
-    '<div class="muted" style="margin-top:6px;">' + escapeHtml(noteContext) + '</div>' +
-    '<div class="muted">' + escapeHtml(timelineContext) + '</div>' +
+    '<div class="note-meta"><span>severity=' + escapeHtml(safe(data.severity || '-')) + '</span><span>' + fmtTime(data.generatedAt) + '</span></div>' +
+    '<div class="note-text">primary=' + escapeHtml(primary) + ' | alt=' + escapeHtml(secondary) + '</div>' +
+    '<div class="note-text">changed=' + escapeHtml(String(data.recommendationChanged === true)) + ' | trend=' + escapeHtml(safe(data.trendReason || '-')) + '</div>' +
+    '<div class="note-text">window=' + escapeHtml(safe(signals.pitWindowHint || '-')) + ' | rejoin=' + escapeHtml(safe(signals.rejoinRiskHint || '-')) + ' | band=' + escapeHtml(safe(signals.expectedRejoinBand || '-')) + '</div>' +
+    '<div class="note-text">' + reasons.slice(0, 3).map(function (r) { return '• ' + escapeHtml(r); }).join('<br/>') + '</div>' +
+    '<div class="note-text" style="margin-top:4px;color:#93a6bf;">' + escapeHtml(noteContext) + '</div>' +
+    '<div class="note-text" style="color:#93a6bf;">' + escapeHtml(timelineContext) + '</div>' +
   '</div>';
+
+  if ($analysisGrid) {
+    var chips = [
+      { k: 'Undercut', v: signals.undercutScore },
+      { k: 'Overcut', v: signals.overcutScore },
+      { k: 'Degradation', v: signals.degradationTrend },
+      { k: 'Traffic Risk', v: signals.trafficRiskScore },
+      { k: 'Pit Loss', v: signals.pitLossHeuristic },
+      { k: 'Compound Bias', v: signals.compoundStintBias },
+      { k: 'Rejoin Band', v: signals.expectedRejoinBand },
+      { k: 'Clean Air Prob', v: signals.cleanAirProbability },
+    ];
+
+    $analysisGrid.innerHTML = chips.map(function (item) {
+      return '<div class="metric-chip">' +
+        '<strong>' + escapeHtml(item.k) + '</strong> · ' + escapeHtml(safe(item.v)) +
+      '</div>';
+    }).join('');
+  }
+}
+
+async function fetchAccess() {
+  try {
+    var res = await fetch(accessApiUrl);
+    var data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'not_found');
+    }
+    if (data.relay) {
+      renderRelayInfo(data.relay);
+    }
+    applyAccess(data.access || data, data.joinUrl);
+    maybeShowReboundBanner(data.rebound);
+  } catch (err) {
+    setMessage('세션 access 정보를 가져오지 못했습니다: ' + (err && err.message ? err.message : err), 'err');
+  }
+}
+
+async function fetchRelayInfo() {
+  try {
+    var res = await fetch(relayInfoApiUrl);
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'relay_info_failed');
+    renderRelayInfo(data);
+  } catch (err) {
+    renderRelayInfo(null);
+  }
+}
+
+async function fetchSession() {
+  var res = await fetch(sessionApiUrl);
+  var data = await res.json();
+  if (!res.ok && data.viewerStatus !== 'waiting') {
+    throw new Error(data.error || data.viewerStatus || 'session_fetch_failed');
+  }
+  renderDriverState(data);
 }
 
 async function fetchNotes() {
@@ -506,7 +611,10 @@ async function saveAccess() {
       throw new Error(data.error || 'update_failed');
     }
 
-    applyAccess(data.access || data);
+    if (data.relay) {
+      renderRelayInfo(data.relay);
+    }
+    applyAccess(data.access || data, data.joinUrl);
     setMessage('공유 설정이 업데이트되었습니다.', 'ok');
   } catch (err) {
     setMessage('공유 설정 업데이트 실패: ' + (err && err.message ? err.message : err), 'err');
@@ -522,8 +630,8 @@ async function copyText(text) {
 document.getElementById('reload').addEventListener('click', fetchAccess);
 document.getElementById('save').addEventListener('click', saveAccess);
 document.getElementById('reload-notes').addEventListener('click', function () {
-  Promise.all([fetchNotes(), fetchTimeline(), fetchStrategy()]).catch(function (err) {
-    setNotesMessage('노트/타임라인 갱신 실패: ' + (err && err.message ? err.message : err), 'err');
+  Promise.all([fetchNotes(), fetchTimeline(), fetchStrategy(), fetchSession()]).catch(function (err) {
+    setNotesMessage('갱신 실패: ' + (err && err.message ? err.message : err), 'err');
   });
 });
 document.getElementById('add-note').addEventListener('click', function () {
@@ -532,7 +640,7 @@ document.getElementById('add-note').addEventListener('click', function () {
   });
 });
 document.getElementById('copy-code').addEventListener('click', function () {
-  copyText($joinCode.textContent).catch(function () {
+  copyText(($joinCode.textContent || '').replace(/^join\s+/, '')).catch(function () {
     setMessage('코드 복사에 실패했습니다.', 'err');
   });
 });
@@ -553,12 +661,28 @@ $notesList.addEventListener('click', function (e) {
 });
 
 $sessionId.textContent = sessionId || '-';
+
 setInterval(function () {
-  Promise.all([fetchNotes(), fetchTimeline(), fetchStrategy(), fetchHealth(), fetchRelayInfo()]).catch(function (err) {
+  Promise.all([
+    fetchNotes(),
+    fetchTimeline(),
+    fetchStrategy(),
+    fetchHealth(),
+    fetchRelayInfo(),
+    fetchSession(),
+  ]).catch(function (err) {
     setNotesMessage('주기 갱신 실패: ' + (err && err.message ? err.message : err), 'err');
   });
 }, 4000);
 
-Promise.all([fetchAccess(), fetchNotes(), fetchTimeline(), fetchStrategy(), fetchHealth(), fetchRelayInfo()]).catch(function (err) {
+Promise.all([
+  fetchAccess(),
+  fetchNotes(),
+  fetchTimeline(),
+  fetchStrategy(),
+  fetchHealth(),
+  fetchRelayInfo(),
+  fetchSession(),
+]).catch(function (err) {
   setNotesMessage('초기 로드 실패: ' + (err && err.message ? err.message : err), 'err');
 });

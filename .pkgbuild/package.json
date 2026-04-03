@@ -1,0 +1,11 @@
+{
+  "name": "mpp-portable-bundle",
+  "version": "0.0.0",
+  "type": "commonjs",
+  "bin": "relay-entry.cjs",
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ]
+  }
+}

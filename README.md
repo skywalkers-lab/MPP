@@ -14,11 +14,32 @@ Windows `.exe`를 실행하면 기본 브라우저에서 대시보드(`/ops`)를
 Windows `.exe`는 기본적으로 embedded agent도 함께 실행되어 F1 UDP(기본 20777)를 수신합니다.
 게임에서 Telemetry UDP를 켜지 않으면 OPS 세션 목록은 비어 있을 수 있습니다.
 여러 사용자가 같은 세션을 보려면 같은 Relay 서버를 바라봐야 합니다(`RELAY_URL` 동일). 같은 Relay에서 동일한 경기 `sessionUID`가 감지되면 세션 ID는 자동으로 하나로 병합됩니다.
-여러 사용자가 같은 세션을 보려면 같은 Relay 서버를 바라봐야 합니다(`RELAY_URL` 동일). 같은 Relay에서 동일한 경기 `sessionUID`가 감지되면 세션 ID는 자동으로 하나로 병합됩니다.
 대시보드가 열리지 않으면 먼저 `http://localhost:4100/ops?preset=ops`를 수동으로 열어 확인하세요.
 Portable 실행 직후 창이 닫히면 `.exe`와 같은 폴더의 `mpp-crash.log`를 확인하세요.
 그래도 접속이 안 되면 앱을 다시 실행하고, 로컬 보안 정책(방화벽/백신)에서 로컬 포트 접근이 차단되지 않았는지 확인하세요.
-Portable 실행 직후 창이 닫히면 `.exe`와 같은 폴더의 `mpp-crash.log`를 확인하세요.
+
+## Public Relay 모드
+
+원격 네트워크 사용자 간 동일 세션 협업을 위해 이제 Join 링크는 relay endpoint를 포함한 절대 URL로 노출됩니다.
+
+- 공유 링크 형식: `https://your-relay.example.com/join/ABC123`
+- Host/Ops/Overlay에서 현재 relay namespace(label + endpoint)를 표시합니다.
+- 같은 Public Relay namespace에 붙으면 서로 다른 네트워크에서도 같은 canonical session을 보게 됩니다.
+
+추천 환경변수:
+
+- `RELAY_PUBLIC_URL`: 외부 사용자가 접근할 Viewer HTTP base URL (예: `https://mpp-relay.example.com`)
+- `RELAY_PUBLIC_WS_URL`: 외부 WebSocket endpoint (예: `wss://mpp-relay.example.com`), 미설정 시 `RELAY_PUBLIC_URL`에서 유도
+- `RELAY_LABEL`: UI 표시 라벨 (예: `public-eu-relay`, `team-a-relay`)
+- `RELAY_ENABLE_DEBUG_HTTP`: debug endpoint 활성화 여부 (`false` 권장 기본)
+- `RELAY_ENABLE_CORS`: CORS 헤더 활성화 여부
+- `RELAY_ALLOWED_ORIGINS`: 허용 origin 목록 (쉼표 구분)
+
+운영 권장:
+
+- TLS는 앱 내부가 아니라 프록시/플랫폼(Railway/Fly/Render/Nginx)에서 종단
+- debug endpoint는 기본 비활성, 필요 시에만 노출
+- joinCode만 전달하지 말고 절대 공유 링크를 전달
 
 ## Product Value Snapshot
 

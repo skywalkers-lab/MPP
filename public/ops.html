@@ -168,6 +168,30 @@
 
     .event-type { color: var(--info); font-weight: 600; }
 
+    .event-type.rebound { color: #9fd8ff; }
+    .event-message { margin-top: 2px; color: var(--text); }
+    .relay-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 10px;
+      background: #102031;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .relay-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #7a8ca3;
+    }
+
+    .relay-dot.connected { background: var(--ok); }
+    .relay-dot.idle { background: var(--warn); }
+
     body[data-preset="broadcast"] .panel {
       background: linear-gradient(150deg, #131c28 0%, #0f1620 100%);
     }
@@ -224,6 +248,10 @@
         <option value="stale">stale</option>
         <option value="archive">archive</option>
       </select>
+      <span id="relay-pill" class="relay-pill">
+        <span id="relay-dot" class="relay-dot"></span>
+        <span id="relay-endpoint">relay: -</span>
+      </span>
       <span id="summary" class="muted"></span>
     </div>
 

@@ -25,12 +25,17 @@ export class RelayServer {
         this.options = options;
         this.sessions = new Map();
         this.connToSession = new Map();
+        this.connToWs = new Map();
+        this.connToLastSequence = new Map();
+        this.sessionToConnections = new Map();
+        this.telemetrySessionUidToSessionId = new Map();
         // 5단계: joinCode → sessionId 매핑 및 access record 관리
         this.joinCodeToSessionId = new Map();
         this.sessionAccess = new Map();
         this.recentOpsEvents = new InMemoryRecentOpsEvents(300);
         this.notesStore = new InMemorySessionNotesStore();
         this.strategyEngine = new StrategyEngine();
+        this.strategyCache = new Map();
         this.archiveStore = new InMemorySessionArchiveStore();
         this.opsNotifier = new CompositeOpsNotifier([
             this.recentOpsEvents,
@@ -112,6 +117,48 @@ export class RelayServer {
                 strategyTrafficBand: strategy.strategyUnavailable
                     ? null
                     : strategy.signals.expectedRejoinBand,
+                strategyConfidence: strategy.strategyUnavailable
+                    ? null
+                    : strategy.confidenceScore,
+                strategyStability: strategy.strategyUnavailable
+                    ? null
+                    : strategy.stabilityScore,
+                strategyChanged: strategy.strategyUnavailable
+                    ? null
+                    : strategy.recommendationChanged,
+                strategyTrendReason: strategy.strategyUnavailable
+                    ? null
+                    : strategy.trendReason,
+                strategyPitWindowHint: strategy.strategyUnavailable
+                    ? null
+                    : strategy.signals.pitWindowHint,
+                strategyRejoinRiskHint: strategy.strategyUnavailable
+                    ? null
+                    : strategy.signals.rejoinRiskHint,
+                strategyTyreUrgency: strategy.strategyUnavailable
+                    ? null
+                    : strategy.signals.tyreUrgencyScore,
+                strategyFuelRisk: strategy.strategyUnavailable
+                    ? null
+                    : strategy.signals.fuelRiskScore,
+                strategyUndercut: strategy.strategyUnavailable
+                    ? null
+                    : strategy.signals.undercutScore,
+                strategyOvercut: strategy.strategyUnavailable
+                    ? null
+                    : strategy.signals.overcutScore,
+                strategyTrafficRisk: strategy.strategyUnavailable
+                    ? null
+                    : strategy.signals.trafficRiskScore,
+                strategyPitLoss: strategy.strategyUnavailable
+                    ? null
+                    : strategy.signals.pitLossHeuristic,
+                strategyCleanAirProbability: strategy.strategyUnavailable
+                    ? null
+                    : strategy.signals.cleanAirProbability,
+                strategyLapsRemaining: strategy.strategyUnavailable
+                    ? null
+                    : strategy.signals.lapsRemaining,
                 strategyGeneratedAt: strategy.generatedAt,
                 strategyUnavailable: strategy.strategyUnavailable,
             };
@@ -256,7 +303,17 @@ export class RelayServer {
         };
     }
     computeSessionStrategy(session) {
-        const input = this.buildStrategyInput(session);
+        const cached = this.strategyCache.get(session.sessionId);
+        if (cached &&
+            session.latestState &&
+            cached.latestSequence != null &&
+            cached.latestSequence === session.latestSequence) {
+            return cached.result;
+        }
+        const previousStrategy = cached && !cached.result.strategyUnavailable
+            ? cached.result
+            : undefined;
+        const input = this.buildStrategyInput(session, previousStrategy);
         if (!input) {
             const unavailable = {
                 strategyUnavailable: true,
@@ -269,9 +326,14 @@ export class RelayServer {
             };
             return unavailable;
         }
-        return this.strategyEngine.evaluate(input);
+        const result = this.strategyEngine.evaluate(input);
+        this.strategyCache.set(session.sessionId, {
+            latestSequence: session.latestSequence ?? null,
+            result,
+        });
+        return result;
     }
-    buildStrategyInput(session) {
+    buildStrategyInput(session, previousStrategy) {
         const now = Date.now();
         const hasSnapshot = !!session.latestState;
         const state = session.latestState;
@@ -289,6 +351,18 @@ export class RelayServer {
                 fuelRemaining: null,
                 fuelLapsRemaining: null,
                 pitStatus: null,
+                tyreCompound: null,
+                previousStrategy: previousStrategy
+                    ? {
+                        recommendation: previousStrategy.recommendation,
+                        secondaryRecommendation: previousStrategy.secondaryRecommendation,
+                        severity: previousStrategy.severity,
+                        confidenceScore: previousStrategy.confidenceScore,
+                        stabilityScore: previousStrategy.stabilityScore,
+                        signals: previousStrategy.signals,
+                        generatedAt: previousStrategy.generatedAt,
+                    }
+                    : null,
                 generatedAt: now,
             };
         }
@@ -310,6 +384,18 @@ export class RelayServer {
             fuelRemaining: playerCar.fuelRemaining ?? null,
             fuelLapsRemaining: playerCar.fuelLapsRemaining ?? null,
             pitStatus: playerCar.pitStatus ?? null,
+            tyreCompound: playerCar.tyreCompound ?? null,
+            previousStrategy: previousStrategy
+                ? {
+                    recommendation: previousStrategy.recommendation,
+                    secondaryRecommendation: previousStrategy.secondaryRecommendation,
+                    severity: previousStrategy.severity,
+                    confidenceScore: previousStrategy.confidenceScore,
+                    stabilityScore: previousStrategy.stabilityScore,
+                    signals: previousStrategy.signals,
+                    generatedAt: previousStrategy.generatedAt,
+                }
+                : null,
             generatedAt: now,
         };
     }
@@ -330,6 +416,7 @@ export class RelayServer {
     handleConnection(ws) {
         const connId = uuidv4();
         this.logger.info(`[Relay] New connection: ${connId}`);
+        this.connToWs.set(connId, ws);
         ws.on('message', (data) => this.handleMessage(ws, connId, data));
         ws.on('close', () => this.handleClose(connId));
         ws.on('error', (err) => this.logger.warn(`[Relay] WS error: ${err}`));
@@ -399,6 +486,8 @@ export class RelayServer {
         };
         this.sessions.set(sessionId, session);
         this.connToSession.set(connId, sessionId);
+        this.trackConnectionForSession(connId, sessionId);
+        this.connToLastSequence.set(connId, 0);
         this.logger.info(`[Relay] session_started: ${sessionId} (host=${connId})`);
         ws.send(JSON.stringify({ type: 'session_started', sessionId, role: 'host' }));
         // 5단계: 세션 생성 시 joinCode 및 access record 생성
@@ -413,6 +502,7 @@ export class RelayServer {
         };
         this.joinCodeToSessionId.set(joinCode, sessionId);
         this.sessionAccess.set(sessionId, access);
+        this.strategyCache.delete(sessionId);
         this.archiveStore.startRecording({
             sessionId,
             startedAt: now,
@@ -430,21 +520,27 @@ export class RelayServer {
         const sessionId = this.connToSession.get(connId);
         if (!sessionId)
             return;
-        const session = this.sessions.get(sessionId);
-        if (!session)
-            return;
         if (typeof msg.sequence !== 'number' || !msg.state)
             return;
-        if (msg.sequence <= session.latestSequence) {
-            this.logger.warn(`[Relay] Out-of-order snapshot (seq=${msg.sequence}) for session ${sessionId}`);
+        const lastConnSequence = this.connToLastSequence.get(connId) ?? 0;
+        if (msg.sequence <= lastConnSequence) {
+            this.logger.warn(`[Relay] Out-of-order snapshot (seq=${msg.sequence}) for conn ${connId}`);
             return;
         }
-        session.latestSequence = msg.sequence;
+        this.connToLastSequence.set(connId, msg.sequence);
+        const telemetrySessionUid = typeof msg.state?.sessionMeta?.sessionUID === 'string'
+            ? msg.state.sessionMeta.sessionUID
+            : null;
+        const canonicalSessionId = this.resolveCanonicalSessionForTelemetry(sessionId, telemetrySessionUid, connId);
+        const session = this.sessions.get(canonicalSessionId);
+        if (!session)
+            return;
+        session.latestSequence = Math.max(session.latestSequence, msg.sequence);
         session.latestState = msg.state;
         session.updatedAt = Date.now();
         const strategy = this.computeSessionStrategy(session);
-        this.archiveStore.recordSnapshot(sessionId, msg.sequence, msg.timestamp, msg.state, toArchiveRecommendationSnapshot(strategy, Date.now()));
-        this.logger.debug(`[Relay] state_snapshot seq=${msg.sequence} for session ${sessionId}`);
+        this.archiveStore.recordSnapshot(canonicalSessionId, msg.sequence, msg.timestamp, msg.state, toArchiveRecommendationSnapshot(strategy, Date.now()));
+        this.logger.debug(`[Relay] state_snapshot seq=${msg.sequence} for session ${canonicalSessionId}`);
     }
     handleHeartbeat(connId) {
         const sessionId = this.connToSession.get(connId);
@@ -466,20 +562,26 @@ export class RelayServer {
     }
     handleClose(connId) {
         const sessionId = this.connToSession.get(connId);
-        if (!sessionId)
-            return;
-        const session = this.sessions.get(sessionId);
-        if (!session)
-            return;
-        const previousStatus = session.status;
-        session.status = 'stale';
-        this.logger.info(`[Relay] Connection closed: ${connId}, session ${sessionId} marked stale`);
-        if (previousStatus !== 'stale') {
-            this.emitOpsEvent('session_stale', sessionId, {
-                reason: 'connection_closed',
-                previousStatus,
-            });
-            this.finalizeArchiveForSession(session, 'session_stale', Date.now());
+        this.connToWs.delete(connId);
+        this.connToLastSequence.delete(connId);
+        if (sessionId) {
+            this.untrackConnectionForSession(connId, sessionId);
+            const session = this.sessions.get(sessionId);
+            if (session) {
+                const activeConnections = this.sessionToConnections.get(sessionId);
+                if (!activeConnections || activeConnections.size === 0) {
+                    const previousStatus = session.status;
+                    session.status = 'stale';
+                    this.logger.info(`[Relay] Connection closed: ${connId}, session ${sessionId} marked stale`);
+                    if (previousStatus !== 'stale') {
+                        this.emitOpsEvent('session_stale', sessionId, {
+                            reason: 'connection_closed',
+                            previousStatus,
+                        });
+                        this.finalizeArchiveForSession(session, 'session_stale', Date.now());
+                    }
+                }
+            }
         }
         this.connToSession.delete(connId);
     }
@@ -530,6 +632,71 @@ export class RelayServer {
     }
     generateSessionId() {
         return 'S-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+    }
+    trackConnectionForSession(connId, sessionId) {
+        let set = this.sessionToConnections.get(sessionId);
+        if (!set) {
+            set = new Set();
+            this.sessionToConnections.set(sessionId, set);
+        }
+        set.add(connId);
+    }
+    untrackConnectionForSession(connId, sessionId) {
+        const set = this.sessionToConnections.get(sessionId);
+        if (!set)
+            return;
+        set.delete(connId);
+        if (set.size === 0) {
+            this.sessionToConnections.delete(sessionId);
+        }
+    }
+    resolveCanonicalSessionForTelemetry(currentSessionId, telemetrySessionUid, connId) {
+        if (!telemetrySessionUid || telemetrySessionUid.length === 0) {
+            return currentSessionId;
+        }
+        const mapped = this.telemetrySessionUidToSessionId.get(telemetrySessionUid);
+        if (!mapped) {
+            this.telemetrySessionUidToSessionId.set(telemetrySessionUid, currentSessionId);
+            return currentSessionId;
+        }
+        if (mapped === currentSessionId) {
+            return currentSessionId;
+        }
+        const sourceSession = this.sessions.get(currentSessionId);
+        const targetSession = this.sessions.get(mapped);
+        if (!sourceSession || !targetSession) {
+            this.telemetrySessionUidToSessionId.set(telemetrySessionUid, currentSessionId);
+            return currentSessionId;
+        }
+        this.untrackConnectionForSession(connId, currentSessionId);
+        this.trackConnectionForSession(connId, mapped);
+        this.connToSession.set(connId, mapped);
+        const sourceJoinCode = this.sessionAccess.get(currentSessionId)?.joinCode;
+        if (sourceJoinCode) {
+            this.joinCodeToSessionId.set(sourceJoinCode, mapped);
+        }
+        this.sessions.delete(currentSessionId);
+        this.sessionAccess.delete(currentSessionId);
+        this.strategyCache.delete(currentSessionId);
+        targetSession.updatedAt = Date.now();
+        targetSession.lastHeartbeatAt = Date.now();
+        targetSession.status = 'active';
+        this.emitOpsEvent('session_recovered', mapped, {
+            reason: 'telemetry_uid_merge',
+            mergedFromSessionId: currentSessionId,
+            telemetrySessionUid,
+        });
+        const ws = this.connToWs.get(connId);
+        if (ws) {
+            ws.send(JSON.stringify({
+                type: 'session_rebound',
+                sessionId: mapped,
+                previousSessionId: currentSessionId,
+                telemetrySessionUid,
+            }));
+        }
+        this.logger.info(`[Relay] Merged telemetry session ${telemetrySessionUid}: ${currentSessionId} -> ${mapped}`);
+        return mapped;
     }
     startDebugHttp(port) {
         const app = express();

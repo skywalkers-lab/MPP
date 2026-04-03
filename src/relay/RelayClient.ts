@@ -24,12 +24,21 @@ export class RelayClient {
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private lastState: CurrentRaceState | null = null;
   private connected: boolean = false;
+  private stopped: boolean = false;
 
   constructor(private options: RelayClientOptions) {
     this.logger = options.logger || new ConsoleLogger('info');
   }
 
   connect() {
+    if (this.stopped) {
+      this.stopped = false;
+    }
+
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
+      return;
+    }
+
     this.ws = new WebSocket(this.options.url);
     this.ws.on('open', () => {
       this.logger.info('[RelayClient] Connected to relay server');
@@ -42,7 +51,10 @@ export class RelayClient {
       this.connected = false;
       this.sessionId = null;
       this.stopTimers();
-      setTimeout(() => this.connect(), 2000); // 재연결 시도
+      this.ws = null;
+      if (!this.stopped) {
+        setTimeout(() => this.connect(), 2000); // 재연결 시도
+      }
     });
     this.ws.on('error', (err) => {
       this.logger.warn('[RelayClient] WebSocket error: ' + err);
@@ -70,6 +82,13 @@ export class RelayClient {
     if (msg.type === 'session_started') {
       this.sessionId = msg.sessionId;
       this.logger.info(`[RelayClient] session_started: ${msg.sessionId}`);
+      this.startTimers();
+    } else if (msg.type === 'session_rebound') {
+      const previous = this.sessionId;
+      this.sessionId = msg.sessionId;
+      this.logger.info(
+        `[RelayClient] session_rebound: ${previous || '-'} -> ${msg.sessionId}`
+      );
       this.startTimers();
     } else if (msg.type === 'ack') {
       // future use
@@ -113,5 +132,18 @@ export class RelayClient {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.snapshotTimer = null;
     this.heartbeatTimer = null;
+  }
+
+  close() {
+    this.stopped = true;
+    this.connected = false;
+    this.sessionId = null;
+    this.stopTimers();
+
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
+      this.ws.close();
+    }
+
+    this.ws = null;
   }
 }

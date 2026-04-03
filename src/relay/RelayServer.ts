@@ -89,12 +89,40 @@ export interface RelayServerOptions {
   heartbeatTimeoutMs?: number;
 }
 
+export interface CanonicalSessionResolution {
+  canonicalSessionId: string;
+  rebound: {
+    previousSessionId: string;
+    telemetrySessionUid: string;
+    mergedAt: number;
+  } | null;
+}
+
+export interface RelayRuntimeInfo {
+  relayWsPort: number;
+  relayWsUrl: string;
+  heartbeatTimeoutMs: number;
+  totalSessions: number;
+  activeSessions: number;
+  staleSessions: number;
+  checkedAt: number;
+}
+
 export class RelayServer {
   private wss: WebSocketServer;
   private heartbeatTimer?: NodeJS.Timeout;
   private debugHttpServer?: HttpServer;
   private sessions: Map<string, RelaySession> = new Map();
   private connToSession: Map<string, string> = new Map();
+  private connToWs: Map<string, WebSocket> = new Map();
+  private connToLastSequence: Map<string, number> = new Map();
+  private sessionToConnections: Map<string, Set<string>> = new Map();
+  private telemetrySessionUidToSessionId: Map<string, string> = new Map();
+  private sessionAliasToCanonical = new Map<
+    string,
+    { canonicalSessionId: string; telemetrySessionUid: string; mergedAt: number }
+  >();
+  private sessionSyncUntil = new Map<string, number>();
   private logger: ConsoleLogger;
   private heartbeatTimeoutMs: number;
 
@@ -168,15 +196,61 @@ export class RelayServer {
     const sessionId = this.joinCodeToSessionId.get(joinCode);
     if (!sessionId) return {};
 
-    const access = this.sessionAccess.get(sessionId);
-    return { sessionId, access };
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    const access = this.sessionAccess.get(resolved.canonicalSessionId);
+    return { sessionId: resolved.canonicalSessionId, access };
+  }
+
+  public resolveCanonicalSessionId(sessionId: string): CanonicalSessionResolution {
+    let cursor = sessionId;
+    let rebound: CanonicalSessionResolution['rebound'] = null;
+    const visited = new Set<string>();
+
+    while (true) {
+      if (visited.has(cursor)) {
+        break;
+      }
+      visited.add(cursor);
+      const alias = this.sessionAliasToCanonical.get(cursor);
+      if (!alias) {
+        break;
+      }
+      rebound = {
+        previousSessionId: cursor,
+        telemetrySessionUid: alias.telemetrySessionUid,
+        mergedAt: alias.mergedAt,
+      };
+      cursor = alias.canonicalSessionId;
+    }
+
+    return {
+      canonicalSessionId: cursor,
+      rebound,
+    };
+  }
+
+  public getRelayRuntimeInfo(): RelayRuntimeInfo {
+    const sessions = Array.from(this.sessions.values());
+    const activeSessions = sessions.filter((s) => s.status === 'active').length;
+    const staleSessions = sessions.filter((s) => s.status === 'stale').length;
+
+    return {
+      relayWsPort: this.options.wsPort,
+      relayWsUrl: `ws://127.0.0.1:${this.options.wsPort}`,
+      heartbeatTimeoutMs: this.heartbeatTimeoutMs,
+      totalSessions: sessions.length,
+      activeSessions,
+      staleSessions,
+      checkedAt: Date.now(),
+    };
   }
 
   /**
    * 세션의 접근/공유 메타데이터 반환
    */
   public getSessionAccess(sessionId: string): SessionAccessRecord | undefined {
-    return this.sessionAccess.get(sessionId);
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    return this.sessionAccess.get(resolved.canonicalSessionId);
   }
 
   public listSessionOpsSummaries(): SessionOpsSummary[] {
@@ -216,15 +290,52 @@ export class RelayServer {
           strategyTrendReason: strategy.strategyUnavailable
             ? null
             : strategy.trendReason,
+          strategyPitWindowHint: strategy.strategyUnavailable
+            ? null
+            : strategy.signals.pitWindowHint,
+          strategyRejoinRiskHint: strategy.strategyUnavailable
+            ? null
+            : strategy.signals.rejoinRiskHint,
+          strategyTyreUrgency: strategy.strategyUnavailable
+            ? null
+            : strategy.signals.tyreUrgencyScore,
+          strategyFuelRisk: strategy.strategyUnavailable
+            ? null
+            : strategy.signals.fuelRiskScore,
+          strategyUndercut: strategy.strategyUnavailable
+            ? null
+            : strategy.signals.undercutScore,
+          strategyOvercut: strategy.strategyUnavailable
+            ? null
+            : strategy.signals.overcutScore,
+          strategyTrafficRisk: strategy.strategyUnavailable
+            ? null
+            : strategy.signals.trafficRiskScore,
+          strategyPitLoss: strategy.strategyUnavailable
+            ? null
+            : strategy.signals.pitLossHeuristic,
+          strategyCleanAirProbability: strategy.strategyUnavailable
+            ? null
+            : strategy.signals.cleanAirProbability,
+          strategyLapsRemaining: strategy.strategyUnavailable
+            ? null
+            : strategy.signals.lapsRemaining,
           strategyGeneratedAt: strategy.generatedAt,
           strategyUnavailable: strategy.strategyUnavailable,
+          strategySyncingCanonicalSession: strategy.strategyUnavailable
+            ? false
+            : strategy.syncingCanonicalSession,
+          strategySyncingUntil: strategy.strategyUnavailable
+            ? null
+            : strategy.syncingUntil,
         };
       })
       .sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
   public getSessionStrategy(sessionId: string): StrategyEvaluationResult {
-    const session = this.sessions.get(sessionId);
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    const session = this.sessions.get(resolved.canonicalSessionId);
     if (!session) {
       return {
         strategyUnavailable: true,
@@ -243,25 +354,30 @@ export class RelayServer {
   }
 
   public listSessionNotes(sessionId: string): SessionNote[] {
-    return this.notesStore.listNotes(sessionId);
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    return this.notesStore.listNotes(resolved.canonicalSessionId);
   }
 
   public addSessionNote(
     sessionId: string,
     payload: AddSessionNoteInput
   ): SessionNote {
-    const note = this.notesStore.addNote(sessionId, payload);
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    const note = this.notesStore.addNote(resolved.canonicalSessionId, payload);
     this.archiveStore.recordNote(note);
     return note;
   }
 
   public deleteSessionNote(sessionId: string, noteId: string): boolean {
-    return this.notesStore.deleteNote(sessionId, noteId);
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    return this.notesStore.deleteNote(resolved.canonicalSessionId, noteId);
   }
 
   public getSessionTimeline(sessionId: string, limit: number = 100) {
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    const canonicalSessionId = resolved.canonicalSessionId;
     const notes = this.notesStore
-      .listNotes(sessionId)
+      .listNotes(canonicalSessionId)
       .map((note) => ({
         kind: 'note' as const,
         timestamp: note.timestamp,
@@ -270,7 +386,7 @@ export class RelayServer {
 
     const opsEvents = this.recentOpsEvents
       .getRecent(300)
-      .filter((event) => event.sessionId === sessionId)
+      .filter((event) => event.sessionId === canonicalSessionId)
       .map((event) => ({
         kind: 'ops_event' as const,
         timestamp: event.timestamp,
@@ -287,18 +403,21 @@ export class RelayServer {
   }
 
   public getSessionArchive(sessionId: string): SessionArchive | undefined {
-    return this.archiveStore.getArchiveBySession(sessionId);
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    return this.archiveStore.getArchiveBySession(resolved.canonicalSessionId);
   }
 
   public getSessionArchiveSummary(sessionId: string): ArchiveSummary | undefined {
-    return this.archiveStore.getArchiveSummary(sessionId);
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    return this.archiveStore.getArchiveSummary(resolved.canonicalSessionId);
   }
 
   public getSessionArchiveTimeline(
     sessionId: string,
     limit: number = 500
   ): ArchiveTimelineItem[] {
-    return this.archiveStore.getArchiveTimeline(sessionId, limit);
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    return this.archiveStore.getArchiveTimeline(resolved.canonicalSessionId, limit);
   }
 
   /**
@@ -309,7 +428,9 @@ export class RelayServer {
     sessionId: string,
     patch: Partial<Pick<SessionAccessRecord, 'shareEnabled' | 'visibility'>>
   ): SessionAccessRecord | undefined {
-    const access = this.sessionAccess.get(sessionId);
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    const canonicalSessionId = resolved.canonicalSessionId;
+    const access = this.sessionAccess.get(canonicalSessionId);
     if (!access) return undefined;
 
     let changed = false;
@@ -321,7 +442,7 @@ export class RelayServer {
       const previousShareEnabled = access.shareEnabled;
       access.shareEnabled = patch.shareEnabled;
       changed = true;
-      this.emitOpsEvent('share_enabled_changed', sessionId, {
+      this.emitOpsEvent('share_enabled_changed', canonicalSessionId, {
         previousShareEnabled,
         nextShareEnabled: access.shareEnabled,
       });
@@ -334,7 +455,7 @@ export class RelayServer {
       const previousVisibility = access.visibility;
       access.visibility = patch.visibility;
       changed = true;
-      this.emitOpsEvent('visibility_changed', sessionId, {
+      this.emitOpsEvent('visibility_changed', canonicalSessionId, {
         previousVisibility,
         nextVisibility: access.visibility,
       });
@@ -342,7 +463,7 @@ export class RelayServer {
 
     if (changed) {
       access.updatedAt = Date.now();
-      this.archiveStore.updateAccessMetadata(sessionId, {
+      this.archiveStore.updateAccessMetadata(canonicalSessionId, {
         joinCode: access.joinCode,
         visibility: access.visibility,
       });
@@ -355,7 +476,8 @@ export class RelayServer {
    * 세션ID로 세션을 조회합니다. (향후 joinCode/visibility validation 확장 가능)
    */
   public getSession(sessionId: string): RelaySession | undefined {
-    return this.sessions.get(sessionId);
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    return this.sessions.get(resolved.canonicalSessionId);
   }
 
   /**
@@ -373,11 +495,13 @@ export class RelayServer {
     checkedAt: number;
   } {
     const now = Date.now();
-    const session = this.sessions.get(sessionId);
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    const canonicalSessionId = resolved.canonicalSessionId;
+    const session = this.sessions.get(canonicalSessionId);
 
     if (!session) {
       return {
-        sessionId,
+        sessionId: canonicalSessionId,
         sessionFound: false,
         relayStatus: 'not_found',
         heartbeatAgeMs: -1,
@@ -399,7 +523,7 @@ export class RelayServer {
     );
 
     return {
-      sessionId,
+      sessionId: canonicalSessionId,
       sessionFound: true,
       relayStatus: session.status,
       heartbeatAgeMs,
@@ -408,6 +532,23 @@ export class RelayServer {
       healthLevel,
       checkedAt: now,
     };
+  }
+
+  private isSyncingCanonicalSession(sessionId: string): {
+    syncingCanonicalSession: boolean;
+    syncingUntil: number | null;
+  } {
+    const syncingUntil = this.sessionSyncUntil.get(sessionId) ?? null;
+    if (syncingUntil == null) {
+      return { syncingCanonicalSession: false, syncingUntil: null };
+    }
+
+    if (Date.now() > syncingUntil) {
+      this.sessionSyncUntil.delete(sessionId);
+      return { syncingCanonicalSession: false, syncingUntil: null };
+    }
+
+    return { syncingCanonicalSession: true, syncingUntil };
   }
 
   private computeSessionStrategy(session: RelaySession): StrategyEvaluationResult {
@@ -453,6 +594,7 @@ export class RelayServer {
     previousStrategy?: StrategyRecommendationResult
   ): StrategyEngineInput | null {
     const now = Date.now();
+    const syncing = this.isSyncingCanonicalSession(session.sessionId);
     const hasSnapshot = !!session.latestState;
     const state = session.latestState;
 
@@ -461,6 +603,8 @@ export class RelayServer {
         sessionId: session.sessionId,
         relayStatus: session.status,
         isStale: session.status === 'stale',
+        syncingCanonicalSession: syncing.syncingCanonicalSession,
+        syncingUntil: syncing.syncingUntil,
         hasSnapshot: false,
         latestSequence: session.latestSequence ?? null,
         currentLap: null,
@@ -498,6 +642,8 @@ export class RelayServer {
       sessionId: session.sessionId,
       relayStatus: session.status,
       isStale: session.status === 'stale',
+      syncingCanonicalSession: syncing.syncingCanonicalSession,
+      syncingUntil: syncing.syncingUntil,
       hasSnapshot,
       latestSequence: session.latestSequence ?? null,
       currentLap:
@@ -545,6 +691,7 @@ export class RelayServer {
   private handleConnection(ws: WebSocket) {
     const connId = uuidv4();
     this.logger.info(`[Relay] New connection: ${connId}`);
+    this.connToWs.set(connId, ws);
 
     ws.on('message', (data: any) =>
       this.handleMessage(ws, connId, data)
@@ -635,6 +782,8 @@ export class RelayServer {
 
     this.sessions.set(sessionId, session);
     this.connToSession.set(connId, sessionId);
+    this.trackConnectionForSession(connId, sessionId);
+    this.connToLastSequence.set(connId, 0);
 
     this.logger.info(`[Relay] session_started: ${sessionId} (host=${connId})`);
     ws.send(JSON.stringify({ type: 'session_started', sessionId, role: 'host' }));
@@ -672,25 +821,39 @@ export class RelayServer {
     const sessionId = this.connToSession.get(connId);
     if (!sessionId) return;
 
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
-
     if (typeof msg.sequence !== 'number' || !msg.state) return;
 
-    if (msg.sequence <= session.latestSequence) {
+    const lastConnSequence = this.connToLastSequence.get(connId) ?? 0;
+    if (msg.sequence <= lastConnSequence) {
       this.logger.warn(
-        `[Relay] Out-of-order snapshot (seq=${msg.sequence}) for session ${sessionId}`
+        `[Relay] Out-of-order snapshot (seq=${msg.sequence}) for conn ${connId}`
       );
       return;
     }
 
-    session.latestSequence = msg.sequence;
+    this.connToLastSequence.set(connId, msg.sequence);
+
+    const telemetrySessionUid =
+      typeof msg.state?.sessionMeta?.sessionUID === 'string'
+        ? msg.state.sessionMeta.sessionUID
+        : null;
+
+    const canonicalSessionId = this.resolveCanonicalSessionForTelemetry(
+      sessionId,
+      telemetrySessionUid,
+      connId
+    );
+
+    const session = this.sessions.get(canonicalSessionId);
+    if (!session) return;
+
+    session.latestSequence = Math.max(session.latestSequence, msg.sequence);
     session.latestState = msg.state;
     session.updatedAt = Date.now();
 
     const strategy = this.computeSessionStrategy(session);
     this.archiveStore.recordSnapshot(
-      sessionId,
+      canonicalSessionId,
       msg.sequence,
       msg.timestamp,
       msg.state,
@@ -698,7 +861,7 @@ export class RelayServer {
     );
 
     this.logger.debug(
-      `[Relay] state_snapshot seq=${msg.sequence} for session ${sessionId}`
+      `[Relay] state_snapshot seq=${msg.sequence} for session ${canonicalSessionId}`
     );
   }
 
@@ -725,23 +888,31 @@ export class RelayServer {
 
   private handleClose(connId: string) {
     const sessionId = this.connToSession.get(connId);
-    if (!sessionId) return;
+    this.connToWs.delete(connId);
+    this.connToLastSequence.delete(connId);
 
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
+    if (sessionId) {
+      this.untrackConnectionForSession(connId, sessionId);
+      const session = this.sessions.get(sessionId);
 
-    const previousStatus = session.status;
-    session.status = 'stale';
-    this.logger.info(
-      `[Relay] Connection closed: ${connId}, session ${sessionId} marked stale`
-    );
+      if (session) {
+        const activeConnections = this.sessionToConnections.get(sessionId);
+        if (!activeConnections || activeConnections.size === 0) {
+          const previousStatus = session.status;
+          session.status = 'stale';
+          this.logger.info(
+            `[Relay] Connection closed: ${connId}, session ${sessionId} marked stale`
+          );
 
-    if (previousStatus !== 'stale') {
-      this.emitOpsEvent('session_stale', sessionId, {
-        reason: 'connection_closed',
-        previousStatus,
-      });
-      this.finalizeArchiveForSession(session, 'session_stale', Date.now());
+          if (previousStatus !== 'stale') {
+            this.emitOpsEvent('session_stale', sessionId, {
+              reason: 'connection_closed',
+              previousStatus,
+            });
+            this.finalizeArchiveForSession(session, 'session_stale', Date.now());
+          }
+        }
+      }
     }
 
     this.connToSession.delete(connId);
@@ -812,6 +983,108 @@ export class RelayServer {
 
   private generateSessionId(): string {
     return 'S-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+  }
+
+  private trackConnectionForSession(connId: string, sessionId: string) {
+    let set = this.sessionToConnections.get(sessionId);
+    if (!set) {
+      set = new Set<string>();
+      this.sessionToConnections.set(sessionId, set);
+    }
+    set.add(connId);
+  }
+
+  private untrackConnectionForSession(connId: string, sessionId: string) {
+    const set = this.sessionToConnections.get(sessionId);
+    if (!set) return;
+    set.delete(connId);
+    if (set.size === 0) {
+      this.sessionToConnections.delete(sessionId);
+    }
+  }
+
+  private resolveCanonicalSessionForTelemetry(
+    currentSessionId: string,
+    telemetrySessionUid: string | null,
+    connId: string
+  ): string {
+    if (!telemetrySessionUid || telemetrySessionUid.length === 0) {
+      return currentSessionId;
+    }
+
+    const mapped = this.telemetrySessionUidToSessionId.get(telemetrySessionUid);
+    if (!mapped) {
+      this.telemetrySessionUidToSessionId.set(telemetrySessionUid, currentSessionId);
+      return currentSessionId;
+    }
+
+    if (mapped === currentSessionId) {
+      return currentSessionId;
+    }
+
+    const sourceSession = this.sessions.get(currentSessionId);
+    const targetSession = this.sessions.get(mapped);
+    if (!sourceSession || !targetSession) {
+      this.telemetrySessionUidToSessionId.set(telemetrySessionUid, currentSessionId);
+      return currentSessionId;
+    }
+
+    const mergedAt = Date.now();
+
+    this.untrackConnectionForSession(connId, currentSessionId);
+    this.trackConnectionForSession(connId, mapped);
+    this.connToSession.set(connId, mapped);
+
+    const sourceJoinCode = this.sessionAccess.get(currentSessionId)?.joinCode;
+    if (sourceJoinCode) {
+      this.joinCodeToSessionId.set(sourceJoinCode, mapped);
+    }
+
+    this.archiveStore.mergeActiveRecordings(currentSessionId, mapped);
+    const sourceCache = this.strategyCache.get(currentSessionId);
+    const targetCache = this.strategyCache.get(mapped);
+    if (!targetCache && sourceCache) {
+      this.strategyCache.set(mapped, sourceCache);
+    }
+    this.sessions.delete(currentSessionId);
+    this.sessionAccess.delete(currentSessionId);
+    this.strategyCache.delete(currentSessionId);
+    this.sessionAliasToCanonical.set(currentSessionId, {
+      canonicalSessionId: mapped,
+      telemetrySessionUid,
+      mergedAt,
+    });
+    this.sessionSyncUntil.set(mapped, mergedAt + 8000);
+
+    targetSession.updatedAt = mergedAt;
+    targetSession.lastHeartbeatAt = mergedAt;
+    targetSession.status = 'active';
+
+    this.emitOpsEvent('session_rebound', mapped, {
+      previousSessionId: currentSessionId,
+      canonicalSessionId: mapped,
+      telemetrySessionUid,
+      mergedAt,
+    });
+
+    const ws = this.connToWs.get(connId);
+    if (ws) {
+      ws.send(
+        JSON.stringify({
+          type: 'session_rebound',
+          sessionId: mapped,
+          previousSessionId: currentSessionId,
+          telemetrySessionUid,
+          mergedAt,
+        })
+      );
+    }
+
+    this.logger.info(
+      `[Relay] Merged telemetry session ${telemetrySessionUid}: ${currentSessionId} -> ${mapped}`
+    );
+
+    return mapped;
   }
 
   private startDebugHttp(port: number) {

@@ -19,6 +19,8 @@ export interface StrategyEngineInput {
   sessionId: string;
   relayStatus: 'active' | 'stale' | 'closed';
   isStale: boolean;
+  syncingCanonicalSession?: boolean;
+  syncingUntil?: number | null;
   hasSnapshot: boolean;
   latestSequence: number | null;
   currentLap: number | null;
@@ -82,6 +84,8 @@ export interface StrategyRecommendationResult {
   stabilityScore: number | null;
   recommendationChanged: boolean;
   trendReason: string | null;
+  syncingCanonicalSession: boolean;
+  syncingUntil: number | null;
   reasons: string[];
   signals: StrategySignals;
   generatedAt: number;

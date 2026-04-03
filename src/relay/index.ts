@@ -13,9 +13,29 @@ import fs from 'fs';
 import { spawn } from 'child_process';
 import { createViewerApiRouter } from './viewerApi.js';
 
-const WS_PORT = process.env.RELAY_WS_PORT ? parseInt(process.env.RELAY_WS_PORT) : 4000;
-const DEBUG_HTTP_PORT = process.env.RELAY_DEBUG_HTTP_PORT ? parseInt(process.env.RELAY_DEBUG_HTTP_PORT) : 4001;
 const logger = new ConsoleLogger('info');
+const WS_PORT = readPortFromEnv('RELAY_WS_PORT', 4000);
+const DEBUG_HTTP_PORT = readPortFromEnv('RELAY_DEBUG_HTTP_PORT', 4001);
+const HTTP_PORT = readPortFromEnv('VIEWER_HTTP_PORT', 4100);
+let embeddedUdp: UdpReceiver | null = null;
+let embeddedRelayClient: RelayClient | null = null;
+let embeddedAgentStarted = false;
+let shuttingDown = false;
+
+function readPortFromEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw || raw.trim().length === 0) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65535) {
+    return parsed;
+  }
+
+  logger.warn(`[Config] Invalid ${name}=${raw}; using default ${fallback}`);
+  return fallback;
+}
 
 function resolveCrashLogPath(): string {
   const exeDir = path.dirname(process.execPath);
@@ -53,6 +73,7 @@ const relayServer = new RelayServer({
   logger,
   heartbeatTimeoutMs: 10000,
 });
+registerProcessShutdown();
 
 if (shouldStartEmbeddedAgent()) {
   startEmbeddedAgent();
@@ -85,33 +106,88 @@ function shouldStartEmbeddedAgent(): boolean {
 }
 
 function startEmbeddedAgent(): void {
-  const udpPort = process.env.F1_UDP_PORT ? parseInt(process.env.F1_UDP_PORT) : 20777;
+  if (embeddedAgentStarted) {
+    return;
+  }
+
+  const udpPort = readPortFromEnv('F1_UDP_PORT', 20777);
   const udpAddr = process.env.F1_UDP_ADDR || '0.0.0.0';
   const relayUrl = process.env.RELAY_URL || `ws://127.0.0.1:${WS_PORT}`;
 
-  const reducer = new StateReducer();
-  const udp = new UdpReceiver(reducer, logger, {
-    port: udpPort,
-    address: udpAddr,
-    logLevel: 'info',
-    verbose: false,
-  });
+  try {
+    const reducer = new StateReducer();
+    const udp = new UdpReceiver(reducer, logger, {
+      port: udpPort,
+      address: udpAddr,
+      logLevel: 'info',
+      verbose: false,
+    });
 
-  const relayClient = new RelayClient({
-    url: relayUrl,
-    protocolVersion: 1,
-    agentVersion: '0.1.0',
-    logger,
-    snapshotIntervalMs: 1000,
-    heartbeatIntervalMs: 2000,
-  });
+    const relayClient = new RelayClient({
+      url: relayUrl,
+      protocolVersion: 1,
+      agentVersion: '0.1.0',
+      logger,
+      snapshotIntervalMs: 1000,
+      heartbeatIntervalMs: 2000,
+    });
 
-  relayClient.connect();
-  new RelayAgentAdapter(reducer, relayClient, logger);
-  udp.start();
+    relayClient.connect();
+    new RelayAgentAdapter(reducer, relayClient, logger);
+    udp.start();
 
-  logger.info(`[EmbeddedAgent] UDP receiver started at ${udpAddr}:${udpPort}`);
-  logger.info(`[EmbeddedAgent] Relay uplink target: ${relayUrl}`);
+    embeddedUdp = udp;
+    embeddedRelayClient = relayClient;
+    embeddedAgentStarted = true;
+
+    logger.info(`[EmbeddedAgent] UDP receiver started at ${udpAddr}:${udpPort}`);
+    logger.info(`[EmbeddedAgent] Relay uplink target: ${relayUrl}`);
+  } catch (err) {
+    embeddedUdp = null;
+    embeddedRelayClient = null;
+    embeddedAgentStarted = false;
+    logger.error('[EmbeddedAgent] Failed to start embedded agent', err);
+  }
+}
+
+function stopEmbeddedAgent(): void {
+  if (embeddedUdp) {
+    try {
+      embeddedUdp.stop();
+    } catch (err) {
+      logger.warn(`[EmbeddedAgent] Failed to stop UDP receiver cleanly: ${err}`);
+    }
+    embeddedUdp = null;
+  }
+
+  if (embeddedRelayClient) {
+    try {
+      embeddedRelayClient.close();
+    } catch (err) {
+      logger.warn(`[EmbeddedAgent] Failed to stop relay client cleanly: ${err}`);
+    }
+    embeddedRelayClient = null;
+  }
+
+  embeddedAgentStarted = false;
+}
+
+function registerProcessShutdown(): void {
+  const shutdown = (signal: string) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+
+    logger.info(`[Shutdown] Received ${signal}, closing services...`);
+    stopEmbeddedAgent();
+    relayServer.close();
+
+    setTimeout(() => process.exit(0), 120);
+  };
+
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
 function openBrowser(url: string): void {
@@ -219,6 +295,29 @@ app.use(express.json()); // PATCH body parsing
 const publicDir = resolvePublicDir();
 app.use(express.static(publicDir)); // 루트 static 서빙
 
+app.get('/healthz', (_req, res) => {
+  const requiredFiles = ['ops.html', 'viewer.html', 'host.html', 'archives.html'];
+  const missingFiles = requiredFiles.filter(
+    (name) => !fs.existsSync(path.join(publicDir, name))
+  );
+  const healthy = missingFiles.length === 0;
+  res.status(healthy ? 200 : 500).json({
+    ok: healthy,
+    publicDir,
+    missingFiles,
+    relay: {
+      wsPort: WS_PORT,
+      viewerPort: HTTP_PORT,
+    },
+    embeddedAgent: {
+      enabled: shouldStartEmbeddedAgent(),
+      started: embeddedAgentStarted,
+      udpPort: readPortFromEnv('F1_UDP_PORT', 20777),
+      udpAddress: process.env.F1_UDP_ADDR || '0.0.0.0',
+    },
+  });
+});
+
 app.use('/api/viewer', createViewerApiRouter(relayServer));
 
 app.use('/viewer', express.static(publicDir));
@@ -252,7 +351,6 @@ app.get('/overlay/join/:joinCode', (req, res) => {
   res.sendFile(path.join(publicDir, 'overlay.html'));
 });
 
-const HTTP_PORT = process.env.VIEWER_HTTP_PORT ? parseInt(process.env.VIEWER_HTTP_PORT) : 4100;
 app.listen(HTTP_PORT, () => {
   logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);
   logger.info(`[Viewer] Static assets from: ${publicDir}`);

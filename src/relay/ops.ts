@@ -5,6 +5,7 @@ export type OpsEventType =
   | 'session_started'
   | 'session_stale'
   | 'session_recovered'
+  | 'session_rebound'
   | 'session_closed'
   | 'share_enabled_changed'
   | 'visibility_changed';
@@ -98,6 +99,18 @@ export interface SessionOpsSummary {
   strategyTrendReason?: string | null;
   strategyGeneratedAt?: number | null;
   strategyUnavailable?: boolean;
+  strategySyncingCanonicalSession?: boolean;
+  strategySyncingUntil?: number | null;
+  strategyPitWindowHint?: 'open_now' | 'open_soon' | 'monitor' | 'too_early' | 'unknown' | null;
+  strategyRejoinRiskHint?: 'low' | 'medium' | 'high' | 'unknown' | null;
+  strategyTyreUrgency?: number | null;
+  strategyFuelRisk?: number | null;
+  strategyUndercut?: number | null;
+  strategyOvercut?: number | null;
+  strategyTrafficRisk?: number | null;
+  strategyPitLoss?: number | null;
+  strategyCleanAirProbability?: number | null;
+  strategyLapsRemaining?: number | null;
 }
 
 export function getViewerAccessLabel(

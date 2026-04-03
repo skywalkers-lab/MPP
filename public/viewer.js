@@ -15,9 +15,35 @@ if (presetIndicator) {
 }
 
 const $accessCard = document.getElementById('access-card');
+const $reboundBanner = document.getElementById('rebound-banner');
 const $sessionCard = document.getElementById('session-card');
 const $snapshotSummary = document.getElementById('snapshot-summary');
 const $eventLog = document.getElementById('event-log');
+let reboundBannerTimer = null;
+let lastReboundMergedAt = null;
+
+function showReboundBanner(rebound, canonicalSessionId) {
+  if (!$reboundBanner || !rebound) return;
+  if (lastReboundMergedAt === rebound.mergedAt) return;
+  lastReboundMergedAt = rebound.mergedAt;
+
+  const fromId = rebound.previousSessionId || '-';
+  const toId = canonicalSessionId || '-';
+  const uid = rebound.telemetrySessionUid || '-';
+  $reboundBanner.textContent =
+    '같은 경기 sessionUID(' + uid + ') 감지로 canonical session으로 병합되었습니다. ' + fromId + ' -> ' + toId;
+  $reboundBanner.style.display = 'block';
+
+  if (reboundBannerTimer) {
+    clearTimeout(reboundBannerTimer);
+  }
+  reboundBannerTimer = setTimeout(() => {
+    if ($reboundBanner) {
+      $reboundBanner.style.display = 'none';
+    }
+    reboundBannerTimer = null;
+  }, 7000);
+}
 
 async function fetchHealth(resolvedSessionId) {
   if (!resolvedSessionId) return null;
@@ -218,6 +244,7 @@ async function pollLoop() {
     clearAccessError();
     const resolvedSessionId = data.sessionId || sessionId;
     const healthData = await fetchHealth(resolvedSessionId);
+    showReboundBanner(data.rebound, resolvedSessionId);
     lastGoodData = data;
     renderStatus(data, healthData);
     pollDelay = 1000;

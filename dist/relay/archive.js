@@ -155,7 +155,14 @@ export function toArchiveRecommendationSnapshot(strategy, generatedAt) {
         return {
             strategyUnavailable: true,
             recommendation: null,
+            primaryRecommendation: null,
+            secondaryRecommendation: null,
             severity: null,
+            reasons: strategy.reasons,
+            confidenceScore: null,
+            stabilityScore: null,
+            recommendationChanged: false,
+            trendReason: null,
             reason: strategy.reason,
             generatedAt,
         };
@@ -163,7 +170,14 @@ export function toArchiveRecommendationSnapshot(strategy, generatedAt) {
     return {
         strategyUnavailable: false,
         recommendation: strategy.primaryRecommendation ?? strategy.recommendation,
+        primaryRecommendation: strategy.primaryRecommendation ?? strategy.recommendation,
+        secondaryRecommendation: strategy.secondaryRecommendation ?? null,
         severity: strategy.severity,
+        reasons: strategy.reasons,
+        confidenceScore: strategy.confidenceScore,
+        stabilityScore: strategy.stabilityScore,
+        recommendationChanged: strategy.recommendationChanged,
+        trendReason: strategy.trendReason,
         reason: null,
         generatedAt,
     };

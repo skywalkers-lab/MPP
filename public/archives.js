@@ -42,6 +42,21 @@ function escapeHtml(v) {
     .replace(/'/g, '&#039;');
 }
 
+function opsEventMessage(event) {
+  if (!event) return '-';
+  if (event.type === 'session_rebound') {
+    var prev = event.payload && event.payload.previousSessionId ? String(event.payload.previousSessionId) : '-';
+    var next = event.payload && event.payload.canonicalSessionId ? String(event.payload.canonicalSessionId) : safe(event.sessionId);
+    var uid = event.payload && event.payload.telemetrySessionUid ? String(event.payload.telemetrySessionUid) : '-';
+    return 'canonical 병합: ' + prev + ' -> ' + next + ' (sessionUID=' + uid + ')';
+  }
+  if (event.type === 'session_stale') return 'heartbeat 지연으로 stale';
+  if (event.type === 'session_recovered') return '연결 복구';
+  if (event.type === 'session_started') return '세션 시작';
+  if (event.type === 'session_closed') return '세션 종료';
+  return safe(event.type);
+}
+
 function renderArchiveSummary(summary) {
   if (!summary) {
     $archiveSummary.innerHTML = '<div class="muted">아카이브를 선택하세요.</div>';
@@ -170,7 +185,7 @@ function renderTimeline(timeline) {
           '<span class="tl-main">⚙ ' + escapeHtml(evType) + '</span>' +
           '<span class="tl-ts">' + escapeHtml(fmtTime(item.timestamp)) + '</span>' +
         '</div>' +
-        '<div class="tl-sub">control-plane operation</div>' +
+        '<div class="tl-sub">' + escapeHtml(opsEventMessage(item.event)) + '</div>' +
       '</div>';
     }
 

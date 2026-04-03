@@ -139,4 +139,46 @@ describe('StrategyEngine v1', () => {
       expect(result.secondaryRecommendation).toBeDefined();
     }
   });
+
+  it('stabilizes recommendation confidence during canonical session sync window', () => {
+    const baseline = engine.evaluate(
+      baseInput({
+        tyreAgeLaps: 26,
+        position: 3,
+        fuelLapsRemaining: 9,
+      })
+    );
+
+    expect(baseline.strategyUnavailable).toBe(false);
+    if (baseline.strategyUnavailable) {
+      return;
+    }
+
+    const synced = engine.evaluate(
+      baseInput({
+        tyreAgeLaps: 27,
+        position: 3,
+        fuelLapsRemaining: 8,
+        previousStrategy: {
+          recommendation: 'STAY OUT',
+          secondaryRecommendation: undefined,
+          severity: 'info',
+          confidenceScore: 70,
+          stabilityScore: 70,
+          signals: {},
+          generatedAt: baseInput().generatedAt - 2500,
+        },
+        syncingCanonicalSession: true,
+        syncingUntil: baseInput().generatedAt + 5000,
+      })
+    );
+
+    expect(synced.strategyUnavailable).toBe(false);
+    if (!synced.strategyUnavailable) {
+      expect(synced.confidenceScore == null ? 0 : synced.confidenceScore).toBeLessThanOrEqual(55);
+      expect(synced.stabilityScore == null ? 0 : synced.stabilityScore).toBeLessThanOrEqual(45);
+      expect(synced.recommendationChanged).toBe(false);
+      expect(synced.reasons.some((r) => r.includes('canonical session'))).toBe(true);
+    }
+  });
 });

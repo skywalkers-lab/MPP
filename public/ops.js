@@ -1,6 +1,7 @@
 var sessionsApiUrl = '/api/viewer/ops/sessions';
 var eventsApiUrl = '/api/viewer/ops/events/recent?limit=25';
 var archivesApiUrl = '/api/viewer/archives?limit=500';
+var relayInfoApiUrl = '/api/viewer/relay-info';
 
 var $sessionsBody = document.getElementById('sessions-body');
 var $events = document.getElementById('events');
@@ -8,9 +9,12 @@ var $summary = document.getElementById('summary');
 var $statusFilter = document.getElementById('status-filter');
 var $healthFilter = document.getElementById('health-filter');
 var $surfaceFilter = document.getElementById('surface-filter');
+var $relayEndpoint = document.getElementById('relay-endpoint');
+var $relayDot = document.getElementById('relay-dot');
 
 var allSessions = [];
 var archivedSessionIds = {};
+var reboundEventsBySession = {};
 var preset = window.UiCommon ? window.UiCommon.applyPreset('ops') : 'ops';
 
 function fmtTime(ts) {
@@ -27,6 +31,62 @@ function fmtAgeSeconds(ts) {
 
 function safe(v) {
   return v === null || v === undefined ? '-' : String(v);
+}
+
+function num(v) {
+  return Number.isFinite(v) ? Number(v) : null;
+}
+
+function toScoreText(v) {
+  var n = num(v);
+  return n === null ? '-' : String(Math.round(Math.max(0, Math.min(100, n))));
+}
+
+function pitEtaFromSummary(s) {
+  if (s.strategyPitWindowHint === 'open_now') return 'NOW';
+  if (s.strategyPitWindowHint === 'open_soon') return '1-2 laps';
+  if (s.strategyPitWindowHint === 'monitor') return '3-5 laps';
+  if (s.strategyPitWindowHint === 'too_early') return '5+ laps';
+  return '-';
+}
+
+function pitwallSummary(s) {
+  var conf = num(s.strategyConfidence);
+  var stable = num(s.strategyStability);
+  var callStrength = conf !== null && stable !== null
+    ? conf * 0.6 + stable * 0.4
+    : conf;
+  var stress = (num(s.strategyTyreUrgency) !== null || num(s.strategyFuelRisk) !== null)
+    ? (num(s.strategyTyreUrgency) || 0) * 0.55 + (num(s.strategyFuelRisk) || 0) * 0.45
+    : null;
+  var trafficExposure = (num(s.strategyTrafficRisk) !== null || num(s.strategyCleanAirProbability) !== null)
+    ? (num(s.strategyTrafficRisk) || 50) * 0.7 + (100 - (num(s.strategyCleanAirProbability) || 50)) * 0.3
+    : null;
+
+  return {
+    callStrength: toScoreText(callStrength),
+    stress: toScoreText(stress),
+    trafficExposure: toScoreText(trafficExposure),
+    pitEta: pitEtaFromSummary(s),
+    lapsRemaining: num(s.strategyLapsRemaining),
+  };
+}
+
+function formatOpsEventLine(e) {
+  if (!e) return '-';
+  if (e.type === 'session_rebound') {
+    var prev = e.payload && e.payload.previousSessionId ? String(e.payload.previousSessionId) : '-';
+    var next = e.payload && e.payload.canonicalSessionId ? String(e.payload.canonicalSessionId) : safe(e.sessionId);
+    var uid = e.payload && e.payload.telemetrySessionUid ? String(e.payload.telemetrySessionUid) : '-';
+    return '같은 경기 sessionUID(' + uid + ') 감지로 canonical 병합: ' + prev + ' -> ' + next;
+  }
+  if (e.type === 'session_stale') return 'heartbeat 지연으로 stale 전환';
+  if (e.type === 'session_recovered') return '연결 복구로 active 전환';
+  if (e.type === 'session_started') return '새 host 연결로 세션 시작';
+  if (e.type === 'share_enabled_changed') return 'shareEnabled 변경';
+  if (e.type === 'visibility_changed') return 'visibility 변경';
+  if (e.type === 'session_closed') return '세션 종료';
+  return safe(e.type);
 }
 
 function relayClass(status) {
@@ -144,11 +204,19 @@ function renderSessionsTable(sessions) {
           relayFreshnessMs: s.relayFreshnessMs,
         })
       : '';
+    var pw = pitwallSummary(s);
+    var reboundEvent = reboundEventsBySession[s.sessionId] || null;
+    var reboundBadge = reboundEvent
+      ? '<div class="muted" style="margin-top:3px;color:#9fd8ff;">merged: ' +
+        escapeHtml(safe(reboundEvent.payload && reboundEvent.payload.previousSessionId)) +
+        ' -> ' + escapeHtml(safe(s.sessionId)) + '</div>'
+      : '';
 
     return '<tr' + rowClass + '>' +
       '<td data-label="Session">' +
         '<div style="font-family:monospace;font-size:12px;">' + escapeHtml(s.sessionId) + '</div>' +
         '<div class="muted">seq: ' + safe(s.latestSequence) + '</div>' +
+        reboundBadge +
       '</td>' +
       '<td data-label="Health">' +
         (window.UiCommon ? window.UiCommon.healthChipHtml(healthLevel) : safe(healthLevel)) +
@@ -177,12 +245,15 @@ function renderSessionsTable(sessions) {
         '</div>' +
       '</td>' +
       '<td data-label="Strategy">' +
-        '<div>' + safe(s.strategyLabel || '-') + '</div>' +
-        '<div class="muted">alt=' + safe(s.strategySecondaryLabel || '-') + '</div>' +
-        '<div class="muted">sev=' + safe(s.strategySeverity || '-') + ', traffic=' + safe(s.strategyTrafficBand || '-') + '</div>' +
-        '<div class="muted">conf=' + safe(s.strategyConfidence) + ', stable=' + safe(s.strategyStability) + '</div>' +
+        '<div><strong>' + safe(s.strategyLabel || '-') + '</strong></div>' +
+        '<div class="muted">alt=' + safe(s.strategySecondaryLabel || '-') + ' · sev=' + safe(s.strategySeverity || '-') + '</div>' +
+        '<div class="muted" title="confidence + stability + severity aggregate">call=' + pw.callStrength + '/100</div>' +
+        '<div class="muted" title="tyre urgency + fuel risk + degradation 합성">stress=' + pw.stress + '/100 · traffic=' + pw.trafficExposure + '/100</div>' +
+        '<div class="muted" title="pitWindowHint + pitLoss 기반 ETA">pit_eta=' + pw.pitEta + (pw.lapsRemaining !== null ? (' · laps_rem=' + pw.lapsRemaining) : '') + '</div>' +
+        '<div class="muted">window=' + safe(s.strategyPitWindowHint || '-') + ', rejoin=' + safe(s.strategyRejoinRiskHint || '-') + ', band=' + safe(s.strategyTrafficBand || '-') + '</div>' +
+        (s.strategySyncingCanonicalSession ? '<div class="muted" style="color:#8ad0ff;">syncing canonical session...</div>' : '') +
         '<div class="muted">changed=' + safe(s.strategyChanged) + '</div>' +
-        '<div class="muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">trend=' + escapeHtml(safe(s.strategyTrendReason || '-')) + '</div>' +
+        '<div class="muted" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">trend=' + escapeHtml(safe(s.strategyTrendReason || '-')) + '</div>' +
         '<div class="muted">generated=' + fmtTime(s.strategyGeneratedAt) + '</div>' +
       '</td>' +
       '<td data-label="Heartbeat">' +
@@ -210,14 +281,43 @@ function renderEvents(events) {
     return;
   }
 
+  reboundEventsBySession = {};
+
   $events.innerHTML = events.map(function (e) {
+    if (e.type === 'session_rebound' && e.sessionId) {
+      reboundEventsBySession[e.sessionId] = e;
+    }
     var payload = e.payload ? escapeHtml(JSON.stringify(e.payload)) : '{}';
+    var eventClass = e.type === 'session_rebound' ? 'event-type rebound' : 'event-type';
     return '<div class="event-item">' +
-      '<div><span class="event-type">' + escapeHtml(e.type) + '</span> · ' + escapeHtml(e.sessionId) + '</div>' +
+      '<div><span class="' + eventClass + '">' + escapeHtml(e.type) + '</span> · ' + escapeHtml(e.sessionId) + '</div>' +
       '<div class="muted">' + fmtTime(e.timestamp) + '</div>' +
+      '<div class="event-message">' + escapeHtml(formatOpsEventLine(e)) + '</div>' +
       '<div class="muted">payload: ' + payload + '</div>' +
     '</div>';
   }).join('');
+}
+
+function renderRelayInfo(info) {
+  if (!$relayEndpoint || !$relayDot) return;
+  if (!info) {
+    $relayEndpoint.textContent = 'relay: -';
+    $relayDot.className = 'relay-dot';
+    return;
+  }
+
+  $relayEndpoint.textContent = 'relay: ' + safe(info.relayWsUrl || ('ws://127.0.0.1:' + safe(info.relayWsPort)));
+  var active = Number(info.activeSessions || 0);
+  $relayDot.className = 'relay-dot ' + (active > 0 ? 'connected' : 'idle');
+}
+
+async function fetchRelayInfo() {
+  var res = await fetch(relayInfoApiUrl);
+  var data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'relay_info_failed');
+  }
+  renderRelayInfo(data);
 }
 
 async function fetchSessions() {
@@ -252,11 +352,16 @@ async function fetchEvents() {
     throw new Error(data.error || 'ops_events_failed');
   }
   renderEvents(data.events || []);
+
+  if (allSessions && allSessions.length > 0) {
+    var filtered = filterSessions(allSessions);
+    renderSessionsTable(filtered);
+  }
 }
 
 async function refreshAll() {
   try {
-    await Promise.all([fetchArchives(), fetchSessions(), fetchEvents()]);
+    await Promise.all([fetchArchives(), fetchSessions(), fetchEvents(), fetchRelayInfo()]);
   } catch (err) {
     var msg = err && err.message ? err.message : String(err);
     $events.innerHTML = '<div class="muted">데이터 로드 실패: ' + escapeHtml(msg) + '</div>';

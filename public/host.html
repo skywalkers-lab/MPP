@@ -168,6 +168,7 @@
 
     .msg.ok { color: var(--ok); border-color: #2e6843; background: #12281c; }
     .msg.err { color: var(--danger); border-color: #7a3838; background: #2d1717; }
+    .msg.info { color: #8ad0ff; border-color: #355a78; background: #122131; }
 
     .link {
       color: #a6dcff;
@@ -264,8 +265,60 @@
       background: #0f1823;
     }
 
+    .pitwall-grid {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .pitwall-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 8px;
+      background: #0f1823;
+    }
+
+    .pitwall-title {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 4px;
+    }
+
+    .pitwall-sub {
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 6px;
+      line-height: 1.25;
+    }
+
+    .pitwall-value {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .pitwall-gauge {
+      height: 8px;
+      border-radius: 999px;
+      background: #182434;
+      border: 1px solid var(--line);
+      overflow: hidden;
+    }
+
+    .pitwall-gauge-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #52b788 0%, #ffd166 65%, #ff6b6b 100%);
+    }
+
     @media (max-width: 680px) {
       .grid {
+        grid-template-columns: 1fr;
+      }
+      .pitwall-grid {
         grid-template-columns: 1fr;
       }
     }
@@ -304,6 +357,12 @@
       <div class="row" style="margin-top: 12px;">Session Health</div>
       <div id="health-chip"></div>
       <div id="health-bar" class="health-bar"></div>
+      <div class="row" style="margin-top: 12px;">Relay Endpoint</div>
+      <div class="inline">
+        <span id="relay-endpoint" class="value" style="font-size:14px;">-</span>
+        <span id="relay-status" class="status-chip health-connecting">CONNECTING</span>
+      </div>
+      <div id="relay-meta" class="muted" style="margin-top:6px;">-</div>
     </div>
 
     <div class="card">

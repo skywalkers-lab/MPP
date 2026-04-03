@@ -15,9 +15,25 @@ describe('Viewer API', () => {
       getSessionAccess: () => undefined,
       resolveJoinCode: () => ({}),
       updateSessionAccess: () => undefined,
+      resolveCanonicalSessionId: (id: string) => ({ canonicalSessionId: id, rebound: null }),
+      getRelayRuntimeInfo: () => ({
+        endpoint: 'ws://127.0.0.1:8787',
+        status: 'active',
+        hostCount: 1,
+        activeSessionCount: 1,
+      }),
     };
     app = express();
     app.use('/api/viewer', createViewerApiRouter(relayServer));
+  });
+
+  it('relay runtime info endpoint를 제공한다', async () => {
+    const res = await request(app).get('/api/viewer/relay-info');
+    expect(res.status).toBe(200);
+    expect(res.body.endpoint).toBe('ws://127.0.0.1:8787');
+    expect(res.body.status).toBe('active');
+    expect(res.body.hostCount).toBe(1);
+    expect(res.body.activeSessionCount).toBe(1);
   });
 
   it('세션 없음 → 404 + not_found', async () => {
@@ -81,6 +97,26 @@ describe('Viewer API', () => {
     expect(res.status).toBe(200);
     expect(res.body.viewerStatus).toBe('live');
     expect(res.body.snapshot).not.toBeNull();
+  });
+
+  it('alias session 조회 시 rebound metadata를 포함한다', async () => {
+    relayServer.resolveCanonicalSessionId = (id: string) =>
+      id === 'S-OLD'
+        ? { canonicalSessionId: 'S-CANON', rebound: { from: 'S-OLD', to: 'S-CANON' } }
+        : { canonicalSessionId: id, rebound: null };
+    sessionMap.set('S-CANON', {
+      sessionId: 'S-CANON',
+      status: 'active',
+      updatedAt: 123,
+      lastHeartbeatAt: 123,
+      latestSequence: 10,
+      latestState: { playerCarIndex: 0 },
+    });
+
+    const res = await request(app).get('/api/viewer/sessions/S-OLD');
+    expect(res.status).toBe(200);
+    expect(res.body.requestedSessionId).toBe('S-OLD');
+    expect(res.body.rebound).toEqual({ from: 'S-OLD', to: 'S-CANON' });
   });
 
   it('stale → stale', async () => {

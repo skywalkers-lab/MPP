@@ -33,6 +33,7 @@
     .health-stale_risk { color:#ff9f57; border-color:#7a4d25; background:#2d1e0f; }
     .health-connecting { color:var(--muted); border-color:#3a4d60; background:#1a2333; }
     .health-stale { color:#ff8f8f; border-color:#7b3939; background:#2c1818; }
+    .info-banner { background:#132131; border:1px solid #355a78; color:#8ad0ff; border-radius:8px; padding:10px 12px; margin-bottom:12px; display:none; }
   </style>
 </head>
 <body>
@@ -42,6 +43,7 @@
       <a href="/ops" style="color:#8ad0ff;text-decoration:none;">ops</a>
       <a href="/archives?preset=replay" style="color:#8ad0ff;text-decoration:none;">archives</a>
     </div>
+    <div id="rebound-banner" class="info-banner"></div>
     <div id="access-card" class="access-card" style="display:none;"></div>
     <div id="session-card" class="session-card"></div>
     <div id="snapshot-summary" class="snapshot-summary"></div>

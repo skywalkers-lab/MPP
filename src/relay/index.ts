@@ -91,23 +91,41 @@ function resolvePublicDir(): string {
   const snapshotDir = path.join(__dirname, '..');
   const pkgEntrypoint = (process as NodeJS.Process & { pkg?: { entrypoint?: string } }).pkg?.entrypoint;
   const pkgEntryDir = pkgEntrypoint ? path.dirname(pkgEntrypoint) : null;
+  const isPackaged = !!(process as NodeJS.Process & { pkg?: unknown }).pkg;
+
+  const requiredFiles = ['ops.html', 'viewer.html', 'host.html'];
+  function hasRequiredAssets(dir: string): boolean {
+    return requiredFiles.every((name) => {
+      const p = path.join(dir, name);
+      return fs.existsSync(p) && fs.statSync(p).isFile();
+    });
+  }
+
   const candidates = [
     process.env.MPP_PUBLIC_DIR,
-    path.join(process.cwd(), 'public'),
+    path.join(path.sep, 'snapshot', 'MPP', 'public'),
+    path.join(path.sep, 'snapshot', 'public'),
     path.join(snapshotDir, 'public'),
     path.join(snapshotDir, '../public'),
     pkgEntryDir ? path.join(pkgEntryDir, '../public') : null,
     pkgEntryDir ? path.join(pkgEntryDir, '../../public') : null,
-    path.join(moduleDir, '../../public'),
     path.join(path.dirname(process.execPath), 'public'),
+    // Keep cwd/public as last resort for non-packaged local development only.
+    !isPackaged ? path.join(process.cwd(), 'public') : null,
+    path.join(moduleDir, '../../public'),
   ].filter((v): v is string => typeof v === 'string' && v.length > 0);
 
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+    if (
+      fs.existsSync(candidate) &&
+      fs.statSync(candidate).isDirectory() &&
+      hasRequiredAssets(candidate)
+    ) {
       return candidate;
     }
   }
 
+  // Final fallback keeps previous behavior but logs will show missing files explicitly.
   return path.join(process.cwd(), 'public');
 }
 

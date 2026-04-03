@@ -88,10 +88,13 @@ function openBrowser(url: string): void {
 function resolvePublicDir(): string {
   const modulePath = process.argv[1] || process.cwd();
   const moduleDir = path.dirname(modulePath);
-  const snapshotDir = path.join(__dirname, '..');
+  const runtimeDir = __dirname;
+  const snapshotDir = path.join(runtimeDir, '..');
   const pkgEntrypoint = (process as NodeJS.Process & { pkg?: { entrypoint?: string } }).pkg?.entrypoint;
   const pkgEntryDir = pkgEntrypoint ? path.dirname(pkgEntrypoint) : null;
-  const isPackaged = !!(process as NodeJS.Process & { pkg?: unknown }).pkg;
+  const isPackaged =
+    !!(process as NodeJS.Process & { pkg?: unknown }).pkg ||
+    (process.platform === 'win32' && process.execPath.toLowerCase().endsWith('.exe'));
   const fsRoot = path.parse(process.execPath).root;
   const winSnapshotRoot = path.join(fsRoot, 'snapshot');
 
@@ -102,9 +105,14 @@ function resolvePublicDir(): string {
 
   const candidates = [
     process.env.MPP_PUBLIC_DIR,
+    path.join(runtimeDir, 'public'),
+    path.join(runtimeDir, '.pkgbuild', 'public'),
+    path.join(snapshotDir, '.pkgbuild', 'public'),
     path.join(winSnapshotRoot, 'MPP', 'public'),
+    path.join(winSnapshotRoot, '.pkgbuild', 'public'),
     path.join(winSnapshotRoot, 'public'),
     path.join(path.sep, 'snapshot', 'MPP', 'public'),
+    path.join(path.sep, 'snapshot', '.pkgbuild', 'public'),
     path.join(path.sep, 'snapshot', 'public'),
     path.join(snapshotDir, 'public'),
     path.join(snapshotDir, '../public'),
@@ -129,6 +137,9 @@ function resolvePublicDir(): string {
   if (isPackaged) {
     // In packaged mode, avoid silently selecting cwd/public (often user Downloads/public).
     const packagedFallbacks = [
+      path.join(runtimeDir, 'public'),
+      path.join(snapshotDir, '.pkgbuild', 'public'),
+      path.join(winSnapshotRoot, '.pkgbuild', 'public'),
       path.join(winSnapshotRoot, 'MPP', 'public'),
       path.join(path.sep, 'snapshot', 'MPP', 'public'),
       path.join(snapshotDir, 'public'),

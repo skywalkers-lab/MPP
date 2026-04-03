@@ -7,7 +7,6 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { spawn } from 'child_process';
-import { fileURLToPath } from 'url';
 import { createViewerApiRouter } from './viewerApi.js';
 
 const WS_PORT = process.env.RELAY_WS_PORT ? parseInt(process.env.RELAY_WS_PORT) : 4000;
@@ -57,7 +56,8 @@ function openBrowser(url: string): void {
 }
 
 function resolvePublicDir(): string {
-  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const modulePath = process.argv[1] || process.cwd();
+  const moduleDir = path.dirname(modulePath);
   const candidates = [
     process.env.MPP_PUBLIC_DIR,
     path.join(process.cwd(), 'public'),

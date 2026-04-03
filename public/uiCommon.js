@@ -15,6 +15,7 @@
     if (level === 'healthy') return 'HEALTHY';
     if (level === 'delayed') return 'DELAYED';
     if (level === 'stale_risk') return 'STALE RISK';
+    if (level === 'connecting') return 'CONNECTING';
     return 'STALE';
   }
 

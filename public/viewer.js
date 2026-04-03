@@ -66,7 +66,7 @@ function clearAccessError() {
 
 function renderSessionCard(data, healthData) {
   const access = data.access || null;
-  const healthLevel = healthData && healthData.healthLevel ? healthData.healthLevel : 'stale';
+  const healthLevel = healthData && healthData.healthLevel ? healthData.healthLevel : 'connecting';
   const healthChip = window.UiCommon
     ? window.UiCommon.healthChipHtml(healthLevel)
     : safe(healthLevel);

@@ -38,6 +38,7 @@ function relayClass(status) {
 function getHealthLevel(s) {
   if (s.healthLevel) return s.healthLevel;
   if (s.relayStatus !== 'active') return 'stale';
+  if (!s.hasSnapshot) return 'connecting';
   var age = Date.now() - (s.lastHeartbeatAt || 0);
   if (age < 3000) return 'healthy';
   if (age < 6000) return 'delayed';

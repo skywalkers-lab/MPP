@@ -71,7 +71,7 @@ export type ViewerAccessLabel =
 export interface SessionOpsSummary {
   sessionId: string;
   relayStatus: RelaySession['status'];
-  healthLevel: 'healthy' | 'delayed' | 'stale_risk' | 'stale';
+  healthLevel: 'healthy' | 'delayed' | 'stale_risk' | 'stale' | 'connecting';
   heartbeatAgeMs: number;
   relayFreshnessMs: number;
   snapshotFreshnessMs: number;
@@ -120,7 +120,7 @@ export function serializeSessionOpsSummary(
   const heartbeatAgeMs = Math.max(0, now - (session.lastHeartbeatAt || now));
   const relayFreshnessMs = Math.max(0, now - session.updatedAt);
   const snapshotFreshnessMs = hasSnapshot ? relayFreshnessMs : -1;
-  const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs);
+  const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs, hasSnapshot);
 
   return {
     sessionId: session.sessionId,
@@ -144,9 +144,11 @@ export function serializeSessionOpsSummary(
 
 export function deriveSessionHealthLevel(
   relayStatus: RelaySession['status'] | 'not_found',
-  heartbeatAgeMs: number
-): 'healthy' | 'delayed' | 'stale_risk' | 'stale' {
+  heartbeatAgeMs: number,
+  hasSnapshot: boolean
+): 'healthy' | 'delayed' | 'stale_risk' | 'stale' | 'connecting' {
   if (relayStatus !== 'active') return 'stale';
+  if (!hasSnapshot) return 'connecting';
   if (heartbeatAgeMs < 3000) return 'healthy';
   if (heartbeatAgeMs < 6000) return 'delayed';
   if (heartbeatAgeMs < 10000) return 'stale_risk';

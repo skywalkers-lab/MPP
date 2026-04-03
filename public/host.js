@@ -104,7 +104,7 @@ function applyAccess(access) {
 function renderHealth(health) {
   if (!$healthChip || !$healthBar) return;
 
-  var level = health && health.healthLevel ? health.healthLevel : 'stale';
+  var level = health && health.healthLevel ? health.healthLevel : 'connecting';
   $healthChip.innerHTML = window.UiCommon
     ? window.UiCommon.healthChipHtml(level)
     : safe(level);

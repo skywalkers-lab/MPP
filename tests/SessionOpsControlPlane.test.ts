@@ -56,7 +56,7 @@ describe('Session Ops / Notification / Control Plane', () => {
     expect(row.joinCode).toBe(joinCode);
     expect(row.relayStatus).toBe('active');
     expect(row.viewerStatus).toBe('waiting');
-    expect(['healthy', 'delayed', 'stale_risk', 'stale']).toContain(row.healthLevel);
+    expect(['healthy', 'delayed', 'stale_risk', 'stale', 'connecting']).toContain(row.healthLevel);
     expect(typeof row.heartbeatAgeMs).toBe('number');
     expect(typeof row.relayFreshnessMs).toBe('number');
     expect(typeof row.snapshotFreshnessMs).toBe('number');

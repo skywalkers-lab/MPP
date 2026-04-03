@@ -243,7 +243,7 @@ export class RelayServer {
         const heartbeatAgeMs = now - session.lastHeartbeatAt;
         const relayFreshnessMs = now - session.updatedAt;
         const snapshotFreshnessMs = session.latestState ? relayFreshnessMs : -1;
-        const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs);
+        const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs, !!session.latestState);
         return {
             sessionId,
             sessionFound: true,

@@ -76,6 +76,7 @@
     .health-delayed   { color: var(--warn);  border-color: #785b24; background: #2d2413; }
     .health-stale_risk{ color: #ff9f57;      border-color: #7a4d25; background: #2d1e0f; }
     .health-stale     { color: var(--bad);   border-color: #7b3939; background: #2c1818; }
+    .health-connecting{ color: var(--muted); border-color: #3a4d60; background: #1a2333; }
 
     .health-bar {
       display: flex;
@@ -213,6 +214,7 @@
         <option value="healthy">healthy</option>
         <option value="delayed">delayed</option>
         <option value="stale_risk">stale_risk</option>
+        <option value="connecting">connecting</option>
         <option value="stale">stale</option>
       </select>
       <label for="surface-filter" class="muted">surface</label>

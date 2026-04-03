@@ -6,6 +6,64 @@ import express from 'express';
 import { RelayServer } from '../src/relay/RelayServer';
 import { createViewerApiRouter } from '../src/relay/viewerApi';
 
+function sampleState() {
+  return {
+    sessionMeta: {
+      sessionUID: 'UID-HEALTH',
+      sessionType: 'Race',
+      trackId: 1,
+      weather: 'clear',
+      safetyCarStatus: 'none',
+      totalLaps: 58,
+      currentLap: 1,
+      sessionTime: 0,
+    },
+    playerCarIndex: 0,
+    spectatorCarIndex: null,
+    cars: {
+      0: {
+        carIndex: 0,
+        position: 1,
+        currentLapNum: 1,
+        lastLapTime: null,
+        bestLapTime: null,
+        gapToLeader: null,
+        gapToFront: null,
+        pitStatus: null,
+        tyreCompound: 'M',
+        tyreAgeLaps: 0,
+        fuelRemaining: 100,
+        fuelLapsRemaining: 45,
+        ersLevel: null,
+        ersDeployMode: null,
+        tyreWear: null,
+        tyreTemp: null,
+        damage: null,
+      },
+    },
+    drivers: {},
+    eventLog: [],
+  } as any;
+}
+
+function seedSession(relay: RelayServer, sessionId: string, withSnapshot: boolean = true) {
+  const ws = { send: jest.fn() } as any;
+  (relay as any).handleHostHello(ws, `conn-${sessionId}`, {
+    requestedSessionId: sessionId,
+    protocolVersion: 1,
+  });
+
+  if (withSnapshot) {
+    (relay as any).handleStateSnapshot(`conn-${sessionId}`, {
+      type: 'state_snapshot',
+      sessionId,
+      sequence: 1,
+      timestamp: Date.now(),
+      state: sampleState(),
+    });
+  }
+}
+
 function buildTestApp(relayServer: RelayServer) {
   const app = express();
   app.use(express.json());
@@ -59,6 +117,66 @@ describe('GET /api/viewer/health/:sessionId', () => {
     expect(res.body).toHaveProperty('healthLevel');
     expect(res.body).toHaveProperty('checkedAt');
   });
+
+  it('returns connecting when session is active but snapshot is not ready', async () => {
+    seedSession(relay, 'S-CONNECTING', false);
+
+    const res = await request(app)
+      .get('/api/viewer/health/S-CONNECTING')
+      .expect(200);
+
+    expect(res.body.sessionId).toBe('S-CONNECTING');
+    expect(res.body.sessionFound).toBe(true);
+    expect(res.body.relayStatus).toBe('active');
+    expect(res.body.healthLevel).toBe('connecting');
+    expect(typeof res.body.heartbeatAgeMs).toBe('number');
+    expect(res.body.snapshotFreshnessMs).toBe(-1);
+    expect(typeof res.body.relayFreshnessMs).toBe('number');
+  });
+
+  it('returns stale when relay status is stale', async () => {
+    seedSession(relay, 'S-STALE-RELAY', true);
+    (relay as any).handleClose('conn-S-STALE-RELAY');
+
+    const res = await request(app)
+      .get('/api/viewer/health/S-STALE-RELAY')
+      .expect(200);
+
+    expect(res.body.relayStatus).toBe('stale');
+    expect(res.body.healthLevel).toBe('stale');
+  });
+
+  it('returns delayed or stale_risk when heartbeat age grows on active session', async () => {
+    seedSession(relay, 'S-AGED', true);
+    const session = (relay as any).sessions.get('S-AGED');
+    session.lastHeartbeatAt = Date.now() - 7000;
+
+    const res = await request(app)
+      .get('/api/viewer/health/S-AGED')
+      .expect(200);
+
+    expect(res.body.relayStatus).toBe('active');
+    expect(['delayed', 'stale_risk']).toContain(res.body.healthLevel);
+    expect(res.body.heartbeatAgeMs).toBeGreaterThanOrEqual(6000);
+  });
+
+  it('matches overlay-required health payload keys', async () => {
+    seedSession(relay, 'S-OVERLAY-SHAPE', true);
+
+    const res = await request(app)
+      .get('/api/viewer/health/S-OVERLAY-SHAPE')
+      .expect(200);
+
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        sessionId: expect.any(String),
+        healthLevel: expect.any(String),
+        heartbeatAgeMs: expect.any(Number),
+        snapshotFreshnessMs: expect.any(Number),
+        relayFreshnessMs: expect.any(Number),
+      })
+    );
+  });
 });
 
 describe('RelayServer.getSessionHealth()', () => {
@@ -92,5 +210,44 @@ describe('RelayServer.getSessionHealth()', () => {
     const after = Date.now();
     expect(health.checkedAt).toBeGreaterThanOrEqual(before);
     expect(health.checkedAt).toBeLessThanOrEqual(after);
+  });
+
+  it('returns healthy with fresh heartbeat and snapshot', () => {
+    seedSession(relay, 'S-HEALTHY', true);
+
+    const health = relay.getSessionHealth('S-HEALTHY');
+    expect(health.sessionFound).toBe(true);
+    expect(health.relayStatus).toBe('active');
+    expect(health.healthLevel).toBe('healthy');
+    expect(health.snapshotFreshnessMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns connecting for active session without snapshot', () => {
+    seedSession(relay, 'S-NO-SNAPSHOT', false);
+
+    const health = relay.getSessionHealth('S-NO-SNAPSHOT');
+    expect(health.relayStatus).toBe('active');
+    expect(health.healthLevel).toBe('connecting');
+    expect(health.snapshotFreshnessMs).toBe(-1);
+  });
+
+  it('returns stale_risk when heartbeat age approaches timeout', () => {
+    seedSession(relay, 'S-RISK', true);
+    const session = (relay as any).sessions.get('S-RISK');
+    session.lastHeartbeatAt = Date.now() - 8000;
+
+    const health = relay.getSessionHealth('S-RISK');
+    expect(health.relayStatus).toBe('active');
+    expect(health.healthLevel).toBe('stale_risk');
+  });
+
+  it('returns stale when heartbeat timeout is exceeded', () => {
+    seedSession(relay, 'S-TIMEOUT', true);
+    const session = (relay as any).sessions.get('S-TIMEOUT');
+    session.lastHeartbeatAt = Date.now() - 15000;
+
+    const health = relay.getSessionHealth('S-TIMEOUT');
+    expect(health.relayStatus).toBe('active');
+    expect(health.healthLevel).toBe('stale');
   });
 });

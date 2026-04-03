@@ -59,7 +59,7 @@ export function serializeSessionOpsSummary(session, access) {
     const heartbeatAgeMs = Math.max(0, now - (session.lastHeartbeatAt || now));
     const relayFreshnessMs = Math.max(0, now - session.updatedAt);
     const snapshotFreshnessMs = hasSnapshot ? relayFreshnessMs : -1;
-    const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs);
+    const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs, hasSnapshot);
     return {
         sessionId: session.sessionId,
         relayStatus: session.status,
@@ -79,9 +79,11 @@ export function serializeSessionOpsSummary(session, access) {
         hasSnapshot,
     };
 }
-export function deriveSessionHealthLevel(relayStatus, heartbeatAgeMs) {
+export function deriveSessionHealthLevel(relayStatus, heartbeatAgeMs, hasSnapshot) {
     if (relayStatus !== 'active')
         return 'stale';
+    if (!hasSnapshot)
+        return 'connecting';
     if (heartbeatAgeMs < 3000)
         return 'healthy';
     if (heartbeatAgeMs < 6000)

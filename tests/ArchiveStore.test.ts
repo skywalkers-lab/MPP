@@ -28,7 +28,14 @@ describe('InMemorySessionArchiveStore', () => {
       {
         strategyUnavailable: false,
         recommendation: 'STAY OUT',
+        primaryRecommendation: 'STAY OUT',
+        secondaryRecommendation: 'BOX IN 2 LAPS',
         severity: 'info',
+        reasons: ['signals stable'],
+        confidenceScore: 78,
+        stabilityScore: 72,
+        recommendationChanged: false,
+        trendReason: 'recommendation remained stable with low signal drift',
         reason: null,
         generatedAt: 1010,
       }

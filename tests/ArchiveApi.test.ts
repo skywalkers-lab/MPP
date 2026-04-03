@@ -117,6 +117,16 @@ describe('Archive API', () => {
     expect(timeline.some((i: any) => i.kind === 'ops_event')).toBe(true);
     expect(timeline.some((i: any) => i.kind === 'note')).toBe(true);
 
+    const snapshotItem = timeline.find((i: any) => i.kind === 'snapshot');
+    expect(snapshotItem).toBeDefined();
+    expect(snapshotItem.snapshot.recommendation).toBeDefined();
+    expect(snapshotItem.snapshot.recommendation).toHaveProperty('primaryRecommendation');
+    expect(snapshotItem.snapshot.recommendation).toHaveProperty('secondaryRecommendation');
+    expect(snapshotItem.snapshot.recommendation).toHaveProperty('confidenceScore');
+    expect(snapshotItem.snapshot.recommendation).toHaveProperty('stabilityScore');
+    expect(snapshotItem.snapshot.recommendation).toHaveProperty('recommendationChanged');
+    expect(snapshotItem.snapshot.recommendation).toHaveProperty('trendReason');
+
     for (let i = 1; i < timeline.length; i += 1) {
       expect(timeline[i - 1].timestamp).toBeLessThanOrEqual(timeline[i].timestamp);
     }

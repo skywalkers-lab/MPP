@@ -77,6 +77,8 @@ describe('Strategy API', () => {
     expect(typeof res.body.recommendation).toBe('string');
     expect(typeof res.body.severity).toBe('string');
     expect(typeof res.body.primaryRecommendation).toBe('string');
+    expect(typeof res.body.recommendationChanged).toBe('boolean');
+    expect(typeof res.body.trendReason).toBe('string');
     expect(Array.isArray(res.body.reasons)).toBe(true);
     expect(typeof res.body.generatedAt).toBe('number');
     expect(res.body.signals).toBeDefined();
@@ -84,6 +86,8 @@ describe('Strategy API', () => {
     expect(res.body.signals).toHaveProperty('overcutScore');
     expect(res.body.signals).toHaveProperty('trafficRiskScore');
     expect(res.body.signals).toHaveProperty('degradationTrend');
+    expect(res.body.signals).toHaveProperty('pitLossHeuristic');
+    expect(res.body.signals).toHaveProperty('compoundStintBias');
     expect(res.body.signals).toHaveProperty('expectedRejoinBand');
     expect(res.body.signals).toHaveProperty('cleanAirProbability');
   });

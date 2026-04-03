@@ -15,6 +15,7 @@ function baseInput(overrides: Partial<StrategyEngineInput> = {}): StrategyEngine
     fuelRemaining: 60,
     fuelLapsRemaining: 70,
     pitStatus: null,
+    tyreCompound: 'M',
     generatedAt: 1700000000000,
     ...overrides,
   };
@@ -78,12 +79,46 @@ describe('StrategyEngine v1', () => {
 
     if (!result.strategyUnavailable) {
       expect(result.primaryRecommendation).toBeDefined();
+      expect(result.confidenceScore).not.toBeNull();
+      expect(result.stabilityScore).not.toBeNull();
+      expect(typeof result.recommendationChanged).toBe('boolean');
+      expect(typeof result.trendReason).toBe('string');
       expect(result.signals).toHaveProperty('undercutScore');
       expect(result.signals).toHaveProperty('overcutScore');
       expect(result.signals).toHaveProperty('trafficRiskScore');
       expect(result.signals).toHaveProperty('degradationTrend');
+      expect(result.signals).toHaveProperty('pitLossHeuristic');
+      expect(result.signals).toHaveProperty('compoundStintBias');
       expect(result.signals).toHaveProperty('expectedRejoinBand');
       expect(result.signals).toHaveProperty('cleanAirProbability');
+    }
+  });
+
+  it('marks recommendation change and trend when previous strategy context exists', () => {
+    const previous = engine.evaluate(baseInput({ tyreAgeLaps: 10, fuelLapsRemaining: 25 }));
+    const current = engine.evaluate(
+      baseInput({
+        tyreAgeLaps: 27,
+        fuelLapsRemaining: 8,
+        previousStrategy:
+          previous.strategyUnavailable
+            ? null
+            : {
+                recommendation: previous.recommendation,
+                secondaryRecommendation: previous.secondaryRecommendation,
+                severity: previous.severity,
+                confidenceScore: previous.confidenceScore,
+                stabilityScore: previous.stabilityScore,
+                signals: previous.signals,
+                generatedAt: previous.generatedAt,
+              },
+      })
+    );
+
+    expect(current.strategyUnavailable).toBe(false);
+    if (!current.strategyUnavailable) {
+      expect(typeof current.recommendationChanged).toBe('boolean');
+      expect(current.trendReason).toBeTruthy();
     }
   });
 

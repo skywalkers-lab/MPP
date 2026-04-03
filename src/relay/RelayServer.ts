@@ -26,6 +26,7 @@ import { StrategyEngine } from './strategyEngine';
 import {
   StrategyEngineInput,
   StrategyEvaluationResult,
+  StrategyRecommendationResult,
   StrategyUnavailableResult,
 } from './strategy';
 import {
@@ -103,6 +104,10 @@ export class RelayServer {
   private readonly recentOpsEvents = new InMemoryRecentOpsEvents(300);
   private readonly notesStore = new InMemorySessionNotesStore();
   private readonly strategyEngine = new StrategyEngine();
+  private readonly strategyCache = new Map<
+    string,
+    { latestSequence: number | null; result: StrategyEvaluationResult }
+  >();
   private readonly archiveStore = new InMemorySessionArchiveStore();
   private readonly opsNotifier = new CompositeOpsNotifier([
     this.recentOpsEvents,
@@ -199,6 +204,18 @@ export class RelayServer {
           strategyTrafficBand: strategy.strategyUnavailable
             ? null
             : strategy.signals.expectedRejoinBand,
+          strategyConfidence: strategy.strategyUnavailable
+            ? null
+            : strategy.confidenceScore,
+          strategyStability: strategy.strategyUnavailable
+            ? null
+            : strategy.stabilityScore,
+          strategyChanged: strategy.strategyUnavailable
+            ? null
+            : strategy.recommendationChanged,
+          strategyTrendReason: strategy.strategyUnavailable
+            ? null
+            : strategy.trendReason,
           strategyGeneratedAt: strategy.generatedAt,
           strategyUnavailable: strategy.strategyUnavailable,
         };
@@ -394,7 +411,22 @@ export class RelayServer {
   }
 
   private computeSessionStrategy(session: RelaySession): StrategyEvaluationResult {
-    const input = this.buildStrategyInput(session);
+    const cached = this.strategyCache.get(session.sessionId);
+    if (
+      cached &&
+      session.latestState &&
+      cached.latestSequence != null &&
+      cached.latestSequence === session.latestSequence
+    ) {
+      return cached.result;
+    }
+
+    const previousStrategy =
+      cached && !cached.result.strategyUnavailable
+        ? cached.result
+        : undefined;
+
+    const input = this.buildStrategyInput(session, previousStrategy);
     if (!input) {
       const unavailable: StrategyUnavailableResult = {
         strategyUnavailable: true,
@@ -408,10 +440,18 @@ export class RelayServer {
       return unavailable;
     }
 
-    return this.strategyEngine.evaluate(input);
+    const result = this.strategyEngine.evaluate(input);
+    this.strategyCache.set(session.sessionId, {
+      latestSequence: session.latestSequence ?? null,
+      result,
+    });
+    return result;
   }
 
-  private buildStrategyInput(session: RelaySession): StrategyEngineInput | null {
+  private buildStrategyInput(
+    session: RelaySession,
+    previousStrategy?: StrategyRecommendationResult
+  ): StrategyEngineInput | null {
     const now = Date.now();
     const hasSnapshot = !!session.latestState;
     const state = session.latestState;
@@ -430,6 +470,18 @@ export class RelayServer {
         fuelRemaining: null,
         fuelLapsRemaining: null,
         pitStatus: null,
+        tyreCompound: null,
+        previousStrategy: previousStrategy
+          ? {
+              recommendation: previousStrategy.recommendation,
+              secondaryRecommendation: previousStrategy.secondaryRecommendation,
+              severity: previousStrategy.severity,
+              confidenceScore: previousStrategy.confidenceScore,
+              stabilityScore: previousStrategy.stabilityScore,
+              signals: previousStrategy.signals,
+              generatedAt: previousStrategy.generatedAt,
+            }
+          : null,
         generatedAt: now,
       };
     }
@@ -456,6 +508,18 @@ export class RelayServer {
       fuelRemaining: playerCar.fuelRemaining ?? null,
       fuelLapsRemaining: playerCar.fuelLapsRemaining ?? null,
       pitStatus: playerCar.pitStatus ?? null,
+      tyreCompound: playerCar.tyreCompound ?? null,
+      previousStrategy: previousStrategy
+        ? {
+            recommendation: previousStrategy.recommendation,
+            secondaryRecommendation: previousStrategy.secondaryRecommendation,
+            severity: previousStrategy.severity,
+            confidenceScore: previousStrategy.confidenceScore,
+            stabilityScore: previousStrategy.stabilityScore,
+            signals: previousStrategy.signals,
+            generatedAt: previousStrategy.generatedAt,
+          }
+        : null,
       generatedAt: now,
     };
   }
@@ -588,6 +652,7 @@ export class RelayServer {
 
     this.joinCodeToSessionId.set(joinCode, sessionId);
     this.sessionAccess.set(sessionId, access);
+    this.strategyCache.delete(sessionId);
     this.archiveStore.startRecording({
       sessionId,
       startedAt: now,

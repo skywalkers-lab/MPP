@@ -10,7 +10,14 @@ export type ArchiveFinalizeReason = 'session_stale' | 'session_closed' | 'server
 export interface ArchiveRecommendationSnapshot {
   strategyUnavailable: boolean;
   recommendation: string | null;
+  primaryRecommendation: string | null;
+  secondaryRecommendation: string | null;
   severity: string | null;
+  reasons: string[];
+  confidenceScore: number | null;
+  stabilityScore: number | null;
+  recommendationChanged: boolean;
+  trendReason: string | null;
   reason: string | null;
   generatedAt: number;
 }
@@ -298,7 +305,14 @@ export function toArchiveRecommendationSnapshot(
     return {
       strategyUnavailable: true,
       recommendation: null,
+      primaryRecommendation: null,
+      secondaryRecommendation: null,
       severity: null,
+      reasons: strategy.reasons,
+      confidenceScore: null,
+      stabilityScore: null,
+      recommendationChanged: false,
+      trendReason: null,
       reason: strategy.reason,
       generatedAt,
     };
@@ -307,7 +321,14 @@ export function toArchiveRecommendationSnapshot(
   return {
     strategyUnavailable: false,
     recommendation: strategy.primaryRecommendation ?? strategy.recommendation,
+    primaryRecommendation: strategy.primaryRecommendation ?? strategy.recommendation,
+    secondaryRecommendation: strategy.secondaryRecommendation ?? null,
     severity: strategy.severity,
+    reasons: strategy.reasons,
+    confidenceScore: strategy.confidenceScore,
+    stabilityScore: strategy.stabilityScore,
+    recommendationChanged: strategy.recommendationChanged,
+    trendReason: strategy.trendReason,
     reason: null,
     generatedAt,
   };

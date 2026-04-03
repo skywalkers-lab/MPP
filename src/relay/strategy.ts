@@ -28,6 +28,16 @@ export interface StrategyEngineInput {
   fuelRemaining: number | null;
   fuelLapsRemaining: number | null;
   pitStatus: string | null;
+  tyreCompound: string | null;
+  previousStrategy?: {
+    recommendation: StrategyRecommendationLabel;
+    secondaryRecommendation?: StrategyRecommendationLabel;
+    severity?: StrategySeverity;
+    confidenceScore?: number | null;
+    stabilityScore?: number | null;
+    signals?: Partial<StrategySignals>;
+    generatedAt?: number;
+  } | null;
   generatedAt: number;
 }
 
@@ -51,6 +61,8 @@ export interface StrategySignals {
   overcutScore: number | null;
   trafficRiskScore: number | null;
   degradationTrend: number | null;
+  pitLossHeuristic: number | null;
+  compoundStintBias: number | null;
   expectedRejoinBand: StrategyScoreBand;
   cleanAirProbability: number | null;
 }
@@ -66,6 +78,10 @@ export interface StrategyRecommendationResult {
   secondaryRecommendation?: StrategyRecommendationLabel;
 
   severity: StrategySeverity;
+  confidenceScore: number | null;
+  stabilityScore: number | null;
+  recommendationChanged: boolean;
+  trendReason: string | null;
   reasons: string[];
   signals: StrategySignals;
   generatedAt: number;

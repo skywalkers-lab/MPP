@@ -2,6 +2,8 @@ import {
   computeAdvancedStrategyScores,
   degradationTrend,
   overcutScore,
+  pitLossHeuristic,
+  compoundStintBias,
   trafficRiskScore,
   undercutScore,
 } from '../src/relay/strategyAdvancedMetrics';
@@ -76,6 +78,7 @@ describe('StrategyAdvancedMetrics v2', () => {
         fuelRemaining: 20,
         fuelLapsRemaining: 24,
         pitStatus: null,
+        tyreCompound: 'M',
         generatedAt: Date.now(),
       },
       tyreUrgencyScore: 70,
@@ -87,7 +90,43 @@ describe('StrategyAdvancedMetrics v2', () => {
 
     expect(scores.undercutScore).not.toBeNull();
     expect(scores.overcutScore).not.toBeNull();
+    expect(scores.pitLossHeuristic).not.toBeNull();
+    expect(scores.compoundStintBias).not.toBeNull();
     expect(scores.expectedRejoinBand).not.toBe('unknown');
     expect(scores.cleanAirProbability).not.toBeNull();
+  });
+
+  it('pit loss heuristic increases when traffic and position risk are high', () => {
+    const low = pitLossHeuristic({
+      position: 3,
+      trafficRiskScore: 35,
+      currentLap: 15,
+      totalLaps: 58,
+      pitWindowHint: 'open_now',
+    });
+    const high = pitLossHeuristic({
+      position: 16,
+      trafficRiskScore: 85,
+      currentLap: 15,
+      totalLaps: 58,
+      pitWindowHint: 'too_early',
+    });
+
+    expect((high || 0)).toBeGreaterThan(low || 0);
+  });
+
+  it('compound/stint bias favors staying out on harder compounds early in stint', () => {
+    const hardBias = compoundStintBias({
+      tyreCompound: 'H',
+      tyreUrgencyScore: 52,
+      stintProgress: 0.25,
+    });
+    const softLateBias = compoundStintBias({
+      tyreCompound: 'S',
+      tyreUrgencyScore: 85,
+      stintProgress: 0.85,
+    });
+
+    expect((hardBias || 0)).toBeGreaterThan(softLateBias || 0);
   });
 });

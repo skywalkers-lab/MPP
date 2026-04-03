@@ -5,6 +5,8 @@ export interface StrategyAdvancedScores {
   overcutScore: number | null;
   trafficRiskScore: number | null;
   degradationTrend: number | null;
+  pitLossHeuristic: number | null;
+  compoundStintBias: number | null;
   expectedRejoinBand: StrategyScoreBand;
   cleanAirProbability: number | null;
 }
@@ -46,6 +48,66 @@ export function degradationTrend(
 
   const stintFactor = stintProgress == null ? 0.5 : stintProgress;
   const score = tyreUrgencyScore * 0.7 + stintFactor * 30;
+  return clampScore(score);
+}
+
+export function pitLossHeuristic(input: {
+  position: number | null;
+  trafficRiskScore: number | null;
+  currentLap: number | null;
+  totalLaps: number | null;
+  pitWindowHint: 'open_now' | 'open_soon' | 'monitor' | 'too_early' | 'unknown';
+}): number | null {
+  if (input.position == null || !Number.isFinite(input.position)) return null;
+
+  let score = 35;
+
+  if (input.position >= 8 && input.position <= 14) score += 10;
+  if (input.position > 14) score += 14;
+
+  if (input.trafficRiskScore != null) {
+    score += input.trafficRiskScore * 0.35;
+  }
+
+  if (input.pitWindowHint === 'too_early') score += 18;
+  if (input.pitWindowHint === 'open_now') score -= 12;
+
+  if (
+    input.currentLap != null &&
+    input.totalLaps != null &&
+    input.totalLaps > 0
+  ) {
+    const progress = input.currentLap / input.totalLaps;
+    if (progress > 0.8) score -= 12;
+    if (progress < 0.25) score += 10;
+  }
+
+  return clampScore(score);
+}
+
+export function compoundStintBias(input: {
+  tyreCompound: string | null;
+  tyreUrgencyScore: number | null;
+  stintProgress: number | null;
+}): number | null {
+  if (!input.tyreCompound) return null;
+
+  const compound = input.tyreCompound.toLowerCase();
+  let score = 50;
+
+  if (compound.includes('hard') || compound === 'h') score += 14;
+  if (compound.includes('medium') || compound === 'm') score += 5;
+  if (compound.includes('soft') || compound === 's') score -= 10;
+
+  if (input.tyreUrgencyScore != null) {
+    score += Math.max(-20, Math.min(20, 65 - input.tyreUrgencyScore));
+  }
+
+  if (input.stintProgress != null) {
+    if (input.stintProgress < 0.35) score += 10;
+    if (input.stintProgress > 0.8) score -= 12;
+  }
+
   return clampScore(score);
 }
 
@@ -128,6 +190,18 @@ export function computeAdvancedStrategyScores(input: {
 }): StrategyAdvancedScores {
   const traffic = trafficRiskScore(input.base.position, input.rejoinRiskHint);
   const degradation = degradationTrend(input.tyreUrgencyScore, input.stintProgress);
+  const pitLoss = pitLossHeuristic({
+    position: input.base.position,
+    trafficRiskScore: traffic,
+    currentLap: input.base.currentLap,
+    totalLaps: input.base.totalLaps,
+    pitWindowHint: input.pitWindowHint,
+  });
+  const bias = compoundStintBias({
+    tyreCompound: input.base.tyreCompound,
+    tyreUrgencyScore: input.tyreUrgencyScore,
+    stintProgress: input.stintProgress,
+  });
 
   const undercut = undercutScore({
     tyreUrgencyScore: input.tyreUrgencyScore,
@@ -150,6 +224,8 @@ export function computeAdvancedStrategyScores(input: {
     overcutScore: overcut,
     trafficRiskScore: traffic,
     degradationTrend: degradation,
+    pitLossHeuristic: pitLoss,
+    compoundStintBias: bias,
     expectedRejoinBand: expectedRejoinBand(traffic),
     cleanAirProbability: cleanAirProbability(traffic),
   };

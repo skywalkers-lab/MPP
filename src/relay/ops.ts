@@ -92,6 +92,10 @@ export interface SessionOpsSummary {
   strategySecondaryLabel?: string | null;
   strategySeverity?: 'info' | 'caution' | 'warning' | 'critical' | null;
   strategyTrafficBand?: 'low' | 'medium' | 'high' | 'critical' | 'unknown' | null;
+  strategyConfidence?: number | null;
+  strategyStability?: number | null;
+  strategyChanged?: boolean | null;
+  strategyTrendReason?: string | null;
   strategyGeneratedAt?: number | null;
   strategyUnavailable?: boolean;
 }

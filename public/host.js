@@ -210,6 +210,10 @@ function renderStrategy(data) {
   var signals = data.signals || {};
   var primary = data.primaryRecommendation || data.recommendation || 'STAY OUT';
   var secondary = data.secondaryRecommendation || '-';
+  var confidence = data.confidenceScore;
+  var stability = data.stabilityScore;
+  var changed = data.recommendationChanged === true;
+  var trendReason = data.trendReason || '-';
   var noteContext = latestNoteContext
     ? ('recent note: [' + safe(latestNoteContext.category || 'general') + '] ' + safe(latestNoteContext.text || '-'))
     : 'recent note: -';
@@ -221,6 +225,8 @@ function renderStrategy(data) {
     '<div class="note-meta"><span>severity: ' + escapeHtml(sev) + '</span><span>' + fmtTime(data.generatedAt) + '</span></div>' +
     '<div class="strategy-rec sev-' + escapeHtml(sev) + '">Primary: ' + escapeHtml(primary) + '</div>' +
     '<div class="muted">Alternative: ' + escapeHtml(secondary) + '</div>' +
+    '<div class="muted">confidence: ' + escapeHtml(safe(confidence)) + ' | stability: ' + escapeHtml(safe(stability)) + ' | changed: ' + escapeHtml(String(changed)) + '</div>' +
+    '<div class="muted">trend: ' + escapeHtml(trendReason) + '</div>' +
     '<div class="note-text">' +
       reasons.slice(0, 3).map(function (r) { return '• ' + escapeHtml(r); }).join('<br/>') +
     '</div>' +
@@ -229,6 +235,8 @@ function renderStrategy(data) {
       '<div class="metric-chip">Overcut: ' + safe(signals.overcutScore) + '</div>' +
       '<div class="metric-chip">Traffic: ' + safe(signals.trafficRiskScore) + '</div>' +
       '<div class="metric-chip">Degradation: ' + safe(signals.degradationTrend) + '</div>' +
+      '<div class="metric-chip">Pit Loss: ' + safe(signals.pitLossHeuristic) + '</div>' +
+      '<div class="metric-chip">Compound Bias: ' + safe(signals.compoundStintBias) + '</div>' +
       '<div class="metric-chip">Rejoin Band: ' + safe(signals.expectedRejoinBand) + '</div>' +
       '<div class="metric-chip">Clean Air %: ' + safe(signals.cleanAirProbability) + '</div>' +
     '</div>' +

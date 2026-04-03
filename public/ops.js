@@ -180,6 +180,9 @@ function renderSessionsTable(sessions) {
         '<div>' + safe(s.strategyLabel || '-') + '</div>' +
         '<div class="muted">alt=' + safe(s.strategySecondaryLabel || '-') + '</div>' +
         '<div class="muted">sev=' + safe(s.strategySeverity || '-') + ', traffic=' + safe(s.strategyTrafficBand || '-') + '</div>' +
+        '<div class="muted">conf=' + safe(s.strategyConfidence) + ', stable=' + safe(s.strategyStability) + '</div>' +
+        '<div class="muted">changed=' + safe(s.strategyChanged) + '</div>' +
+        '<div class="muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">trend=' + escapeHtml(safe(s.strategyTrendReason || '-')) + '</div>' +
         '<div class="muted">generated=' + fmtTime(s.strategyGeneratedAt) + '</div>' +
       '</td>' +
       '<td data-label="Heartbeat">' +

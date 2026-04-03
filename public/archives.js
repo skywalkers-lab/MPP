@@ -105,8 +105,14 @@ function renderSnapshotFocus(snapshot) {
     '<div class="chip"><strong>Track Lap</strong>' + escapeHtml(safe(meta && meta.currentLap)) + ' / ' + escapeHtml(safe(meta && meta.totalLaps)) + '</div>' +
     '<div class="chip" style="grid-column:span 2;">' +
       '<strong>Recommendation</strong>' +
-      escapeHtml(safe(rec && rec.recommendation)) +
+      escapeHtml(safe(rec && (rec.primaryRecommendation || rec.recommendation))) +
       (rec && rec.severity ? ' <span class="muted">(' + escapeHtml(rec.severity) + ')</span>' : '') +
+      '<div class="muted" style="margin-top:4px;">alt=' + escapeHtml(safe(rec && rec.secondaryRecommendation)) +
+      ' | conf=' + escapeHtml(safe(rec && rec.confidenceScore)) +
+      ' | stable=' + escapeHtml(safe(rec && rec.stabilityScore)) +
+      ' | changed=' + escapeHtml(safe(rec && rec.recommendationChanged)) + '</div>' +
+      '<div class="muted" style="margin-top:4px;">trend=' + escapeHtml(safe(rec && rec.trendReason)) + '</div>' +
+      '<div class="muted" style="margin-top:4px;">why=' + escapeHtml(safe(rec && rec.reasons && rec.reasons.slice(0, 2).join(' | '))) + '</div>' +
     '</div>';
 }
 
@@ -129,7 +135,11 @@ function renderTimeline(timeline) {
   $timelineList.innerHTML = rows.map(function (item, idx) {
     if (item.kind === 'snapshot') {
       var snap = item.snapshot || {};
-      var rec = snap.recommendation ? snap.recommendation.recommendation : null;
+      var recPrimary = snap.recommendation
+        ? (snap.recommendation.primaryRecommendation || snap.recommendation.recommendation)
+        : null;
+      var recSecondary = snap.recommendation ? snap.recommendation.secondaryRecommendation : null;
+      var recConfidence = snap.recommendation ? snap.recommendation.confidenceScore : null;
       var state = snap.state || {};
       var playerIdx = state.playerCarIndex;
       var player = (playerIdx != null && state.cars) ? state.cars[playerIdx] : null;
@@ -145,7 +155,9 @@ function renderTimeline(timeline) {
           '<span class="tl-ts">' + escapeHtml(fmtTime(item.timestamp)) + '</span>' +
         '</div>' +
         '<div class="tl-sub">telemetry frame · seq=' + escapeHtml(safe(item.sequence)) +
-          (rec ? ' → ' + escapeHtml(rec) : '') +
+          (recPrimary ? ' → ' + escapeHtml(recPrimary) : '') +
+          (recSecondary ? ' | alt=' + escapeHtml(recSecondary) : '') +
+          (recConfidence != null ? ' | conf=' + escapeHtml(String(recConfidence)) : '') +
         '</div>' +
       '</div>';
     }

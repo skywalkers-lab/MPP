@@ -88,9 +88,16 @@ function openBrowser(url: string): void {
 function resolvePublicDir(): string {
   const modulePath = process.argv[1] || process.cwd();
   const moduleDir = path.dirname(modulePath);
+  const snapshotDir = path.join(__dirname, '..');
+  const pkgEntrypoint = (process as NodeJS.Process & { pkg?: { entrypoint?: string } }).pkg?.entrypoint;
+  const pkgEntryDir = pkgEntrypoint ? path.dirname(pkgEntrypoint) : null;
   const candidates = [
     process.env.MPP_PUBLIC_DIR,
     path.join(process.cwd(), 'public'),
+    path.join(snapshotDir, 'public'),
+    path.join(snapshotDir, '../public'),
+    pkgEntryDir ? path.join(pkgEntryDir, '../public') : null,
+    pkgEntryDir ? path.join(pkgEntryDir, '../../public') : null,
     path.join(moduleDir, '../../public'),
     path.join(path.dirname(process.execPath), 'public'),
   ].filter((v): v is string => typeof v === 'string' && v.length > 0);
@@ -124,7 +131,15 @@ app.get('/host/:sessionId', (req, res) => {
   res.sendFile(path.join(publicDir, 'host.html'));
 });
 app.get('/ops', (req, res) => {
-  res.sendFile(path.join(publicDir, 'ops.html'));
+  const opsFile = path.join(publicDir, 'ops.html');
+  if (!fs.existsSync(opsFile)) {
+    logger.error(`[Viewer] ops.html not found at: ${opsFile}`);
+    return res
+      .status(500)
+      .type('text/plain')
+      .send(`ops.html not found. publicDir=${publicDir}`);
+  }
+  res.sendFile(opsFile);
 });
 app.get('/archives', (req, res) => {
   res.sendFile(path.join(publicDir, 'archives.html'));

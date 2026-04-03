@@ -14,6 +14,7 @@ Windows `.exe`를 실행하면 기본 브라우저에서 대시보드(`/ops`)를
 
 대시보드가 열리지 않으면 먼저 `http://localhost:4100/ops?preset=ops`를 수동으로 열어 확인하세요.
 그래도 접속이 안 되면 앱을 다시 실행하고, 로컬 보안 정책(방화벽/백신)에서 로컬 포트 접근이 차단되지 않았는지 확인하세요.
+Portable 실행 직후 창이 닫히면 `.exe`와 같은 폴더의 `mpp-crash.log`를 확인하세요.
 
 ## Product Value Snapshot
 

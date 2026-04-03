@@ -13,6 +13,36 @@ const WS_PORT = process.env.RELAY_WS_PORT ? parseInt(process.env.RELAY_WS_PORT) 
 const DEBUG_HTTP_PORT = process.env.RELAY_DEBUG_HTTP_PORT ? parseInt(process.env.RELAY_DEBUG_HTTP_PORT) : 4001;
 const logger = new ConsoleLogger('info');
 
+function resolveCrashLogPath(): string {
+  const exeDir = path.dirname(process.execPath);
+  const cwdDir = process.cwd();
+  const preferExeDir = !!(process as NodeJS.Process & { pkg?: unknown }).pkg;
+  const targetDir = preferExeDir ? exeDir : cwdDir;
+  return path.join(targetDir, 'mpp-crash.log');
+}
+
+function persistFatalError(prefix: string, err: unknown): void {
+  const text = err instanceof Error ? `${err.stack || err.message}` : String(err);
+  const line = `[${new Date().toISOString()}] ${prefix}: ${text}\n`;
+  try {
+    fs.appendFileSync(resolveCrashLogPath(), line, 'utf8');
+  } catch {
+    // Last-resort path: fatal logging must not crash the process further.
+  }
+}
+
+process.on('uncaughtException', (err) => {
+  persistFatalError('uncaughtException', err);
+  logger.error(`[Fatal] uncaughtException: ${err}`);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  persistFatalError('unhandledRejection', reason);
+  logger.error(`[Fatal] unhandledRejection: ${reason}`);
+  process.exit(1);
+});
+
 const relayServer = new RelayServer({
   wsPort: WS_PORT,
   debugHttpPort: DEBUG_HTTP_PORT,

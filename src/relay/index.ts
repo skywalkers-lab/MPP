@@ -86,6 +86,10 @@ function openBrowser(url: string): void {
 }
 
 function resolvePublicDir(): string {
+  return resolvePublicCandidates()[0] || path.join(process.cwd(), 'public');
+}
+
+function resolvePublicCandidates(): string[] {
   const modulePath = process.argv[1] || process.cwd();
   const moduleDir = path.dirname(modulePath);
   const snapshotDir = path.join(__dirname, '..');
@@ -115,18 +119,35 @@ function resolvePublicDir(): string {
     path.join(moduleDir, '../../public'),
   ].filter((v): v is string => typeof v === 'string' && v.length > 0);
 
-  for (const candidate of candidates) {
-    if (
-      fs.existsSync(candidate) &&
-      fs.statSync(candidate).isDirectory() &&
-      hasRequiredAssets(candidate)
-    ) {
-      return candidate;
+  const existing = candidates.filter((candidate) => {
+    try {
+      return fs.existsSync(candidate) && fs.statSync(candidate).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+
+  const withRequired = existing.filter((candidate) => hasRequiredAssets(candidate));
+  const withOps = existing.filter((candidate) => {
+    try {
+      return fs.existsSync(path.join(candidate, 'ops.html'));
+    } catch {
+      return false;
+    }
+  });
+
+  const merged = [...withRequired, ...withOps, ...existing];
+  return Array.from(new Set(merged));
+}
+
+function findFirstStaticFile(publicDirs: string[], fileName: string): string | null {
+  for (const dir of publicDirs) {
+    const filePath = path.join(dir, fileName);
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      return filePath;
     }
   }
-
-  // Final fallback keeps previous behavior but logs will show missing files explicitly.
-  return path.join(process.cwd(), 'public');
+  return null;
 }
 
 // Viewer API 및 정적 파일 서버
@@ -134,45 +155,85 @@ function resolvePublicDir(): string {
 const app = express();
 app.use(express.json()); // PATCH body parsing
 const publicDir = resolvePublicDir();
-app.use(express.static(publicDir)); // 루트 static 서빙
+const publicDirs = resolvePublicCandidates();
+if (publicDirs.length === 0) {
+  publicDirs.push(publicDir);
+}
+
+for (const dir of publicDirs) {
+  app.use(express.static(dir));
+}
 
 app.use('/api/viewer', createViewerApiRouter(relayServer));
 
-app.use('/viewer', express.static(publicDir));
+for (const dir of publicDirs) {
+  app.use('/viewer', express.static(dir));
+}
 app.get('/viewer/:sessionId', (req, res) => {
-  res.sendFile(path.join(publicDir, 'viewer.html'));
+  const filePath = findFirstStaticFile(publicDirs, 'viewer.html');
+  if (!filePath) {
+    logger.error(`[Viewer] viewer.html not found in candidates: ${publicDirs.join(', ')}`);
+    return res.status(500).type('text/plain').send('viewer.html not found');
+  }
+  res.sendFile(filePath);
 });
 app.get('/join/:joinCode', (req, res) => {
-  res.sendFile(path.join(publicDir, 'viewer.html'));
+  const filePath = findFirstStaticFile(publicDirs, 'viewer.html');
+  if (!filePath) {
+    logger.error(`[Viewer] viewer.html not found in candidates: ${publicDirs.join(', ')}`);
+    return res.status(500).type('text/plain').send('viewer.html not found');
+  }
+  res.sendFile(filePath);
 });
 app.get('/host/:sessionId', (req, res) => {
-  res.sendFile(path.join(publicDir, 'host.html'));
+  const filePath = findFirstStaticFile(publicDirs, 'host.html');
+  if (!filePath) {
+    logger.error(`[Viewer] host.html not found in candidates: ${publicDirs.join(', ')}`);
+    return res.status(500).type('text/plain').send('host.html not found');
+  }
+  res.sendFile(filePath);
 });
 app.get('/ops', (req, res) => {
-  const opsFile = path.join(publicDir, 'ops.html');
-  if (!fs.existsSync(opsFile)) {
-    logger.error(`[Viewer] ops.html not found at: ${opsFile}`);
+  const opsFile = findFirstStaticFile(publicDirs, 'ops.html');
+  if (!opsFile) {
+    logger.error(`[Viewer] ops.html not found in candidates: ${publicDirs.join(', ')}`);
     return res
       .status(500)
       .type('text/plain')
-      .send(`ops.html not found. publicDir=${publicDir}`);
+      .send(`ops.html not found. candidates=${publicDirs.join('|')}`);
   }
   res.sendFile(opsFile);
 });
 app.get('/archives', (req, res) => {
-  res.sendFile(path.join(publicDir, 'archives.html'));
+  const filePath = findFirstStaticFile(publicDirs, 'archives.html');
+  if (!filePath) {
+    logger.error(`[Viewer] archives.html not found in candidates: ${publicDirs.join(', ')}`);
+    return res.status(500).type('text/plain').send('archives.html not found');
+  }
+  res.sendFile(filePath);
 });
 app.get('/overlay/:sessionId', (req, res) => {
-  res.sendFile(path.join(publicDir, 'overlay.html'));
+  const filePath = findFirstStaticFile(publicDirs, 'overlay.html');
+  if (!filePath) {
+    logger.error(`[Viewer] overlay.html not found in candidates: ${publicDirs.join(', ')}`);
+    return res.status(500).type('text/plain').send('overlay.html not found');
+  }
+  res.sendFile(filePath);
 });
 app.get('/overlay/join/:joinCode', (req, res) => {
-  res.sendFile(path.join(publicDir, 'overlay.html'));
+  const filePath = findFirstStaticFile(publicDirs, 'overlay.html');
+  if (!filePath) {
+    logger.error(`[Viewer] overlay.html not found in candidates: ${publicDirs.join(', ')}`);
+    return res.status(500).type('text/plain').send('overlay.html not found');
+  }
+  res.sendFile(filePath);
 });
 
 const HTTP_PORT = process.env.VIEWER_HTTP_PORT ? parseInt(process.env.VIEWER_HTTP_PORT) : 4100;
 app.listen(HTTP_PORT, () => {
   logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);
   logger.info(`[Viewer] Static assets from: ${publicDir}`);
+  logger.info(`[Viewer] Static candidate dirs: ${publicDirs.join(', ')}`);
 
   if (shouldAutoOpenDashboard()) {
     const dashboardUrl = `http://localhost:${HTTP_PORT}/ops?preset=ops`;

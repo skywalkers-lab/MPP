@@ -3,6 +3,10 @@
 
 import { RelayServer } from './RelayServer.js';
 import { ConsoleLogger } from '../debug/ConsoleLogger.js';
+import { UdpReceiver } from '../agent/UdpReceiver.js';
+import { StateReducer } from '../agent/StateReducer.js';
+import { RelayClient } from './RelayClient.js';
+import { RelayAgentAdapter } from '../agent/RelayAgentAdapter.js';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -50,6 +54,10 @@ const relayServer = new RelayServer({
   heartbeatTimeoutMs: 10000,
 });
 
+if (shouldStartEmbeddedAgent()) {
+  startEmbeddedAgent();
+}
+
 function shouldAutoOpenDashboard(): boolean {
   const flag = String(process.env.MPP_AUTO_OPEN_DASHBOARD || '').toLowerCase();
   if (flag === '0' || flag === 'false' || flag === 'off' || flag === 'no') {
@@ -59,6 +67,51 @@ function shouldAutoOpenDashboard(): boolean {
   const isPackaged = !!(process as NodeJS.Process & { pkg?: unknown }).pkg;
   const isExe = process.platform === 'win32' && process.execPath.toLowerCase().endsWith('.exe');
   return isPackaged || isExe;
+}
+
+function shouldStartEmbeddedAgent(): boolean {
+  const flag = String(process.env.MPP_EMBEDDED_AGENT || '').toLowerCase();
+  if (flag === '0' || flag === 'false' || flag === 'off' || flag === 'no') {
+    return false;
+  }
+
+  if (flag === '1' || flag === 'true' || flag === 'on' || flag === 'yes') {
+    return true;
+  }
+
+  const isPackaged = !!(process as NodeJS.Process & { pkg?: unknown }).pkg;
+  const isExe = process.platform === 'win32' && process.execPath.toLowerCase().endsWith('.exe');
+  return isPackaged || isExe;
+}
+
+function startEmbeddedAgent(): void {
+  const udpPort = process.env.F1_UDP_PORT ? parseInt(process.env.F1_UDP_PORT) : 20777;
+  const udpAddr = process.env.F1_UDP_ADDR || '0.0.0.0';
+  const relayUrl = process.env.RELAY_URL || `ws://127.0.0.1:${WS_PORT}`;
+
+  const reducer = new StateReducer();
+  const udp = new UdpReceiver(reducer, logger, {
+    port: udpPort,
+    address: udpAddr,
+    logLevel: 'info',
+    verbose: false,
+  });
+
+  const relayClient = new RelayClient({
+    url: relayUrl,
+    protocolVersion: 1,
+    agentVersion: '0.1.0',
+    logger,
+    snapshotIntervalMs: 1000,
+    heartbeatIntervalMs: 2000,
+  });
+
+  relayClient.connect();
+  new RelayAgentAdapter(reducer, relayClient, logger);
+  udp.start();
+
+  logger.info(`[EmbeddedAgent] UDP receiver started at ${udpAddr}:${udpPort}`);
+  logger.info(`[EmbeddedAgent] Relay uplink target: ${relayUrl}`);
 }
 
 function openBrowser(url: string): void {

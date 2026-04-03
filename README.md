@@ -11,6 +11,8 @@
 
 Windows `.exe`를 실행하면 기본 브라우저에서 대시보드(`/ops`)를 자동으로 엽니다.
 자동 오픈을 끄려면 실행 환경에서 `MPP_AUTO_OPEN_DASHBOARD=false`를 설정하세요.
+Windows `.exe`는 기본적으로 embedded agent도 함께 실행되어 F1 UDP(기본 20777)를 수신합니다.
+게임에서 Telemetry UDP를 켜지 않으면 OPS 세션 목록은 비어 있을 수 있습니다.
 
 대시보드가 열리지 않으면 먼저 `http://localhost:4100/ops?preset=ops`를 수동으로 열어 확인하세요.
 그래도 접속이 안 되면 앱을 다시 실행하고, 로컬 보안 정책(방화벽/백신)에서 로컬 포트 접근이 차단되지 않았는지 확인하세요.

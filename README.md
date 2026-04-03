@@ -258,6 +258,42 @@ npm test
 - strategy engine 룰/지표 기반 추천 및 unavailable reason
 - strategy API shape (`recommendation/reasons/signals` 또는 `strategyUnavailable/reason`)
 - v2 advanced metric 경향성(undercut/overcut/traffic/degradation) 일관성
+
+## 11. Windows 배포 (GitHub Pages + Releases)
+
+MPP는 배포 UX와 바이너리 호스팅을 분리합니다.
+
+- GitHub Pages: 제품 소개 + 다운로드 페이지
+- GitHub Releases: 실제 .exe 설치 파일 호스팅
+
+### 11-1. Pages 정적 사이트
+
+- 정적 페이지 루트: `docs/`
+- 메인 페이지: `docs/index.html`
+- 스타일/동적 링크 설정: `docs/assets/site.css`, `docs/assets/site.js`
+- 배포 전략 문서: `docs/RELEASE_DISTRIBUTION.md`
+
+GitHub 저장소 설정에서 Pages source를 `Deploy from a branch` + `main /docs`로 설정하면 바로 게시할 수 있습니다.
+
+### 11-2. 다운로드 링크 정책
+
+페이지의 다운로드 버튼은 Releases latest 경로를 사용합니다.
+
+- 설치형: `.../releases/latest/download/MPP-Setup.exe`
+- 포터블: `.../releases/latest/download/MPP-portable.exe`
+- 폴백: `.../releases/latest`
+
+즉, 페이지는 고정 링크를 유지하고 릴리스 자산만 교체하면 최신 빌드 배포가 가능합니다.
+
+### 11-3. 현재 운영 방식과 확장
+
+현재는 수동 Release 업로드를 전제로 합니다.
+
+1. Release 생성
+2. `.exe` 자산 업로드
+3. 릴리스 노트 게시
+
+향후에는 GitHub Actions로 태그/Release 이벤트 시 Windows 빌드 후 Release asset 업로드로 확장할 예정입니다.
 - archive store의 snapshot/ops event/note 세션 단위 기록 및 finalize
 - archive API 목록/상세/summary/timeline 응답 shape 및 not_found 처리
 - replay timeline의 시간순 정렬 및 mixed item(`snapshot|ops_event|note`) 일관성

@@ -1,0 +1,85 @@
+name: windows-release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-attach:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Detect windows package script
+        id: detect
+        shell: bash
+        run: |
+          HAS_SCRIPT=$(node -e "const pkg=require('./package.json'); console.log(pkg.scripts && pkg.scripts['package:windows'] ? 'yes':'no')")
+          echo "has_script=$HAS_SCRIPT" >> "$GITHUB_OUTPUT"
+
+      - name: Package Windows exe (if script exists)
+        if: steps.detect.outputs.has_script == 'yes'
+        run: npm run package:windows
+
+      - name: Collect release files
+        id: files
+        shell: bash
+        run: |
+          files=()
+          [[ -f "release/MPP-Setup.exe" ]] && files+=("release/MPP-Setup.exe")
+          [[ -f "release/MPP-portable.exe" ]] && files+=("release/MPP-portable.exe")
+
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "release assets were not found. expected release/MPP-Setup.exe and/or release/MPP-portable.exe"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            printf 'files<<EOF\n%s\nEOF\n' "$(printf '%s\n' "${files[@]}")" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload workflow artifact snapshot
+        if: steps.files.outputs.found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-assets
+          path: |
+            release/MPP-Setup.exe
+            release/MPP-portable.exe
+          if-no-files-found: ignore
+
+      - name: Attach assets to GitHub Release
+        if: github.event_name == 'release' && steps.files.outputs.found == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.files.outputs.files }}
+
+      - name: Workflow summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Windows Release Pipeline"
+            echo "- package:windows script: ${{ steps.detect.outputs.has_script }}"
+            echo "- release assets found: ${{ steps.files.outputs.found || 'false' }}"
+            echo "- expected asset names: MPP-Setup.exe, MPP-portable.exe"
+            echo ""
+            echo "If package:windows is not configured yet, this workflow remains a scaffold and does not fail."
+          } >> "$GITHUB_STEP_SUMMARY"

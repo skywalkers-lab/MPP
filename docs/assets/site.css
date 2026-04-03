@@ -1,0 +1,257 @@
+:root {
+  --bg-0: #070a10;
+  --bg-1: #0d1421;
+  --bg-2: #101d2e;
+  --panel: #121c2b;
+  --line: #25384f;
+  --text: #e7edf7;
+  --muted: #99abc3;
+  --brand: #6dc7ff;
+  --brand-2: #4de0b7;
+  --warn: #ffbb55;
+  --danger: #ff8b8b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background: radial-gradient(circle at 20% -10%, #203250 0%, var(--bg-1) 42%, var(--bg-0) 100%);
+  font-family: 'Rajdhani', sans-serif;
+  min-height: 100vh;
+  line-height: 1.35;
+}
+
+.backdrop-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(109, 199, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(109, 199, 255, 0.07) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: radial-gradient(circle at 50% 20%, black 30%, transparent 85%);
+}
+
+.hero {
+  padding: 52px 18px 24px;
+}
+
+.hero-inner {
+  max-width: 1040px;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 34px;
+  background: linear-gradient(150deg, rgba(16, 29, 46, 0.9), rgba(8, 13, 21, 0.92));
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.35);
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--brand);
+  letter-spacing: 0.08em;
+  font-size: 16px;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 6px 0 2px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 62px;
+  letter-spacing: 0.05em;
+}
+
+.tagline {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 20px;
+}
+
+.release-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #365a7d;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 14px;
+  color: #d8e9ff;
+  background: #102033;
+}
+
+.chip-link {
+  text-decoration: none;
+}
+
+.chip-link:hover {
+  border-color: var(--brand);
+}
+
+.download-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  padding: 12px 20px;
+  border: 1px solid transparent;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.btn-primary {
+  color: #07111f;
+  background: linear-gradient(135deg, var(--brand) 0%, #8be7ff 100%);
+  min-width: 260px;
+}
+
+.btn-primary:hover {
+  filter: brightness(1.06);
+}
+
+.btn-ghost {
+  color: var(--text);
+  border-color: #2d506f;
+  background: #0f1b2a;
+}
+
+.btn-ghost:hover {
+  border-color: var(--brand);
+}
+
+.download-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.download-note a {
+  color: var(--brand);
+}
+
+.content {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 0 18px 40px;
+  display: grid;
+  gap: 14px;
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(150deg, rgba(16, 27, 42, 0.9), rgba(11, 18, 29, 0.94));
+  padding: 18px;
+}
+
+.card h2 {
+  margin: 0 0 10px;
+  font-family: 'Orbitron', sans-serif;
+  font-size: 22px;
+  letter-spacing: 0.03em;
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.features article {
+  border: 1px solid #2b425c;
+  border-radius: 10px;
+  padding: 12px;
+  background: #0f1a2a;
+}
+
+.features h3 {
+  margin: 0 0 6px;
+  color: var(--brand-2);
+}
+
+.features p {
+  margin: 0;
+  color: var(--muted);
+}
+
+ol {
+  margin: 0;
+  padding-left: 18px;
+}
+
+li {
+  margin-bottom: 8px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.link-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.link-list a {
+  color: var(--brand);
+}
+
+.faq {
+  display: grid;
+  gap: 8px;
+}
+
+details {
+  border: 1px solid #2b425c;
+  border-radius: 10px;
+  padding: 10px;
+  background: #0f1a2a;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.footer {
+  padding: 0 18px 28px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  h1 {
+    font-size: 48px;
+  }
+
+  .features {
+    grid-template-columns: 1fr;
+  }
+
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+}

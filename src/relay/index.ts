@@ -86,27 +86,24 @@ function openBrowser(url: string): void {
 }
 
 function resolvePublicDir(): string {
-  return resolvePublicCandidates()[0] || path.join(process.cwd(), 'public');
-}
-
-function resolvePublicCandidates(): string[] {
   const modulePath = process.argv[1] || process.cwd();
   const moduleDir = path.dirname(modulePath);
   const snapshotDir = path.join(__dirname, '..');
   const pkgEntrypoint = (process as NodeJS.Process & { pkg?: { entrypoint?: string } }).pkg?.entrypoint;
   const pkgEntryDir = pkgEntrypoint ? path.dirname(pkgEntrypoint) : null;
   const isPackaged = !!(process as NodeJS.Process & { pkg?: unknown }).pkg;
+  const fsRoot = path.parse(process.execPath).root;
+  const winSnapshotRoot = path.join(fsRoot, 'snapshot');
 
   const requiredFiles = ['ops.html', 'viewer.html', 'host.html'];
   function hasRequiredAssets(dir: string): boolean {
-    return requiredFiles.every((name) => {
-      const p = path.join(dir, name);
-      return fs.existsSync(p) && fs.statSync(p).isFile();
-    });
+    return requiredFiles.every((name) => fs.existsSync(path.join(dir, name)));
   }
 
   const candidates = [
     process.env.MPP_PUBLIC_DIR,
+    path.join(winSnapshotRoot, 'MPP', 'public'),
+    path.join(winSnapshotRoot, 'public'),
     path.join(path.sep, 'snapshot', 'MPP', 'public'),
     path.join(path.sep, 'snapshot', 'public'),
     path.join(snapshotDir, 'public'),
@@ -119,35 +116,36 @@ function resolvePublicCandidates(): string[] {
     path.join(moduleDir, '../../public'),
   ].filter((v): v is string => typeof v === 'string' && v.length > 0);
 
-  const existing = candidates.filter((candidate) => {
-    try {
-      return fs.existsSync(candidate) && fs.statSync(candidate).isDirectory();
-    } catch {
-      return false;
-    }
-  });
-
-  const withRequired = existing.filter((candidate) => hasRequiredAssets(candidate));
-  const withOps = existing.filter((candidate) => {
-    try {
-      return fs.existsSync(path.join(candidate, 'ops.html'));
-    } catch {
-      return false;
-    }
-  });
-
-  const merged = [...withRequired, ...withOps, ...existing];
-  return Array.from(new Set(merged));
-}
-
-function findFirstStaticFile(publicDirs: string[], fileName: string): string | null {
-  for (const dir of publicDirs) {
-    const filePath = path.join(dir, fileName);
-    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-      return filePath;
+  for (const candidate of candidates) {
+    if (
+      fs.existsSync(candidate) &&
+      fs.statSync(candidate).isDirectory() &&
+      hasRequiredAssets(candidate)
+    ) {
+      return candidate;
     }
   }
-  return null;
+
+  if (isPackaged) {
+    // In packaged mode, avoid silently selecting cwd/public (often user Downloads/public).
+    const packagedFallbacks = [
+      path.join(winSnapshotRoot, 'MPP', 'public'),
+      path.join(path.sep, 'snapshot', 'MPP', 'public'),
+      path.join(snapshotDir, 'public'),
+      path.join(snapshotDir, '../public'),
+      path.join(path.dirname(process.execPath), 'public'),
+    ];
+
+    for (const fallback of packagedFallbacks) {
+      if (fs.existsSync(fallback) && fs.statSync(fallback).isDirectory()) {
+        logger.warn(`[Viewer] Using packaged fallback publicDir without full asset check: ${fallback}`);
+        return fallback;
+      }
+    }
+  }
+
+  // Final fallback keeps previous behavior but logs will show missing files explicitly.
+  return path.join(process.cwd(), 'public');
 }
 
 // Viewer API 및 정적 파일 서버
@@ -155,85 +153,45 @@ function findFirstStaticFile(publicDirs: string[], fileName: string): string | n
 const app = express();
 app.use(express.json()); // PATCH body parsing
 const publicDir = resolvePublicDir();
-const publicDirs = resolvePublicCandidates();
-if (publicDirs.length === 0) {
-  publicDirs.push(publicDir);
-}
-
-for (const dir of publicDirs) {
-  app.use(express.static(dir));
-}
+app.use(express.static(publicDir)); // 루트 static 서빙
 
 app.use('/api/viewer', createViewerApiRouter(relayServer));
 
-for (const dir of publicDirs) {
-  app.use('/viewer', express.static(dir));
-}
+app.use('/viewer', express.static(publicDir));
 app.get('/viewer/:sessionId', (req, res) => {
-  const filePath = findFirstStaticFile(publicDirs, 'viewer.html');
-  if (!filePath) {
-    logger.error(`[Viewer] viewer.html not found in candidates: ${publicDirs.join(', ')}`);
-    return res.status(500).type('text/plain').send('viewer.html not found');
-  }
-  res.sendFile(filePath);
+  res.sendFile(path.join(publicDir, 'viewer.html'));
 });
 app.get('/join/:joinCode', (req, res) => {
-  const filePath = findFirstStaticFile(publicDirs, 'viewer.html');
-  if (!filePath) {
-    logger.error(`[Viewer] viewer.html not found in candidates: ${publicDirs.join(', ')}`);
-    return res.status(500).type('text/plain').send('viewer.html not found');
-  }
-  res.sendFile(filePath);
+  res.sendFile(path.join(publicDir, 'viewer.html'));
 });
 app.get('/host/:sessionId', (req, res) => {
-  const filePath = findFirstStaticFile(publicDirs, 'host.html');
-  if (!filePath) {
-    logger.error(`[Viewer] host.html not found in candidates: ${publicDirs.join(', ')}`);
-    return res.status(500).type('text/plain').send('host.html not found');
-  }
-  res.sendFile(filePath);
+  res.sendFile(path.join(publicDir, 'host.html'));
 });
 app.get('/ops', (req, res) => {
-  const opsFile = findFirstStaticFile(publicDirs, 'ops.html');
-  if (!opsFile) {
-    logger.error(`[Viewer] ops.html not found in candidates: ${publicDirs.join(', ')}`);
+  const opsFile = path.join(publicDir, 'ops.html');
+  if (!fs.existsSync(opsFile)) {
+    logger.error(`[Viewer] ops.html not found at: ${opsFile}`);
     return res
       .status(500)
       .type('text/plain')
-      .send(`ops.html not found. candidates=${publicDirs.join('|')}`);
+      .send(`ops.html not found. publicDir=${publicDir}`);
   }
   res.sendFile(opsFile);
 });
 app.get('/archives', (req, res) => {
-  const filePath = findFirstStaticFile(publicDirs, 'archives.html');
-  if (!filePath) {
-    logger.error(`[Viewer] archives.html not found in candidates: ${publicDirs.join(', ')}`);
-    return res.status(500).type('text/plain').send('archives.html not found');
-  }
-  res.sendFile(filePath);
+  res.sendFile(path.join(publicDir, 'archives.html'));
 });
 app.get('/overlay/:sessionId', (req, res) => {
-  const filePath = findFirstStaticFile(publicDirs, 'overlay.html');
-  if (!filePath) {
-    logger.error(`[Viewer] overlay.html not found in candidates: ${publicDirs.join(', ')}`);
-    return res.status(500).type('text/plain').send('overlay.html not found');
-  }
-  res.sendFile(filePath);
+  res.sendFile(path.join(publicDir, 'overlay.html'));
 });
 app.get('/overlay/join/:joinCode', (req, res) => {
-  const filePath = findFirstStaticFile(publicDirs, 'overlay.html');
-  if (!filePath) {
-    logger.error(`[Viewer] overlay.html not found in candidates: ${publicDirs.join(', ')}`);
-    return res.status(500).type('text/plain').send('overlay.html not found');
-  }
-  res.sendFile(filePath);
+  res.sendFile(path.join(publicDir, 'overlay.html'));
 });
 
 const HTTP_PORT = process.env.VIEWER_HTTP_PORT ? parseInt(process.env.VIEWER_HTTP_PORT) : 4100;
 app.listen(HTTP_PORT, () => {
   logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);
   logger.info(`[Viewer] Static assets from: ${publicDir}`);
-  logger.info(`[Viewer] Static candidate dirs: ${publicDirs.join(', ')}`);
 
   if (shouldAutoOpenDashboard()) {
     const dashboardUrl = `http://localhost:${HTTP_PORT}/ops?preset=ops`;

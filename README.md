@@ -1,5 +1,14 @@
 # Remote Viewer / Session Ops Guide
 
+## Windows 빠른 설치
+
+- 다운로드 페이지: [docs/index.html](docs/index.html)
+- 최신 릴리스: https://github.com/skywalkers-lab/MPP/releases/latest
+- 설치형(.exe): https://github.com/skywalkers-lab/MPP/releases/latest/download/MPP-Setup.exe
+- 포터블(.exe): https://github.com/skywalkers-lab/MPP/releases/latest/download/MPP-portable.exe
+
+주의: `Source code (zip/tar.gz)`는 설치 파일이 아닙니다. Windows 사용자는 반드시 `.exe` 자산을 받으세요.
+
 ## 1. 실행
 
 ```bash

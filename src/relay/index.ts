@@ -5,6 +5,8 @@ import { RelayServer } from './RelayServer.js';
 import { ConsoleLogger } from '../debug/ConsoleLogger.js';
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { createViewerApiRouter } from './viewerApi.js';
 
 const WS_PORT = process.env.RELAY_WS_PORT ? parseInt(process.env.RELAY_WS_PORT) : 4000;
@@ -18,38 +20,58 @@ const relayServer = new RelayServer({
   heartbeatTimeoutMs: 10000,
 });
 
+function resolvePublicDir(): string {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    process.env.MPP_PUBLIC_DIR,
+    path.join(process.cwd(), 'public'),
+    path.join(moduleDir, '../../public'),
+    path.join(path.dirname(process.execPath), 'public'),
+  ].filter((v): v is string => typeof v === 'string' && v.length > 0);
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+      return candidate;
+    }
+  }
+
+  return path.join(process.cwd(), 'public');
+}
+
 // Viewer API 및 정적 파일 서버
 
 const app = express();
 app.use(express.json()); // PATCH body parsing
-app.use(express.static(path.join(process.cwd(), 'public'))); // 루트 static 서빙
+const publicDir = resolvePublicDir();
+app.use(express.static(publicDir)); // 루트 static 서빙
 
 app.use('/api/viewer', createViewerApiRouter(relayServer));
 
-app.use('/viewer', express.static(path.join(process.cwd(), 'public')));
+app.use('/viewer', express.static(publicDir));
 app.get('/viewer/:sessionId', (req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'viewer.html'));
+  res.sendFile(path.join(publicDir, 'viewer.html'));
 });
 app.get('/join/:joinCode', (req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'viewer.html'));
+  res.sendFile(path.join(publicDir, 'viewer.html'));
 });
 app.get('/host/:sessionId', (req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'host.html'));
+  res.sendFile(path.join(publicDir, 'host.html'));
 });
 app.get('/ops', (req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'ops.html'));
+  res.sendFile(path.join(publicDir, 'ops.html'));
 });
 app.get('/archives', (req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'archives.html'));
+  res.sendFile(path.join(publicDir, 'archives.html'));
 });
 app.get('/overlay/:sessionId', (req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'overlay.html'));
+  res.sendFile(path.join(publicDir, 'overlay.html'));
 });
 app.get('/overlay/join/:joinCode', (req, res) => {
-  res.sendFile(path.join(process.cwd(), 'public', 'overlay.html'));
+  res.sendFile(path.join(publicDir, 'overlay.html'));
 });
 
 const HTTP_PORT = process.env.VIEWER_HTTP_PORT ? parseInt(process.env.VIEWER_HTTP_PORT) : 4100;
 app.listen(HTTP_PORT, () => {
   logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);
+  logger.info(`[Viewer] Static assets from: ${publicDir}`);
 });

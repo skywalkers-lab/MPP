@@ -98,4 +98,30 @@ describe('Session Access/Invite (joinCode) API', () => {
     expect(res.body.viewerStatus).toBe('invalid_code');
     expect(res.body.accessError.code).toBe('invalid_code');
   });
+
+  it('Room Password/Permission Code 규칙으로 역할이 결정된다', async () => {
+    await request(app)
+      .patch(`/api/viewer/session-access/${sessionId}`)
+      .send({
+        shareEnabled: true,
+        visibility: 'code',
+        roomTitle: 'Monza Race Room',
+        roomPassword: 'pitwall',
+        permissionCode: 'STRAT99',
+      });
+
+    let res = await request(app).get(`/api/viewer/join/${joinCode}`);
+    expect(res.status).toBe(403);
+    expect(res.body.accessError.code).toBe('password_required');
+
+    res = await request(app).get(`/api/viewer/join/${joinCode}?password=pitwall`);
+    expect(res.status).toBe(200);
+    expect(res.body.roomAccess.grantedRole).toBe('engineer');
+    expect(res.body.roomAccess.permissionGranted).toBe(false);
+
+    res = await request(app).get(`/api/viewer/join/${joinCode}?password=pitwall&permissionCode=STRAT99`);
+    expect(res.status).toBe(200);
+    expect(res.body.roomAccess.grantedRole).toBe('strategist');
+    expect(res.body.roomAccess.permissionGranted).toBe(true);
+  });
 });

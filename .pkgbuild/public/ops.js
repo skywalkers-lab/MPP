@@ -11,11 +11,13 @@ var $healthFilter = document.getElementById('health-filter');
 var $surfaceFilter = document.getElementById('surface-filter');
 var $relayEndpoint = document.getElementById('relay-endpoint');
 var $relayDot = document.getElementById('relay-dot');
+var $relayNamespace = document.getElementById('relay-namespace');
 
 var allSessions = [];
 var archivedSessionIds = {};
 var reboundEventsBySession = {};
 var preset = window.UiCommon ? window.UiCommon.applyPreset('ops') : 'ops';
+var relayInfoCache = null;
 
 function fmtTime(ts) {
   if (!ts) return '-';
@@ -123,7 +125,10 @@ function accessClass(label) {
 
 function buildJoinUrl(joinCode) {
   if (!joinCode) return '-';
-  return window.location.origin + '/join/' + encodeURIComponent(joinCode);
+  var base = relayInfoCache && relayInfoCache.viewerBaseUrl
+    ? String(relayInfoCache.viewerBaseUrl).replace(/\/$/, '')
+    : window.location.origin;
+  return base + '/join/' + encodeURIComponent(joinCode);
 }
 
 async function copyText(text) {
@@ -214,6 +219,8 @@ function renderSessionsTable(sessions) {
 
     return '<tr' + rowClass + '>' +
       '<td data-label="Session">' +
+        '<div><strong>' + escapeHtml(safe(s.roomTitle || '-')) + '</strong></div>' +
+        '<div class="muted">driver=' + escapeHtml(safe(s.driverLabel || '-')) + ' · car=' + escapeHtml(safe(s.carLabel || '-')) + '</div>' +
         '<div style="font-family:monospace;font-size:12px;">' + escapeHtml(s.sessionId) + '</div>' +
         '<div class="muted">seq: ' + safe(s.latestSequence) + '</div>' +
         reboundBadge +
@@ -227,7 +234,7 @@ function renderSessionsTable(sessions) {
       '<td data-label="Share">' +
         '<div class="share-emphasis ' + shareBadgeClass + '">' + shareBadgeLabel + '</div>' +
         '<div class="' + accessClass(s.viewerAccessLabel) + '">' + safe(s.viewerAccessLabel) + '</div>' +
-        '<div class="muted">shared=' + safe(s.shareEnabled) + ', ' + safe(s.visibility) + '</div>' +
+        '<div class="muted">shared=' + safe(s.shareEnabled) + ', ' + safe(s.visibility) + ', password=' + safe(s.passwordEnabled ? 'on' : 'off') + '</div>' +
       '</td>' +
       '<td data-label="Join" class="inline-actions">' +
         (s.joinCode
@@ -301,12 +308,18 @@ function renderEvents(events) {
 function renderRelayInfo(info) {
   if (!$relayEndpoint || !$relayDot) return;
   if (!info) {
+    relayInfoCache = null;
     $relayEndpoint.textContent = 'relay: -';
     $relayDot.className = 'relay-dot';
+    if ($relayNamespace) $relayNamespace.textContent = 'namespace: -';
     return;
   }
 
-  $relayEndpoint.textContent = 'relay: ' + safe(info.relayWsUrl || ('ws://127.0.0.1:' + safe(info.relayWsPort)));
+  relayInfoCache = info;
+  $relayEndpoint.textContent = 'relay: ' + safe(info.relayLabel || 'relay') + ' (' + safe(info.relayWsUrl || ('ws://127.0.0.1:' + safe(info.relayWsPort))) + ')';
+  if ($relayNamespace) {
+    $relayNamespace.textContent = 'namespace: ' + safe(info.relayNamespace || info.viewerBaseUrl || '-');
+  }
   var active = Number(info.activeSessions || 0);
   $relayDot.className = 'relay-dot ' + (active > 0 ? 'connected' : 'idle');
 }

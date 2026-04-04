@@ -8,12 +8,19 @@ import { CompositeOpsNotifier, ConsoleOpsNotifier, deriveSessionHealthLevel, InM
 import { InMemorySessionNotesStore, } from './notes';
 import { StrategyEngine } from './strategyEngine';
 import { InMemorySessionArchiveStore, toArchiveRecommendationSnapshot, } from './archive';
-export function serializeSessionAccess(access) {
+export function serializeSessionAccess(access, options) {
     if (!access)
         return null;
+    const includeSecrets = options?.includeSecrets === true;
     return {
         sessionId: access.sessionId,
         joinCode: access.joinCode,
+        roomTitle: access.roomTitle,
+        passwordEnabled: !!access.roomPassword,
+        driverLabel: access.driverLabel,
+        carLabel: access.carLabel,
+        roomPassword: includeSecrets ? access.roomPassword : undefined,
+        permissionCode: includeSecrets ? access.permissionCode : undefined,
         visibility: access.visibility,
         shareEnabled: access.shareEnabled,
         createdAt: access.createdAt,
@@ -150,6 +157,11 @@ export class RelayServer {
         return Array.from(this.sessions.values())
             .map((session) => {
             const access = this.sessionAccess.get(session.sessionId);
+            const driverProfile = this.deriveDriverProfile(session.latestState);
+            if (access) {
+                access.driverLabel = driverProfile.driverLabel;
+                access.carLabel = driverProfile.carLabel;
+            }
             const base = serializeSessionOpsSummary(session, access);
             const latestNote = this.notesStore.getLatestNote(session.sessionId);
             const strategy = this.computeSessionStrategy(session);
@@ -322,6 +334,28 @@ export class RelayServer {
                 previousVisibility,
                 nextVisibility: access.visibility,
             });
+        }
+        if (patch.roomTitle !== undefined) {
+            const normalizedTitle = String(patch.roomTitle).trim().slice(0, 80);
+            if (normalizedTitle && normalizedTitle !== access.roomTitle) {
+                access.roomTitle = normalizedTitle;
+                changed = true;
+            }
+        }
+        if (patch.roomPassword !== undefined) {
+            const normalizedPassword = String(patch.roomPassword || '').trim().slice(0, 64) || null;
+            if (normalizedPassword !== access.roomPassword) {
+                access.roomPassword = normalizedPassword;
+                changed = true;
+            }
+        }
+        if (patch.permissionCode !== undefined) {
+            const normalizedPermission = String(patch.permissionCode || '').trim().toUpperCase().slice(0, 24)
+                || this.generatePermissionCode();
+            if (normalizedPermission !== access.permissionCode) {
+                access.permissionCode = normalizedPermission;
+                changed = true;
+            }
         }
         if (changed) {
             access.updatedAt = Date.now();
@@ -502,6 +536,35 @@ export class RelayServer {
         }
         return code;
     }
+    generatePermissionCode(length = 8) {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let code = '';
+        for (let i = 0; i < length; i += 1) {
+            code += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return code;
+    }
+    deriveDriverProfile(state) {
+        if (!state) {
+            return {
+                driverLabel: null,
+                carLabel: null,
+            };
+        }
+        const playerIndex = state.playerCarIndex;
+        if (playerIndex === null || playerIndex === undefined) {
+            return {
+                driverLabel: null,
+                carLabel: null,
+            };
+        }
+        const driver = state.drivers?.[playerIndex];
+        const car = state.cars?.[playerIndex];
+        return {
+            driverLabel: driver?.driverName || null,
+            carLabel: driver?.teamName || car?.tyreCompound || null,
+        };
+    }
     handleConnection(ws) {
         const connId = uuidv4();
         this.logger.info(`[Relay] New connection: ${connId}`);
@@ -584,6 +647,11 @@ export class RelayServer {
         const access = {
             sessionId,
             joinCode,
+            roomTitle: `Room ${joinCode}`,
+            roomPassword: null,
+            permissionCode: this.generatePermissionCode(),
+            driverLabel: null,
+            carLabel: null,
             visibility: 'private',
             shareEnabled: false,
             createdAt: now,

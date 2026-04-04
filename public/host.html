@@ -335,6 +335,7 @@
   <div class="wrap">
     <div class="top-links">
       <span data-role-preset class="status-chip" style="color:#8ad0ff;border-color:#345068;background:#112030;">preset: host</span>
+      <a href="/rooms">rooms</a>
       <a href="/ops">ops</a>
       <a href="/archives">archives</a>
     </div>
@@ -399,7 +400,7 @@
           <div class="driver-item"><div class="cmd-label">Compound</div><div id="driver-compound" class="driver-value">-</div><div id="driver-tyre-age" class="driver-sub">age -</div></div>
           <div class="driver-item"><div class="cmd-label">Fuel Laps</div><div id="driver-fuel-laps" class="driver-value">-</div><div id="driver-fuel-kg" class="driver-sub">fuel -</div></div>
           <div class="driver-item"><div class="cmd-label">ERS</div><div id="driver-ers" class="driver-value">-</div><div id="driver-last" class="driver-sub">last -</div></div>
-          <div class="driver-item"><div class="cmd-label">Session</div><div id="session-id" class="driver-value">-</div><div id="join-code" class="driver-sub">join -</div></div>
+          <div class="driver-item"><div class="cmd-label">Room</div><div id="room-title-view" class="driver-value">-</div><div id="join-code" class="driver-sub">room -</div><div id="session-id" class="driver-sub">session -</div></div>
         </div>
 
         <div class="controls">
@@ -413,6 +414,13 @@
             <button id="copy-url">copy</button>
             <button id="copy-code">code</button>
             <a id="overlay-link" class="link" href="#" target="_blank" rel="noopener">overlay</a>
+          </div>
+
+          <div class="row" style="margin-top:10px;">Room Profile</div>
+          <div class="inline" style="margin-top:4px;">
+            <input id="room-title" class="input" type="text" maxlength="80" placeholder="Room Title" style="min-width:180px;" />
+            <input id="room-password" class="input" type="text" maxlength="64" placeholder="Password (optional)" style="min-width:160px;" />
+            <input id="permission-code" class="input" type="text" maxlength="24" placeholder="Permission Code" style="min-width:150px;" />
           </div>
 
           <div class="inline" style="margin-top:8px;">

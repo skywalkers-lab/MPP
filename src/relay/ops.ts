@@ -71,6 +71,10 @@ export type ViewerAccessLabel =
 
 export interface SessionOpsSummary {
   sessionId: string;
+  roomTitle: string;
+  passwordEnabled: boolean;
+  driverLabel: string | null;
+  carLabel: string | null;
   relayStatus: RelaySession['status'];
   healthLevel: 'healthy' | 'delayed' | 'stale_risk' | 'stale' | 'connecting';
   heartbeatAgeMs: number;
@@ -141,6 +145,10 @@ export function serializeSessionOpsSummary(
 
   return {
     sessionId: session.sessionId,
+    roomTitle: access?.roomTitle || `Room ${joinCode ?? session.sessionId.slice(0, 6)}`,
+    passwordEnabled: !!access?.roomPassword,
+    driverLabel: access?.driverLabel ?? null,
+    carLabel: access?.carLabel ?? null,
     relayStatus: session.status,
     healthLevel,
     heartbeatAgeMs,

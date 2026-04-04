@@ -2230,7 +2230,7 @@ var require_websocket = __commonJS({
     var tls = require("tls");
     var { randomBytes, createHash } = require("crypto");
     var { Duplex, Readable } = require("stream");
-    var { URL } = require("url");
+    var { URL: URL2 } = require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
     var Receiver2 = require_receiver();
     var Sender2 = require_sender();
@@ -2723,11 +2723,11 @@ var require_websocket = __commonJS({
         );
       }
       let parsedUrl;
-      if (address instanceof URL) {
+      if (address instanceof URL2) {
         parsedUrl = address;
       } else {
         try {
-          parsedUrl = new URL(address);
+          parsedUrl = new URL2(address);
         } catch {
           throw new SyntaxError(`Invalid URL: ${address}`);
         }
@@ -2864,7 +2864,7 @@ var require_websocket = __commonJS({
           req.abort();
           let addr;
           try {
-            addr = new URL(location, address);
+            addr = new URL2(location, address);
           } catch (e) {
             const err = new SyntaxError(`Invalid URL: ${location}`);
             emitErrorAndClose(websocket, err);
@@ -36981,6 +36981,10 @@ function serializeSessionOpsSummary(session, access) {
   const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs, hasSnapshot);
   return {
     sessionId: session.sessionId,
+    roomTitle: access?.roomTitle || `Room ${joinCode ?? session.sessionId.slice(0, 6)}`,
+    passwordEnabled: !!access?.roomPassword,
+    driverLabel: access?.driverLabel ?? null,
+    carLabel: access?.carLabel ?? null,
     relayStatus: session.status,
     healthLevel,
     heartbeatAgeMs,
@@ -37799,11 +37803,18 @@ function toArchiveRecommendationSnapshot(strategy, generatedAt) {
 }
 
 // src/relay/RelayServer.ts
-function serializeSessionAccess(access) {
+function serializeSessionAccess(access, options) {
   if (!access) return null;
+  const includeSecrets = options?.includeSecrets === true;
   return {
     sessionId: access.sessionId,
     joinCode: access.joinCode,
+    roomTitle: access.roomTitle,
+    passwordEnabled: !!access.roomPassword,
+    driverLabel: access.driverLabel,
+    carLabel: access.carLabel,
+    roomPassword: includeSecrets ? access.roomPassword : void 0,
+    permissionCode: includeSecrets ? access.permissionCode : void 0,
     visibility: access.visibility,
     shareEnabled: access.shareEnabled,
     createdAt: access.createdAt,
@@ -37908,9 +37919,19 @@ var RelayServer = class {
     const sessions = Array.from(this.sessions.values());
     const activeSessions = sessions.filter((s) => s.status === "active").length;
     const staleSessions = sessions.filter((s) => s.status === "stale").length;
+    const viewerBaseUrl = this.options.publicViewerBaseUrl || "http://127.0.0.1:4100";
+    const relayWsUrl = this.options.publicRelayWsUrl || `ws://127.0.0.1:${this.options.wsPort}`;
+    const relayNamespace = this.options.relayNamespace || viewerBaseUrl;
+    const relayLabel = this.options.relayLabel || (relayNamespace.includes("127.0.0.1") || relayNamespace.includes("localhost") ? "local-relay" : "public-relay");
     return {
       relayWsPort: this.options.wsPort,
-      relayWsUrl: `ws://127.0.0.1:${this.options.wsPort}`,
+      relayWsUrl,
+      relayLabel,
+      relayNamespace,
+      viewerBaseUrl,
+      shareJoinBaseUrl: `${viewerBaseUrl.replace(/\/$/, "")}/join`,
+      debugHttpEnabled: this.options.debugHttpEnabled === true,
+      corsEnabled: this.options.corsEnabled === true,
       heartbeatTimeoutMs: this.heartbeatTimeoutMs,
       totalSessions: sessions.length,
       activeSessions,
@@ -37928,6 +37949,11 @@ var RelayServer = class {
   listSessionOpsSummaries() {
     return Array.from(this.sessions.values()).map((session) => {
       const access = this.sessionAccess.get(session.sessionId);
+      const driverProfile = this.deriveDriverProfile(session.latestState);
+      if (access) {
+        access.driverLabel = driverProfile.driverLabel;
+        access.carLabel = driverProfile.carLabel;
+      }
       const base = serializeSessionOpsSummary(session, access);
       const latestNote = this.notesStore.getLatestNote(session.sessionId);
       const strategy = this.computeSessionStrategy(session);
@@ -38049,6 +38075,27 @@ var RelayServer = class {
         previousVisibility,
         nextVisibility: access.visibility
       });
+    }
+    if (patch.roomTitle !== void 0) {
+      const normalizedTitle = String(patch.roomTitle).trim().slice(0, 80);
+      if (normalizedTitle && normalizedTitle !== access.roomTitle) {
+        access.roomTitle = normalizedTitle;
+        changed = true;
+      }
+    }
+    if (patch.roomPassword !== void 0) {
+      const normalizedPassword = String(patch.roomPassword || "").trim().slice(0, 64) || null;
+      if (normalizedPassword !== access.roomPassword) {
+        access.roomPassword = normalizedPassword;
+        changed = true;
+      }
+    }
+    if (patch.permissionCode !== void 0) {
+      const normalizedPermission = String(patch.permissionCode || "").trim().toUpperCase().slice(0, 24) || this.generatePermissionCode();
+      if (normalizedPermission !== access.permissionCode) {
+        access.permissionCode = normalizedPermission;
+        changed = true;
+      }
     }
     if (changed) {
       access.updatedAt = Date.now();
@@ -38224,6 +38271,35 @@ var RelayServer = class {
     }
     return code;
   }
+  generatePermissionCode(length = 8) {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let code = "";
+    for (let i = 0; i < length; i += 1) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+  }
+  deriveDriverProfile(state) {
+    if (!state) {
+      return {
+        driverLabel: null,
+        carLabel: null
+      };
+    }
+    const playerIndex = state.playerCarIndex;
+    if (playerIndex === null || playerIndex === void 0) {
+      return {
+        driverLabel: null,
+        carLabel: null
+      };
+    }
+    const driver = state.drivers?.[playerIndex];
+    const car = state.cars?.[playerIndex];
+    return {
+      driverLabel: driver?.driverName || null,
+      carLabel: driver?.teamName || car?.tyreCompound || null
+    };
+  }
   handleConnection(ws) {
     const connId = v4_default();
     this.logger.info(`[Relay] New connection: ${connId}`);
@@ -38310,6 +38386,11 @@ var RelayServer = class {
     const access = {
       sessionId,
       joinCode,
+      roomTitle: `Room ${joinCode}`,
+      roomPassword: null,
+      permissionCode: this.generatePermissionCode(),
+      driverLabel: null,
+      carLabel: null,
       visibility: "private",
       shareEnabled: false,
       createdAt: now,
@@ -39337,6 +39418,23 @@ var import_child_process = require("child_process");
 var import_express2 = __toESM(require_express2(), 1);
 function createViewerApiRouter(relayServer2) {
   const router = import_express2.default.Router();
+  function readQueryString(v) {
+    return typeof v === "string" ? v.trim() : "";
+  }
+  function getRelayInfo() {
+    if (typeof relayServer2.getRelayRuntimeInfo !== "function") {
+      return null;
+    }
+    return relayServer2.getRelayRuntimeInfo();
+  }
+  function buildAbsoluteJoinUrl(joinCode) {
+    const info = getRelayInfo();
+    const base = info?.viewerBaseUrl || "";
+    if (!base) {
+      return `/join/${joinCode}`;
+    }
+    return `${String(base).replace(/\/$/, "")}/join/${joinCode}`;
+  }
   function resolveSession(sessionId) {
     if (typeof relayServer2.resolveCanonicalSessionId === "function") {
       return relayServer2.resolveCanonicalSessionId(sessionId);
@@ -39405,6 +39503,51 @@ function createViewerApiRouter(relayServer2) {
     const sessions = relayServer2.listSessionOpsSummaries();
     res.json({ sessions, count: sessions.length });
   });
+  router.get("/rooms/active", (_req, res) => {
+    const rooms = relayServer2.listSessionOpsSummaries().filter((row) => row.relayStatus !== "closed").map((row) => ({
+      sessionId: row.sessionId,
+      joinCode: row.joinCode,
+      roomTitle: row.roomTitle,
+      relayStatus: row.relayStatus,
+      healthLevel: row.healthLevel,
+      driverLabel: row.driverLabel,
+      carLabel: row.carLabel,
+      passwordEnabled: row.passwordEnabled,
+      shareEnabled: row.shareEnabled,
+      visibility: row.visibility,
+      viewerAccessLabel: row.viewerAccessLabel,
+      updatedAt: row.updatedAt
+    }));
+    res.json({ rooms, count: rooms.length, relay: getRelayInfo() });
+  });
+  router.get("/rooms/join/:joinCode", (req, res) => {
+    const joinCode = req.params.joinCode;
+    const { sessionId, access } = relayServer2.resolveJoinCode(joinCode);
+    if (!sessionId || !access) {
+      return res.status(404).json({
+        error: "invalid_room",
+        accessError: {
+          code: "invalid_code",
+          message: "\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 Room \uCF54\uB4DC\uC785\uB2C8\uB2E4."
+        }
+      });
+    }
+    const session = relayServer2.getSession(sessionId);
+    const viewerStatus = serializeViewerSession(session).viewerStatus;
+    res.json({
+      sessionId,
+      joinCode,
+      roomTitle: access.roomTitle,
+      passwordEnabled: !!access.roomPassword,
+      relayStatus: session?.status || "closed",
+      viewerStatus,
+      driverLabel: access.driverLabel,
+      carLabel: access.carLabel,
+      shareEnabled: access.shareEnabled,
+      visibility: access.visibility,
+      relay: getRelayInfo()
+    });
+  });
   router.get("/ops/events/recent", (req, res) => {
     const limitRaw = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 50;
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, limitRaw)) : 50;
@@ -39413,10 +39556,10 @@ function createViewerApiRouter(relayServer2) {
     res.json({ events, count: events.length, limit });
   });
   router.get("/relay-info", (_req, res) => {
-    if (typeof relayServer2.getRelayRuntimeInfo !== "function") {
+    const info = getRelayInfo();
+    if (!info) {
       return res.status(501).json({ error: "relay_info_unavailable" });
     }
-    const info = relayServer2.getRelayRuntimeInfo();
     res.json(info);
   });
   router.get("/notes/:sessionId", (req, res) => {
@@ -39525,7 +39668,7 @@ function createViewerApiRouter(relayServer2) {
     const { sessionId: requestedSessionId } = req.params;
     const resolution = resolveSession(requestedSessionId);
     const sessionId = resolution.canonicalSessionId;
-    const access = serializeSessionAccess(relayServer2.getSessionAccess(sessionId));
+    const access = serializeSessionAccess(relayServer2.getSessionAccess(sessionId), { includeSecrets: true });
     if (!access) {
       return res.status(404).json({ error: "not_found" });
     }
@@ -39535,13 +39678,20 @@ function createViewerApiRouter(relayServer2) {
       rebound: resolution.rebound,
       access,
       joinCode: access.joinCode,
+      roomTitle: access.roomTitle,
+      passwordEnabled: access.passwordEnabled,
+      permissionCode: access.permissionCode,
       shareEnabled: access.shareEnabled,
       visibility: access.visibility,
-      joinPath: `/join/${access.joinCode}`
+      joinPath: `/join/${access.joinCode}`,
+      joinUrl: buildAbsoluteJoinUrl(access.joinCode),
+      relay: getRelayInfo()
     });
   });
   router.get("/join/:joinCode", (req, res) => {
     const joinCode = req.params.joinCode;
+    const roomPassword = readQueryString(req.query.password);
+    const permissionCode = readQueryString(req.query.permissionCode).toUpperCase();
     const { sessionId, access } = relayServer2.resolveJoinCode(joinCode);
     if (!sessionId || !access) {
       return res.status(404).json({
@@ -39567,6 +39717,21 @@ function createViewerApiRouter(relayServer2) {
         message: "\uC774 \uC138\uC158\uC740 \uD604\uC7AC \uACF5\uC720 \uC911\uC774 \uC544\uB2D9\uB2C8\uB2E4."
       });
     }
+    if (access.roomPassword && roomPassword !== access.roomPassword) {
+      return res.status(403).json({
+        viewerStatus: "password_required",
+        accessError: {
+          code: roomPassword ? "invalid_password" : "password_required",
+          message: roomPassword ? "Room Password\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." : "\uC774 Room\uC740 Password\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4."
+        },
+        sessionId,
+        roomTitle: access.roomTitle,
+        joinCode,
+        passwordEnabled: true
+      });
+    }
+    const permissionGranted = !!access.permissionCode && permissionCode === access.permissionCode;
+    const grantedRole = permissionGranted ? "strategist" : access.roomPassword ? "engineer" : "viewer";
     const session = relayServer2.getSession(sessionId);
     const payload = serializeViewerSession(session);
     res.json({
@@ -39574,22 +39739,50 @@ function createViewerApiRouter(relayServer2) {
       access: accessSummary,
       joinCode,
       shareEnabled: accessSummary?.shareEnabled,
-      visibility: accessSummary?.visibility
+      visibility: accessSummary?.visibility,
+      roomTitle: accessSummary?.roomTitle,
+      passwordEnabled: accessSummary?.passwordEnabled,
+      joinPath: `/join/${joinCode}`,
+      joinUrl: buildAbsoluteJoinUrl(joinCode),
+      roomAccess: {
+        grantedRole,
+        permissionGranted,
+        usedPassword: !!access.roomPassword
+      },
+      relay: getRelayInfo()
     });
   });
   router.patch("/session-access/:sessionId", (req, res) => {
     const { sessionId } = req.params;
-    const { shareEnabled, visibility } = req.body || {};
-    const updated = relayServer2.updateSessionAccess(sessionId, { shareEnabled, visibility });
+    const {
+      shareEnabled,
+      visibility,
+      roomTitle,
+      roomPassword,
+      permissionCode
+    } = req.body || {};
+    const updated = relayServer2.updateSessionAccess(sessionId, {
+      shareEnabled,
+      visibility,
+      roomTitle,
+      roomPassword,
+      permissionCode
+    });
     if (!updated) return res.status(404).json({ error: "not_found" });
-    const access = serializeSessionAccess(updated);
+    const access = serializeSessionAccess(updated, { includeSecrets: true });
     res.json({
       sessionId,
       access,
       joinCode: access?.joinCode,
+      roomTitle: access?.roomTitle,
+      passwordEnabled: access?.passwordEnabled,
+      permissionCode: access?.permissionCode,
       shareEnabled: access?.shareEnabled,
       visibility: access?.visibility,
-      updatedAt: access?.updatedAt
+      updatedAt: access?.updatedAt,
+      joinPath: access?.joinCode ? `/join/${access.joinCode}` : void 0,
+      joinUrl: access?.joinCode ? buildAbsoluteJoinUrl(access.joinCode) : void 0,
+      relay: getRelayInfo()
     });
   });
   return router;
@@ -39600,6 +39793,19 @@ var logger = new ConsoleLogger("info");
 var WS_PORT = readPortFromEnv("RELAY_WS_PORT", 4e3);
 var DEBUG_HTTP_PORT = readPortFromEnv("RELAY_DEBUG_HTTP_PORT", 4001);
 var HTTP_PORT = readPortFromEnv("VIEWER_HTTP_PORT", 4100);
+var ENABLE_DEBUG_HTTP = readBooleanFromEnv("RELAY_ENABLE_DEBUG_HTTP", false);
+var ENABLE_CORS = readBooleanFromEnv("RELAY_ENABLE_CORS", false);
+var ALLOWED_ORIGINS = readListFromEnv("RELAY_ALLOWED_ORIGINS");
+var PUBLIC_VIEWER_BASE_URL = readPublicUrlFromEnv(
+  "RELAY_PUBLIC_URL",
+  `http://127.0.0.1:${HTTP_PORT}`
+);
+var PUBLIC_RELAY_WS_URL = readPublicWsUrlFromEnv(
+  "RELAY_PUBLIC_WS_URL",
+  PUBLIC_VIEWER_BASE_URL,
+  WS_PORT
+);
+var RELAY_LABEL = (process.env.RELAY_LABEL || "").trim() || inferRelayLabel(PUBLIC_VIEWER_BASE_URL);
 var embeddedUdp = null;
 var embeddedRelayClient = null;
 var embeddedAgentStarted = false;
@@ -39615,6 +39821,67 @@ function readPortFromEnv(name, fallback) {
   }
   logger.warn(`[Config] Invalid ${name}=${raw}; using default ${fallback}`);
   return fallback;
+}
+function readBooleanFromEnv(name, fallback) {
+  const raw = process.env[name];
+  if (!raw || raw.trim().length === 0) {
+    return fallback;
+  }
+  const value = raw.trim().toLowerCase();
+  if (["1", "true", "on", "yes"].includes(value)) return true;
+  if (["0", "false", "off", "no"].includes(value)) return false;
+  logger.warn(`[Config] Invalid ${name}=${raw}; using default ${String(fallback)}`);
+  return fallback;
+}
+function readListFromEnv(name) {
+  const raw = process.env[name];
+  if (!raw) return [];
+  return raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+}
+function readPublicUrlFromEnv(name, fallback) {
+  const raw = process.env[name];
+  if (!raw || raw.trim().length === 0) {
+    return fallback;
+  }
+  try {
+    const url = new URL(raw);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    logger.warn(`[Config] Invalid ${name}=${raw}; using default ${fallback}`);
+    return fallback;
+  }
+}
+function readPublicWsUrlFromEnv(name, viewerBaseUrl, wsPort) {
+  const raw = process.env[name];
+  if (raw && raw.trim().length > 0) {
+    try {
+      const wsUrl = new URL(raw);
+      if (wsUrl.protocol !== "ws:" && wsUrl.protocol !== "wss:") {
+        throw new Error("invalid_ws_protocol");
+      }
+      return `${wsUrl.protocol}//${wsUrl.host}${wsUrl.pathname}`;
+    } catch {
+      logger.warn(`[Config] Invalid ${name}=${raw}; deriving from RELAY_PUBLIC_URL`);
+    }
+  }
+  try {
+    const url = new URL(viewerBaseUrl);
+    const wsProtocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return `${wsProtocol}//${url.host}`;
+  } catch {
+    return `ws://127.0.0.1:${wsPort}`;
+  }
+}
+function inferRelayLabel(viewerBaseUrl) {
+  try {
+    const host = new URL(viewerBaseUrl).hostname;
+    if (host === "127.0.0.1" || host === "localhost") {
+      return "local-relay";
+    }
+    return "public-relay";
+  } catch {
+    return "custom-relay";
+  }
 }
 function resolveCrashLogPath() {
   const exeDir = import_path.default.dirname(process.execPath);
@@ -39644,9 +39911,15 @@ process.on("unhandledRejection", (reason) => {
 });
 var relayServer = new RelayServer({
   wsPort: WS_PORT,
-  debugHttpPort: DEBUG_HTTP_PORT,
+  debugHttpPort: ENABLE_DEBUG_HTTP ? DEBUG_HTTP_PORT : void 0,
   logger,
-  heartbeatTimeoutMs: 1e4
+  heartbeatTimeoutMs: 1e4,
+  publicViewerBaseUrl: PUBLIC_VIEWER_BASE_URL,
+  publicRelayWsUrl: PUBLIC_RELAY_WS_URL,
+  relayLabel: RELAY_LABEL,
+  relayNamespace: PUBLIC_VIEWER_BASE_URL,
+  debugHttpEnabled: ENABLE_DEBUG_HTTP,
+  corsEnabled: ENABLE_CORS
 });
 registerProcessShutdown();
 if (shouldStartEmbeddedAgent()) {
@@ -39825,11 +40098,31 @@ function resolvePublicDir() {
   return import_path.default.join(process.cwd(), "public");
 }
 var app = (0, import_express3.default)();
+if (ENABLE_CORS) {
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    const allowAny = ALLOWED_ORIGINS.length === 0;
+    const allowed = allowAny || (origin ? ALLOWED_ORIGINS.includes(origin) : false);
+    if (allowAny) {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+    } else if (allowed && origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+    }
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
+}
 app.use(import_express3.default.json());
 var publicDir = resolvePublicDir();
 app.use(import_express3.default.static(publicDir));
 app.get("/healthz", (_req, res) => {
-  const requiredFiles = ["ops.html", "viewer.html", "host.html", "archives.html"];
+  const requiredFiles = ["ops.html", "viewer.html", "host.html", "archives.html", "rooms.html"];
   const missingFiles = requiredFiles.filter(
     (name) => !import_fs.default.existsSync(import_path.default.join(publicDir, name))
   );
@@ -39840,7 +40133,13 @@ app.get("/healthz", (_req, res) => {
     missingFiles,
     relay: {
       wsPort: WS_PORT,
-      viewerPort: HTTP_PORT
+      viewerPort: HTTP_PORT,
+      label: RELAY_LABEL,
+      viewerBaseUrl: PUBLIC_VIEWER_BASE_URL,
+      relayWsUrl: PUBLIC_RELAY_WS_URL,
+      debugHttpEnabled: ENABLE_DEBUG_HTTP,
+      corsEnabled: ENABLE_CORS,
+      corsAllowedOrigins: ALLOWED_ORIGINS
     },
     embeddedAgent: {
       enabled: shouldStartEmbeddedAgent(),
@@ -39869,8 +40168,17 @@ app.get("/ops", (req, res) => {
   }
   res.sendFile(opsFile);
 });
+app.get("/rooms", (_req, res) => {
+  res.sendFile(import_path.default.join(publicDir, "rooms.html"));
+});
 app.get("/archives", (req, res) => {
   res.sendFile(import_path.default.join(publicDir, "archives.html"));
+});
+app.get("/console/live", (req, res) => {
+  res.sendFile(import_path.default.join(publicDir, "console-live.html"));
+});
+app.get("/console/replay", (req, res) => {
+  res.sendFile(import_path.default.join(publicDir, "console-replay.html"));
 });
 app.get("/overlay/:sessionId", (req, res) => {
   res.sendFile(import_path.default.join(publicDir, "overlay.html"));
@@ -39882,7 +40190,7 @@ app.listen(HTTP_PORT, () => {
   logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);
   logger.info(`[Viewer] Static assets from: ${publicDir}`);
   if (shouldAutoOpenDashboard()) {
-    const dashboardUrl = `http://localhost:${HTTP_PORT}/ops?preset=ops`;
+    const dashboardUrl = `http://localhost:${HTTP_PORT}/rooms`;
     logger.info(`[Viewer] Auto-opening dashboard: ${dashboardUrl}`);
     setTimeout(() => openBrowser(dashboardUrl), 600);
   }

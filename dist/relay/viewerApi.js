@@ -4,6 +4,9 @@ import { serializeSessionAccess } from './RelayServer';
 import { NOTE_ALLOWED_AUTHOR_LABELS, NOTE_ALLOWED_CATEGORIES, NOTE_ALLOWED_SEVERITIES, NOTE_MAX_TEXT_LENGTH, } from './notes';
 export function createViewerApiRouter(relayServer) {
     const router = express.Router();
+    function readQueryString(v) {
+        return typeof v === 'string' ? v.trim() : '';
+    }
     function getRelayInfo() {
         if (typeof relayServer.getRelayRuntimeInfo !== 'function') {
             return null;
@@ -86,6 +89,56 @@ export function createViewerApiRouter(relayServer) {
     router.get('/ops/sessions', (req, res) => {
         const sessions = relayServer.listSessionOpsSummaries();
         res.json({ sessions, count: sessions.length });
+    });
+    // GET /api/viewer/rooms/active
+    router.get('/rooms/active', (_req, res) => {
+        const rooms = relayServer
+            .listSessionOpsSummaries()
+            .filter((row) => row.relayStatus !== 'closed')
+            .map((row) => ({
+            sessionId: row.sessionId,
+            joinCode: row.joinCode,
+            roomTitle: row.roomTitle,
+            relayStatus: row.relayStatus,
+            healthLevel: row.healthLevel,
+            driverLabel: row.driverLabel,
+            carLabel: row.carLabel,
+            passwordEnabled: row.passwordEnabled,
+            shareEnabled: row.shareEnabled,
+            visibility: row.visibility,
+            viewerAccessLabel: row.viewerAccessLabel,
+            updatedAt: row.updatedAt,
+        }));
+        res.json({ rooms, count: rooms.length, relay: getRelayInfo() });
+    });
+    // GET /api/viewer/rooms/join/:joinCode
+    router.get('/rooms/join/:joinCode', (req, res) => {
+        const joinCode = req.params.joinCode;
+        const { sessionId, access } = relayServer.resolveJoinCode(joinCode);
+        if (!sessionId || !access) {
+            return res.status(404).json({
+                error: 'invalid_room',
+                accessError: {
+                    code: 'invalid_code',
+                    message: '유효하지 않은 Room 코드입니다.',
+                },
+            });
+        }
+        const session = relayServer.getSession(sessionId);
+        const viewerStatus = serializeViewerSession(session).viewerStatus;
+        res.json({
+            sessionId,
+            joinCode,
+            roomTitle: access.roomTitle,
+            passwordEnabled: !!access.roomPassword,
+            relayStatus: session?.status || 'closed',
+            viewerStatus,
+            driverLabel: access.driverLabel,
+            carLabel: access.carLabel,
+            shareEnabled: access.shareEnabled,
+            visibility: access.visibility,
+            relay: getRelayInfo(),
+        });
     });
     // GET /api/viewer/ops/events/recent?limit=50
     router.get('/ops/events/recent', (req, res) => {
@@ -225,7 +278,7 @@ export function createViewerApiRouter(relayServer) {
         const { sessionId: requestedSessionId } = req.params;
         const resolution = resolveSession(requestedSessionId);
         const sessionId = resolution.canonicalSessionId;
-        const access = serializeSessionAccess(relayServer.getSessionAccess(sessionId));
+        const access = serializeSessionAccess(relayServer.getSessionAccess(sessionId), { includeSecrets: true });
         if (!access) {
             return res.status(404).json({ error: 'not_found' });
         }
@@ -235,6 +288,9 @@ export function createViewerApiRouter(relayServer) {
             rebound: resolution.rebound,
             access,
             joinCode: access.joinCode,
+            roomTitle: access.roomTitle,
+            passwordEnabled: access.passwordEnabled,
+            permissionCode: access.permissionCode,
             shareEnabled: access.shareEnabled,
             visibility: access.visibility,
             joinPath: `/join/${access.joinCode}`,
@@ -245,6 +301,8 @@ export function createViewerApiRouter(relayServer) {
     // GET /api/viewer/join/:joinCode
     router.get('/join/:joinCode', (req, res) => {
         const joinCode = req.params.joinCode;
+        const roomPassword = readQueryString(req.query.password);
+        const permissionCode = readQueryString(req.query.permissionCode).toUpperCase();
         const { sessionId, access } = relayServer.resolveJoinCode(joinCode);
         if (!sessionId || !access) {
             return res.status(404).json({
@@ -270,6 +328,27 @@ export function createViewerApiRouter(relayServer) {
                 message: '이 세션은 현재 공유 중이 아닙니다.',
             });
         }
+        if (access.roomPassword && roomPassword !== access.roomPassword) {
+            return res.status(403).json({
+                viewerStatus: 'password_required',
+                accessError: {
+                    code: roomPassword ? 'invalid_password' : 'password_required',
+                    message: roomPassword
+                        ? 'Room Password가 일치하지 않습니다.'
+                        : '이 Room은 Password가 필요합니다.',
+                },
+                sessionId,
+                roomTitle: access.roomTitle,
+                joinCode,
+                passwordEnabled: true,
+            });
+        }
+        const permissionGranted = !!access.permissionCode && permissionCode === access.permissionCode;
+        const grantedRole = permissionGranted
+            ? 'strategist'
+            : access.roomPassword
+                ? 'engineer'
+                : 'viewer';
         const session = relayServer.getSession(sessionId);
         const payload = serializeViewerSession(session);
         res.json({
@@ -278,23 +357,39 @@ export function createViewerApiRouter(relayServer) {
             joinCode,
             shareEnabled: accessSummary?.shareEnabled,
             visibility: accessSummary?.visibility,
+            roomTitle: accessSummary?.roomTitle,
+            passwordEnabled: accessSummary?.passwordEnabled,
             joinPath: `/join/${joinCode}`,
             joinUrl: buildAbsoluteJoinUrl(joinCode),
+            roomAccess: {
+                grantedRole,
+                permissionGranted,
+                usedPassword: !!access.roomPassword,
+            },
             relay: getRelayInfo(),
         });
     });
     // PATCH /api/viewer/session-access/:sessionId
     router.patch('/session-access/:sessionId', (req, res) => {
         const { sessionId } = req.params;
-        const { shareEnabled, visibility } = req.body || {};
-        const updated = relayServer.updateSessionAccess(sessionId, { shareEnabled, visibility });
+        const { shareEnabled, visibility, roomTitle, roomPassword, permissionCode, } = req.body || {};
+        const updated = relayServer.updateSessionAccess(sessionId, {
+            shareEnabled,
+            visibility,
+            roomTitle,
+            roomPassword,
+            permissionCode,
+        });
         if (!updated)
             return res.status(404).json({ error: 'not_found' });
-        const access = serializeSessionAccess(updated);
+        const access = serializeSessionAccess(updated, { includeSecrets: true });
         res.json({
             sessionId,
             access,
             joinCode: access?.joinCode,
+            roomTitle: access?.roomTitle,
+            passwordEnabled: access?.passwordEnabled,
+            permissionCode: access?.permissionCode,
             shareEnabled: access?.shareEnabled,
             visibility: access?.visibility,
             updatedAt: access?.updatedAt,

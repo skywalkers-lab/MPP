@@ -3,12 +3,33 @@ function getJoinCodeFromPath() {
   return m ? m[1] : null;
 }
 
+function safe(val) {
+  return val === undefined || val === null ? '-' : String(val);
+}
+
+function readQueryParams() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    password: params.get('password') || '',
+    permissionCode: (params.get('permissionCode') || '').toUpperCase(),
+  };
+}
+
+function buildJoinApiUrl(joinCode) {
+  const q = readQueryParams();
+  const params = new URLSearchParams();
+  if (q.password) params.set('password', q.password);
+  if (q.permissionCode) params.set('permissionCode', q.permissionCode);
+  const query = params.toString();
+  return `/api/viewer/join/${encodeURIComponent(joinCode)}${query ? `?${query}` : ''}`;
+}
+
 const joinCode = getJoinCodeFromPath();
 const sessionId = !joinCode ? location.pathname.split('/').pop() : null;
 const apiUrl = joinCode
-  ? `/api/viewer/join/${encodeURIComponent(joinCode)}`
+  ? buildJoinApiUrl(joinCode)
   : `/api/viewer/sessions/${encodeURIComponent(sessionId)}`;
-const preset = window.UiCommon ? window.UiCommon.applyPreset(joinCode ? 'broadcast' : 'ops') : 'ops';
+const preset = window.UiCommon ? window.UiCommon.applyPreset(joinCode ? 'live' : 'ops') : 'ops';
 const presetIndicator = document.getElementById('preset-indicator');
 if (presetIndicator) {
   presetIndicator.textContent = 'preset: ' + preset;
@@ -62,10 +83,6 @@ function fmtTime(ts) {
   return d.toLocaleString();
 }
 
-function safe(val) {
-  return val === undefined || val === null ? '-' : val;
-}
-
 function renderAccessError(data) {
   const code = data && data.accessError && data.accessError.code
     ? data.accessError.code
@@ -77,11 +94,13 @@ function renderAccessError(data) {
   $accessCard.style.display = 'block';
 
   if (code === 'invalid_code') {
-    $accessCard.innerHTML = '<div class="error"><b>접근 오류:</b> 유효하지 않은 초대 코드입니다.</div>';
+    $accessCard.innerHTML = '<div class="error"><b>Room 오류:</b> 유효하지 않은 Room 코드입니다.</div>';
   } else if (code === 'not_shared') {
-    $accessCard.innerHTML = '<div class="error"><b>접근 오류:</b> 현재 세션 공유가 비활성화되어 있습니다.<br/>호스트가 shareEnabled를 ON으로 변경하고 visibility를 code로 설정해야 합니다.</div>';
+    $accessCard.innerHTML = '<div class="error"><b>Room 오류:</b> 현재 Room 공유가 비활성화되어 있습니다.<br/>Driver가 Room 공유를 활성화해야 합니다.</div>';
+  } else if (code === 'password_required' || code === 'invalid_password') {
+    $accessCard.innerHTML = '<div class="error"><b>Room Password 오류:</b> 비밀번호가 필요하거나 일치하지 않습니다.<br/><a href="/rooms" style="color:#8ad0ff;">Room Lobby로 돌아가기</a></div>';
   } else {
-    $accessCard.innerHTML = '<div class="error"><b>접근 오류:</b> ' + safe(message) + '</div>';
+    $accessCard.innerHTML = '<div class="error"><b>Room 접근 오류:</b> ' + safe(message) + '</div>';
   }
 }
 
@@ -92,6 +111,7 @@ function clearAccessError() {
 
 function renderSessionCard(data, healthData) {
   const access = data.access || null;
+  const role = data.roomAccess && data.roomAccess.grantedRole ? data.roomAccess.grantedRole : 'viewer';
   const healthLevel = healthData && healthData.healthLevel ? healthData.healthLevel : 'connecting';
   const healthChip = window.UiCommon
     ? window.UiCommon.healthChipHtml(healthLevel)
@@ -105,6 +125,8 @@ function renderSessionCard(data, healthData) {
     : '';
 
   $sessionCard.innerHTML = `
+    <div><span class="label">Room Title:</span> <span class="value">${safe((access && access.roomTitle) || data.roomTitle)}</span></div>
+    <div><span class="label">Role:</span> <span class="value">${safe(role)}</span></div>
     <div><span class="label">Session ID:</span> <span class="value">${safe(data.sessionId || sessionId)}</span></div>
     <div><span class="label">Viewer Status:</span> <span class="status">${safe(data.viewerStatus)}</span></div>
     <div><span class="label">Health:</span> ${healthChip}</div>
@@ -112,7 +134,8 @@ function renderSessionCard(data, healthData) {
     <div><span class="label">Relay Status:</span> ${safe(data.relayStatus)}</div>
     <div><span class="label">Share Enabled:</span> ${safe(access ? access.shareEnabled : data.shareEnabled)}</div>
     <div><span class="label">Visibility:</span> ${safe(access ? access.visibility : data.visibility)}</div>
-    <div><span class="label">Join Code:</span> ${safe(access ? access.joinCode : data.joinCode || joinCode)}</div>
+    <div><span class="label">Room Code:</span> ${safe(access ? access.joinCode : data.joinCode || joinCode)}</div>
+    <div><span class="label">Password:</span> ${safe((access && access.passwordEnabled) || data.passwordEnabled ? 'required' : 'none')}</div>
     <div><span class="label">Last Update:</span> ${fmtTime(data.updatedAt)}</div>
     <div><span class="label">Last Heartbeat:</span> ${fmtTime(data.lastHeartbeatAt)}</div>
     <div><span class="label">Latest Sequence:</span> ${safe(data.latestSequence)}</div>
@@ -232,8 +255,18 @@ async function pollLoop() {
     const data = await res.json();
 
     if (joinCode && (data.viewerStatus === 'invalid_code' || data.viewerStatus === 'not_shared')) {
+        renderAccessError(data);
+        $sessionCard.innerHTML = '<span class="label">Room 상태를 불러올 수 없습니다.</span>';
+        $snapshotSummary.innerHTML = '';
+        $eventLog.innerHTML = '';
+        pollDelay = 3000;
+        scheduleNextPoll();
+        return;
+      }
+
+      if (joinCode && (data.viewerStatus === 'password_required' || data.viewerStatus === 'invalid_password')) {
       renderAccessError(data);
-      $sessionCard.innerHTML = '<span class="label">세션 상태를 불러올 수 없습니다.</span>';
+        $sessionCard.innerHTML = '<span class="label">Room Password 확인이 필요합니다.</span>';
       $snapshotSummary.innerHTML = '';
       $eventLog.innerHTML = '';
       pollDelay = 3000;

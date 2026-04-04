@@ -1,4 +1,44 @@
-# Remote Viewer / Session Ops Guide
+# MPP Room Workflow Guide
+
+MPP는 이제 사용자에게 `session/joinCode`가 아닌 `Room` 경험으로 안내됩니다.
+
+## Room 개념 (사용자 노출)
+
+- `Room Title`: 사람이 읽는 방 이름
+- `Password`: 방 입장용 기본 키 (문을 여는 열쇠)
+- `Permission Code`: 제어/편집 권한 획득 키 (역할 권한 키)
+
+## 내부 매핑 (시스템 유지)
+
+- `Room` = 같은 `canonical session` + 같은 `relay endpoint`
+- `Room Code`(UI) = 내부 `joinCode`
+- `Room 공유 상태`(UI) = 내부 `shareEnabled` + `visibility`
+- `Room Session`(UI) = 내부 `sessionId`로 식별되는 relay 상태
+
+즉 UX는 Room 중심이지만, 시스템은 기존 session merge/canonical session/relay 구조를 그대로 사용합니다.
+
+## Driver Sender 흐름 (10초 시작 목표)
+
+1. `frc-pitwall-sender.exe` 실행
+2. 기본값 확인: `Telemetry IP=127.0.0.1`, `UDP Port=20777`
+3. `Relay URL`, `Room Title`, `Password` 입력 (선택값 허용)
+4. `Start Session`으로 Room 생성
+5. 생성 후 `Room Title`, 참여 링크, Password 상태, `Permission Code`를 엔지니어에게 전달
+
+## Engineer 흐름
+
+1. pitwall 웹 진입: `/rooms`
+2. Room 목록에서 방 선택
+3. 필요 시 `Password`, `Permission Code` 입력
+4. `Join Room`
+5. 기본 랜딩: `Live Strategic Console` 문맥의 Room Session 화면
+
+## Room Join 권한 규칙
+
+- Password 없는 Room: 기본 viewer 권한 입장 가능
+- Password 있는 Room: Password 일치 시 입장
+- Permission Code 입력/일치 시: strategist 급 제어 권한 부여
+- Permission Code 없으면: 일반 viewer/engineer 모드
 
 ## Windows 빠른 설치
 
@@ -12,9 +52,9 @@
 Windows `.exe`를 실행하면 기본 브라우저에서 대시보드(`/ops`)를 자동으로 엽니다.
 자동 오픈을 끄려면 실행 환경에서 `MPP_AUTO_OPEN_DASHBOARD=false`를 설정하세요.
 Windows `.exe`는 기본적으로 embedded agent도 함께 실행되어 F1 UDP(기본 20777)를 수신합니다.
-게임에서 Telemetry UDP를 켜지 않으면 OPS 세션 목록은 비어 있을 수 있습니다.
-여러 사용자가 같은 세션을 보려면 같은 Relay 서버를 바라봐야 합니다(`RELAY_URL` 동일). 같은 Relay에서 동일한 경기 `sessionUID`가 감지되면 세션 ID는 자동으로 하나로 병합됩니다.
-대시보드가 열리지 않으면 먼저 `http://localhost:4100/ops?preset=ops`를 수동으로 열어 확인하세요.
+게임에서 Telemetry UDP를 켜지 않으면 Room 목록이 비어 있을 수 있습니다.
+여러 사용자가 같은 Room을 보려면 같은 Relay 서버를 바라봐야 합니다(`RELAY_URL` 동일). 같은 Relay에서 동일한 경기 `sessionUID`가 감지되면 canonical session으로 자동 병합됩니다.
+화면이 열리지 않으면 먼저 `http://localhost:4100/rooms`를 수동으로 열어 확인하세요.
 Portable 실행 직후 창이 닫히면 `.exe`와 같은 폴더의 `mpp-crash.log`를 확인하세요.
 그래도 접속이 안 되면 앱을 다시 실행하고, 로컬 보안 정책(방화벽/백신)에서 로컬 포트 접근이 차단되지 않았는지 확인하세요.
 

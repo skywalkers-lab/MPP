@@ -219,6 +219,8 @@ function renderSessionsTable(sessions) {
 
     return '<tr' + rowClass + '>' +
       '<td data-label="Session">' +
+        '<div><strong>' + escapeHtml(safe(s.roomTitle || '-')) + '</strong></div>' +
+        '<div class="muted">driver=' + escapeHtml(safe(s.driverLabel || '-')) + ' · car=' + escapeHtml(safe(s.carLabel || '-')) + '</div>' +
         '<div style="font-family:monospace;font-size:12px;">' + escapeHtml(s.sessionId) + '</div>' +
         '<div class="muted">seq: ' + safe(s.latestSequence) + '</div>' +
         reboundBadge +
@@ -232,7 +234,7 @@ function renderSessionsTable(sessions) {
       '<td data-label="Share">' +
         '<div class="share-emphasis ' + shareBadgeClass + '">' + shareBadgeLabel + '</div>' +
         '<div class="' + accessClass(s.viewerAccessLabel) + '">' + safe(s.viewerAccessLabel) + '</div>' +
-        '<div class="muted">shared=' + safe(s.shareEnabled) + ', ' + safe(s.visibility) + '</div>' +
+        '<div class="muted">shared=' + safe(s.shareEnabled) + ', ' + safe(s.visibility) + ', password=' + safe(s.passwordEnabled ? 'on' : 'off') + '</div>' +
       '</td>' +
       '<td data-label="Join" class="inline-actions">' +
         (s.joinCode

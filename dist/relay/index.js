@@ -359,7 +359,7 @@ app.use(express.json()); // PATCH body parsing
 const publicDir = resolvePublicDir();
 app.use(express.static(publicDir)); // 루트 static 서빙
 app.get('/healthz', (_req, res) => {
-    const requiredFiles = ['ops.html', 'viewer.html', 'host.html', 'archives.html'];
+    const requiredFiles = ['ops.html', 'viewer.html', 'host.html', 'archives.html', 'rooms.html'];
     const missingFiles = requiredFiles.filter((name) => !fs.existsSync(path.join(publicDir, name)));
     const healthy = missingFiles.length === 0;
     res.status(healthy ? 200 : 500).json({
@@ -406,6 +406,9 @@ app.get('/ops', (req, res) => {
     }
     res.sendFile(opsFile);
 });
+app.get('/rooms', (_req, res) => {
+    res.sendFile(path.join(publicDir, 'rooms.html'));
+});
 app.get('/archives', (req, res) => {
     res.sendFile(path.join(publicDir, 'archives.html'));
 });
@@ -425,7 +428,7 @@ app.listen(HTTP_PORT, () => {
     logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);
     logger.info(`[Viewer] Static assets from: ${publicDir}`);
     if (shouldAutoOpenDashboard()) {
-        const dashboardUrl = `http://localhost:${HTTP_PORT}/ops?preset=ops`;
+        const dashboardUrl = `http://localhost:${HTTP_PORT}/rooms`;
         logger.info(`[Viewer] Auto-opening dashboard: ${dashboardUrl}`);
         setTimeout(() => openBrowser(dashboardUrl), 600);
     }

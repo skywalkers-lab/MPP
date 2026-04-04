@@ -23,7 +23,9 @@
   var sessionApiUrl = '';
   var strategyApiUrl = '';
   var healthApiUrl = '';
+  var relayInfoApiUrl = '/api/viewer/relay-info';
   var joinApiUrl = joinCode ? '/api/viewer/join/' + encodeURIComponent(joinCode) : '';
+  var relayInfoCache = null;
 
   var $headerSession = document.getElementById('header-session');
   var $healthChip = document.getElementById('health-chip');
@@ -41,6 +43,8 @@
   var $recSeverity = document.getElementById('rec-severity');
   var $footerSession = document.getElementById('footer-session');
   var $footerUpdated = document.getElementById('footer-updated');
+  var $footerRelay = document.getElementById('footer-relay');
+  var $footerSync = document.getElementById('footer-sync');
   var $presetIndicator = document.getElementById('preset-indicator');
 
   var preset = window.UiCommon ? window.UiCommon.applyPreset('broadcast') : 'broadcast';
@@ -128,7 +132,22 @@
     }
 
     sessionId = joinData.sessionId;
+    if (joinData.relay) {
+      relayInfoCache = joinData.relay;
+    }
     return sessionId;
+  }
+
+  async function fetchRelayInfo() {
+    try {
+      var relayRes = await fetch(relayInfoApiUrl);
+      var relayData = await relayRes.json();
+      if (relayRes.ok) {
+        relayInfoCache = relayData;
+      }
+    } catch (_err) {
+      // Keep rendering even if relay info endpoint is not reachable.
+    }
   }
 
   function applySnapshot(snap) {
@@ -212,6 +231,7 @@
         fetch(sessionApiUrl).then(function (r) { return r.json(); }),
         fetch(strategyApiUrl).then(function (r) { return r.json(); }),
         fetch(healthApiUrl).then(function (r) { return r.json(); }),
+        fetchRelayInfo(),
       ]);
 
       var sessionData = results[0];
@@ -226,6 +246,12 @@
         ? ('join: ' + joinCode + ' / session: ' + resolvedSessionId)
         : ('session: ' + resolvedSessionId);
       $footerUpdated.textContent = 'updated: ' + fmtTimestamp(Date.now());
+      $footerRelay.textContent = relayInfoCache
+        ? ('relay: ' + safe(relayInfoCache.relayLabel || 'relay') + ' @ ' + safe(relayInfoCache.relayNamespace || relayInfoCache.viewerBaseUrl || '-'))
+        : 'relay: -';
+      $footerSync.textContent = strategyData && strategyData.syncingCanonicalSession
+        ? 'sync: canonical merge stabilizing'
+        : 'sync: stable';
 
       applySnapshot(sessionData.snapshot || null);
       applyStrategy(strategyData, sessionData.relayStatus);

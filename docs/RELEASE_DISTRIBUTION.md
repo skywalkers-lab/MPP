@@ -1,10 +1,20 @@
 # MPP Release Distribution Plan
 
+## 0. 제품 UX 기준선 (Room Model)
+
+배포 문서와 온보딩은 아래 흐름을 기준으로 유지합니다.
+
+- Driver: sender 실행 -> Relay/Telemetry 설정 -> Room 생성 -> 링크/Password/Permission Code 공유
+- Engineer: pitwall 접속 -> Room 선택 -> Password/Permission Code 입력 -> Join Room
+
+내부에서는 기존 `sessionId/joinCode/shareEnabled/visibility`를 유지하되,
+사용자에게는 `Room Title/Password/Permission Code`를 우선 노출합니다.
+
 ## 1. 배포 역할 분리
 
 MPP 배포는 다음 두 계층으로 분리합니다.
 
-- GitHub Pages: 제품 소개, 다운로드 UX, 설치 안내, FAQ
+- GitHub Pages: Driver/Engineer Room 워크플로, 다운로드 UX, 설치 안내, FAQ
 - GitHub Releases: 실제 실행 파일(.exe) 호스팅
 
 즉, 사용자는 Pages에서 다운로드 버튼을 누르고, 실제 파일은 Releases에서 받습니다.

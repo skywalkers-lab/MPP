@@ -62,6 +62,10 @@ export function serializeSessionOpsSummary(session, access) {
     const healthLevel = deriveSessionHealthLevel(session.status, heartbeatAgeMs, hasSnapshot);
     return {
         sessionId: session.sessionId,
+        roomTitle: access?.roomTitle || `Room ${joinCode ?? session.sessionId.slice(0, 6)}`,
+        passwordEnabled: !!access?.roomPassword,
+        driverLabel: access?.driverLabel ?? null,
+        carLabel: access?.carLabel ?? null,
         relayStatus: session.status,
         healthLevel,
         heartbeatAgeMs,

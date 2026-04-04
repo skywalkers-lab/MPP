@@ -22,6 +22,10 @@ var messageTimer = null;
 var $sessionId = document.getElementById('session-id');
 var $joinCode = document.getElementById('join-code');
 var $joinUrl = document.getElementById('join-url');
+var $roomTitleView = document.getElementById('room-title-view');
+var $roomTitle = document.getElementById('room-title');
+var $roomPassword = document.getElementById('room-password');
+var $permissionCode = document.getElementById('permission-code');
 var $shareEnabled = document.getElementById('share-enabled');
 var $visibility = document.getElementById('visibility');
 var $sharePill = document.getElementById('share-pill');
@@ -177,8 +181,12 @@ function buildOverlayUrl(id) {
 function applyAccess(access, joinUrlFromApi) {
   if (!access) return;
 
-  $sessionId.textContent = safe(access.sessionId || sessionId);
-  $joinCode.textContent = 'join ' + safe(access.joinCode);
+  $sessionId.textContent = 'session ' + safe(access.sessionId || sessionId);
+  $joinCode.textContent = 'room ' + safe(access.joinCode);
+  if ($roomTitleView) $roomTitleView.textContent = safe(access.roomTitle || '-');
+  if ($roomTitle) $roomTitle.value = access.roomTitle || '';
+  if ($roomPassword) $roomPassword.value = access.roomPassword || '';
+  if ($permissionCode) $permissionCode.value = access.permissionCode || '';
 
   var shareOn = access.shareEnabled === true;
   $shareEnabled.value = String(shareOn);
@@ -600,6 +608,9 @@ async function saveAccess() {
     var body = {
       shareEnabled: $shareEnabled.value === 'true',
       visibility: $visibility.value,
+      roomTitle: $roomTitle ? ($roomTitle.value || '').trim() : undefined,
+      roomPassword: $roomPassword ? ($roomPassword.value || '').trim() : undefined,
+      permissionCode: $permissionCode ? ($permissionCode.value || '').trim() : undefined,
     };
     var res = await fetch(accessApiUrl, {
       method: 'PATCH',
@@ -640,7 +651,7 @@ document.getElementById('add-note').addEventListener('click', function () {
   });
 });
 document.getElementById('copy-code').addEventListener('click', function () {
-  copyText(($joinCode.textContent || '').replace(/^join\s+/, '')).catch(function () {
+  copyText(($joinCode.textContent || '').replace(/^room\s+/, '')).catch(function () {
     setMessage('코드 복사에 실패했습니다.', 'err');
   });
 });

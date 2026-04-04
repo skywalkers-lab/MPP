@@ -42,6 +42,11 @@ export type SessionVisibility = 'private' | 'code'; // public은 추후 확장
 export interface SessionAccessRecord {
   sessionId: string;
   joinCode: string;
+  roomTitle: string;
+  roomPassword: string | null;
+  permissionCode: string;
+  driverLabel: string | null;
+  carLabel: string | null;
   visibility: SessionVisibility;
   shareEnabled: boolean;
   createdAt: number;
@@ -51,6 +56,12 @@ export interface SessionAccessRecord {
 export interface SessionAccessSummary {
   sessionId: string;
   joinCode: string;
+  roomTitle: string;
+  passwordEnabled: boolean;
+  driverLabel: string | null;
+  carLabel: string | null;
+  roomPassword?: string | null;
+  permissionCode?: string;
   visibility: SessionVisibility;
   shareEnabled: boolean;
   createdAt: number;
@@ -58,12 +69,20 @@ export interface SessionAccessSummary {
 }
 
 export function serializeSessionAccess(
-  access: SessionAccessRecord | undefined
+  access: SessionAccessRecord | undefined,
+  options?: { includeSecrets?: boolean }
 ): SessionAccessSummary | null {
   if (!access) return null;
+  const includeSecrets = options?.includeSecrets === true;
   return {
     sessionId: access.sessionId,
     joinCode: access.joinCode,
+    roomTitle: access.roomTitle,
+    passwordEnabled: !!access.roomPassword,
+    driverLabel: access.driverLabel,
+    carLabel: access.carLabel,
+    roomPassword: includeSecrets ? access.roomPassword : undefined,
+    permissionCode: includeSecrets ? access.permissionCode : undefined,
     visibility: access.visibility,
     shareEnabled: access.shareEnabled,
     createdAt: access.createdAt,
@@ -279,6 +298,11 @@ export class RelayServer {
     return Array.from(this.sessions.values())
       .map((session) => {
         const access = this.sessionAccess.get(session.sessionId);
+        const driverProfile = this.deriveDriverProfile(session.latestState);
+        if (access) {
+          access.driverLabel = driverProfile.driverLabel;
+          access.carLabel = driverProfile.carLabel;
+        }
         const base = serializeSessionOpsSummary(session, access);
         const latestNote = this.notesStore.getLatestNote(session.sessionId);
         const strategy = this.computeSessionStrategy(session);
@@ -448,7 +472,12 @@ export class RelayServer {
    */
   public updateSessionAccess(
     sessionId: string,
-    patch: Partial<Pick<SessionAccessRecord, 'shareEnabled' | 'visibility'>>
+    patch: Partial<
+      Pick<
+        SessionAccessRecord,
+        'shareEnabled' | 'visibility' | 'roomTitle' | 'roomPassword' | 'permissionCode'
+      >
+    >
   ): SessionAccessRecord | undefined {
     const resolved = this.resolveCanonicalSessionId(sessionId);
     const canonicalSessionId = resolved.canonicalSessionId;
@@ -481,6 +510,31 @@ export class RelayServer {
         previousVisibility,
         nextVisibility: access.visibility,
       });
+    }
+
+    if (patch.roomTitle !== undefined) {
+      const normalizedTitle = String(patch.roomTitle).trim().slice(0, 80);
+      if (normalizedTitle && normalizedTitle !== access.roomTitle) {
+        access.roomTitle = normalizedTitle;
+        changed = true;
+      }
+    }
+
+    if (patch.roomPassword !== undefined) {
+      const normalizedPassword = String(patch.roomPassword || '').trim().slice(0, 64) || null;
+      if (normalizedPassword !== access.roomPassword) {
+        access.roomPassword = normalizedPassword;
+        changed = true;
+      }
+    }
+
+    if (patch.permissionCode !== undefined) {
+      const normalizedPermission = String(patch.permissionCode || '').trim().toUpperCase().slice(0, 24)
+        || this.generatePermissionCode();
+      if (normalizedPermission !== access.permissionCode) {
+        access.permissionCode = normalizedPermission;
+        changed = true;
+      }
     }
 
     if (changed) {
@@ -710,6 +764,42 @@ export class RelayServer {
     return code;
   }
 
+  private generatePermissionCode(length: number = 8): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < length; i += 1) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return code;
+  }
+
+  private deriveDriverProfile(
+    state: CurrentRaceState | null
+  ): { driverLabel: string | null; carLabel: string | null } {
+    if (!state) {
+      return {
+        driverLabel: null,
+        carLabel: null,
+      };
+    }
+
+    const playerIndex = state.playerCarIndex;
+    if (playerIndex === null || playerIndex === undefined) {
+      return {
+        driverLabel: null,
+        carLabel: null,
+      };
+    }
+
+    const driver = state.drivers?.[playerIndex];
+    const car = state.cars?.[playerIndex];
+
+    return {
+      driverLabel: driver?.driverName || null,
+      carLabel: driver?.teamName || car?.tyreCompound || null,
+    };
+  }
+
   private handleConnection(ws: WebSocket) {
     const connId = uuidv4();
     this.logger.info(`[Relay] New connection: ${connId}`);
@@ -815,6 +905,11 @@ export class RelayServer {
     const access: SessionAccessRecord = {
       sessionId,
       joinCode,
+      roomTitle: `Room ${joinCode}`,
+      roomPassword: null,
+      permissionCode: this.generatePermissionCode(),
+      driverLabel: null,
+      carLabel: null,
       visibility: 'private',
       shareEnabled: false,
       createdAt: now,

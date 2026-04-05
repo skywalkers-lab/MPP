@@ -184,7 +184,10 @@ export function createViewerApiRouter(relayServer: RelayServer) {
     if (!info) {
       return res.status(501).json({ error: 'relay_info_unavailable' });
     }
-    res.json(info);
+    const viewerBaseUrl: string = info.viewerBaseUrl || '';
+    const publicUrlWarning =
+      viewerBaseUrl.includes('127.0.0.1') || viewerBaseUrl.includes('localhost');
+    res.json({ ...info, publicUrlWarning });
   });
 
   // GET /api/viewer/notes/:sessionId
@@ -419,6 +422,15 @@ export function createViewerApiRouter(relayServer: RelayServer) {
 
   // PATCH /api/viewer/session-access/:sessionId
   router.patch('/session-access/:sessionId', (req, res) => {
+    // Optional ops token gate: if MPP_OPS_TOKEN is set, require matching Authorization header.
+    const requiredToken = (process.env.MPP_OPS_TOKEN || '').trim();
+    if (requiredToken) {
+      const authHeader = req.headers['authorization'] || '';
+      const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+      if (provided !== requiredToken) {
+        return res.status(401).json({ error: 'unauthorized' });
+      }
+    }
     const { sessionId } = req.params;
     const {
       shareEnabled,

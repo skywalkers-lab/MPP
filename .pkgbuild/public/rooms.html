@@ -51,6 +51,36 @@
       flex-wrap: wrap;
       margin-bottom: 14px;
     }
+    .diag-banner {
+      border: 1px solid #7e5e2d;
+      background: linear-gradient(120deg, rgba(57, 43, 20, 0.92), rgba(33, 28, 19, 0.9));
+      border-radius: 12px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .diag-banner.show {
+      display: block;
+    }
+    .diag-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      margin-bottom: 6px;
+      color: var(--warn);
+      text-transform: uppercase;
+    }
+    .diag-copy {
+      color: #f5e8d4;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .diag-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
     .chip {
       display: inline-flex;
       align-items: center;
@@ -210,9 +240,22 @@
       <button id="refresh-btn" class="btn" type="button">Refresh Rooms</button>
       <span id="relay-chip" class="chip">relay: -</span>
       <span id="room-count" class="chip">rooms: 0</span>
+      <span id="diag-chip" class="chip">diagnostics: -</span>
       <a class="btn" href="/ops?preset=ops">Ops Control Plane</a>
       <a class="btn" href="/archives?preset=replay">Archives</a>
     </div>
+
+    <section id="diag-banner" class="diag-banner">
+      <div class="diag-title">Portable UDP Quick Check</div>
+      <div class="diag-copy">
+        게임 Telemetry UDP가 켜져 있고 포트가 20777인지 확인하세요. 로컬 수신(127.0.0.1 / 0.0.0.0) 허용 및 방화벽/보안 정책 차단 여부를 점검해야 Room 데이터가 표시됩니다.
+      </div>
+      <div id="diag-details" class="hint" style="margin-top:6px;"></div>
+      <div class="diag-actions">
+        <button id="diag-dismiss" class="btn" type="button">Dismiss</button>
+        <a class="btn" href="/diagnostics" target="_blank" rel="noopener">Open Diagnostics JSON</a>
+      </div>
+    </section>
 
     <div class="layout">
       <section class="panel">

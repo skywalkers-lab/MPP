@@ -7,18 +7,33 @@ export class UdpReceiver {
         this.packetCounts = {};
         this.parseFailCounts = {};
         this.lastLogTime = 0;
+        this.started = false;
+        this.bindAttempted = false;
+        this.bindSucceeded = false;
+        this.bindError = null;
+        this.lastPacketAt = null;
+        this.lastValidPacketId = null;
+        this.lastParseSuccessAt = null;
+        this.parseFailureCount = 0;
+        this.packetTimestamps = [];
         this.reducer = reducer;
         this.logger = logger;
         this.options = options;
         this.socket = dgram.createSocket('udp4');
     }
     start() {
+        this.bindAttempted = true;
         this.socket.on('message', (msg, rinfo) => {
+            const now = Date.now();
+            this.lastPacketAt = now;
+            this.packetTimestamps.push(now);
+            this.prunePacketTimestamps(now);
             try {
                 const header = parsePacketHeader(msg);
                 if (!header) {
                     this.logger.warn('Invalid packet header received');
                     this.parseFailCounts['header'] = (this.parseFailCounts['header'] || 0) + 1;
+                    this.parseFailureCount += 1;
                     return;
                 }
                 this.packetCounts[header.packetId] = (this.packetCounts[header.packetId] || 0) + 1;
@@ -33,11 +48,13 @@ export class UdpReceiver {
                 if (!parsed) {
                     this.logger.warn(`Unknown or unhandled packetId: ${header.packetId}`);
                     this.parseFailCounts[header.packetId] = (this.parseFailCounts[header.packetId] || 0) + 1;
+                    this.parseFailureCount += 1;
                     return;
                 }
+                this.lastValidPacketId = header.packetId;
+                this.lastParseSuccessAt = now;
                 this.reducer.handlePacket(header, parsed);
                 // 주요 상태 요약 info 로그 (1초마다)
-                const now = Date.now();
                 if (now - this.lastLogTime > 1000) {
                     const state = this.reducer.getState();
                     const player = state.playerCarIndex != null ? state.cars[state.playerCarIndex] : null;
@@ -50,12 +67,18 @@ export class UdpReceiver {
             }
             catch (e) {
                 this.logger.error('Packet parse error', e);
+                this.parseFailureCount += 1;
             }
         });
         this.socket.on('error', (err) => {
             this.logger.error('UDP socket error', err);
+            this.bindError = err instanceof Error ? err.message : String(err);
+            this.bindSucceeded = false;
         });
         this.socket.bind(this.options.port, this.options.address, () => {
+            this.started = true;
+            this.bindSucceeded = true;
+            this.bindError = null;
             this.logger.info(`UDP listening on ${this.options.address || '0.0.0.0'}:${this.options.port}`);
         });
         // verbose 모드에서 packetId별 수신/실패 빈도 주기적 출력
@@ -64,6 +87,30 @@ export class UdpReceiver {
                 this.logger.debug('[F1] packetId counts: ' + JSON.stringify(this.packetCounts));
                 this.logger.debug('[F1] parseFail counts: ' + JSON.stringify(this.parseFailCounts));
             }, 5000);
+        }
+    }
+    getDiagnosticsSnapshot(now = Date.now()) {
+        this.prunePacketTimestamps(now);
+        return {
+            started: this.started,
+            bindAttempted: this.bindAttempted,
+            bindSucceeded: this.bindSucceeded,
+            bindError: this.bindError,
+            udpPort: this.options.port,
+            udpAddress: this.options.address || '0.0.0.0',
+            recentPackets10s: this.packetTimestamps.length,
+            lastPacketAt: this.lastPacketAt,
+            lastValidPacketId: this.lastValidPacketId,
+            lastSessionUID: this.lastSessionUID,
+            lastParseSuccessAt: this.lastParseSuccessAt,
+            parseFailureCount: this.parseFailureCount,
+            parseFailureByPacketId: { ...this.parseFailCounts },
+        };
+    }
+    prunePacketTimestamps(now) {
+        const cutoff = now - 10_000;
+        while (this.packetTimestamps.length > 0 && this.packetTimestamps[0] < cutoff) {
+            this.packetTimestamps.shift();
         }
     }
     selfCheck() {
@@ -98,6 +145,7 @@ export class UdpReceiver {
         }
     }
     stop() {
+        this.started = false;
         this.socket.close();
     }
 }

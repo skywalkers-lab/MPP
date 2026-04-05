@@ -5,6 +5,17 @@
 - 로컬 에이전트 실행: `npm start`
 - 브라우저에서 `http://localhost:3000/state` 접속
 
+## 1-1. 포터블 실행 검증 절차
+- Windows 포터블 실행 파일(`MPP-portable.exe`) 실행
+- `/rooms` 접속 후 상단 diagnostics chip과 UDP 안내 배너 노출 여부 확인
+- `http://localhost:4100/healthz` 확인
+	- `embeddedAgent.started === true`
+	- `embeddedAgent.udpBindSucceeded === true`
+	- `publicDir`가 의도된 경로를 가리키는지
+	- `assets[]`에서 `overlay.html` 포함 핵심 자산 존재 여부
+- `http://localhost:4100/diagnostics` 확인
+	- `recentPackets10s`, `lastValidPacketId`, `lastSessionUID`, `lastParseSuccessAt`, `parseFailureCount` 필드 존재 및 형식 확인
+
 ## 2. 검증 시나리오
 
 ### 2-1. 세션 진입/전환
@@ -31,6 +42,13 @@
 - Participants 없이 LapData만 먼저 들어와도 player/차량 상태가 부분적으로라도 생성되는지 확인
 - CarDamage가 나중에 와도 기존 차량 상태에 자연스럽게 병합되는지 확인
 
+### 2-6. 게임 UDP 연동 검증 절차
+- 게임 UDP 포트를 `20777`로 설정
+- `/diagnostics`의 `embeddedAgent.recentPackets10s`가 0에서 증가하는지 확인
+- 주행 중 `embeddedAgent.lastValidPacketId`가 지속 갱신되는지 확인
+- 세션 전환 시 `embeddedAgent.lastSessionUID`가 변경되는지 확인
+- parse 실패 유도(잘못된 데이터/환경) 시 `parseFailureCount` 증가 확인
+
 ## 3. /state에서 확인할 필드
 - session: sessionUID, sessionType, trackId, totalLaps, sessionTime
 - player: carIndex, position, currentLapNum, pitStatus, tyreCompound, tyreAgeLaps, fuelLapsRemaining, frontWingLeftDamage, frontWingRightDamage, rearWingDamage, driverName
@@ -43,6 +61,20 @@
 - 값이 null/missing과 0이 명확히 구분되는지
 - self-check 경고가 실제로 의미 있는 상황에서만 발생하는지
 - /state와 콘솔 로그가 실제 게임 상황과 일치하는지
+
+## 4-1. 오버레이 클릭스루/투명 배경 검증 절차
+- 브라우저 surface: `/overlay/:sessionId?preset=broadcast|engineer_compact|driver_hud`
+- 네이티브 surface: `npm run hud:native` 실행 후 `/hud/:sessionId?preset=driver_hud&surface=native` 확인
+- HUD 창이 아래 조건을 만족하는지 확인
+	- transparent 배경 (전체 불투명 배경 없음)
+	- frameless
+	- always-on-top
+	- skipTaskbar
+	- focusable false
+- 클릭스루 동작 확인
+	- 기본 상태에서 HUD 위 클릭이 게임으로 전달되는지
+	- `Ctrl+Shift+F10`으로 클릭스루 토글 가능한지
+	- `Ctrl+Shift+F11`으로 HUD 숨김/복원 가능한지
 
 ## 5. 남은 리스크
 - F1 25 UDP 스펙 변경 시 파서 오프셋 불일치 가능성

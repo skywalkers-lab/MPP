@@ -6,8 +6,8 @@
   var joinCode = null;
   var sessionId = null;
 
-  // pathParts[0] === 'overlay', pathParts[1] === sessionId
-  // or pathParts[0] === 'overlay', pathParts[1] === 'join', pathParts[2] === joinCode
+  // pathParts[0] === 'overlay'|'hud', pathParts[1] === sessionId
+  // or pathParts[0] === 'overlay'|'hud', pathParts[1] === 'join', pathParts[2] === joinCode
   if (pathParts.length >= 3 && pathParts[1] === 'join') {
     joinCode = pathParts[2];
   } else if (pathParts.length >= 2) {
@@ -46,13 +46,19 @@
   var $footerRelay = document.getElementById('footer-relay');
   var $footerSync = document.getElementById('footer-sync');
   var $presetIndicator = document.getElementById('preset-indicator');
+  var $surfaceIndicator = document.getElementById('surface-indicator');
 
   var preset = window.UiCommon ? window.UiCommon.applyPreset('broadcast') : 'broadcast';
+  var surface = window.UiCommon ? window.UiCommon.applySurface('browser') : 'browser';
   if ($presetIndicator) {
     $presetIndicator.textContent = 'preset:' + preset;
     var params = new URLSearchParams(window.location.search);
     params.set('preset', 'replay');
     $presetIndicator.href = '/archives?' + params.toString();
+  }
+  if ($surfaceIndicator) {
+    $surfaceIndicator.textContent = 'surface:' + surface;
+    $surfaceIndicator.href = '/ops';
   }
 
   document.title = 'Overlay — ' + (sessionId || joinCode || 'unknown');
@@ -171,6 +177,10 @@
       $statFuelLaps.textContent = player.fuelLapsRemaining != null
         ? fmtFuel(player.fuelLapsRemaining) + ' laps'
         : '';
+      if (preset === 'driver_hud') {
+        $statFuel.textContent = player.fuelLapsRemaining != null ? fmtFuel(player.fuelLapsRemaining) : '-';
+        $statFuelLaps.textContent = '';
+      }
 
       $statErs.textContent = fmtErs(player.ersLevel);
     } else {
@@ -213,6 +223,16 @@
           : 'Awaiting telemetry...';
       $recAlt.style.display = 'none';
       $recSeverity.style.display = 'none';
+    }
+  }
+
+  function applyPresetViewRules() {
+    if (preset !== 'driver_hud') {
+      return;
+    }
+    var headerSession = document.getElementById('header-session');
+    if (headerSession) {
+      headerSession.style.maxWidth = '160px';
     }
   }
 
@@ -264,5 +284,7 @@
   }
 
   refresh();
-  setInterval(refresh, 2000);
+  applyPresetViewRules();
+  var refreshMs = preset === 'driver_hud' ? 1000 : (preset === 'engineer_compact' ? 1500 : 2000);
+  setInterval(refresh, refreshMs);
 })();

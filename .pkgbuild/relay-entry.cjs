@@ -2225,7 +2225,7 @@ var require_websocket = __commonJS({
     "use strict";
     var EventEmitter = require("events");
     var https = require("https");
-    var http = require("http");
+    var http2 = require("http");
     var net = require("net");
     var tls = require("tls");
     var { randomBytes, createHash } = require("crypto");
@@ -2759,7 +2759,7 @@ var require_websocket = __commonJS({
       }
       const defaultPort = isSecure ? 443 : 80;
       const key = randomBytes(16).toString("base64");
-      const request = isSecure ? https.request : http.request;
+      const request = isSecure ? https.request : http2.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
       opts.createConnection = opts.createConnection || (isSecure ? tlsConnect : netConnect);
@@ -3253,7 +3253,7 @@ var require_websocket_server = __commonJS({
   "node_modules/ws/lib/websocket-server.js"(exports2, module2) {
     "use strict";
     var EventEmitter = require("events");
-    var http = require("http");
+    var http2 = require("http");
     var { Duplex } = require("stream");
     var { createHash } = require("crypto");
     var extension2 = require_extension();
@@ -3328,8 +3328,8 @@ var require_websocket_server = __commonJS({
           );
         }
         if (options.port != null) {
-          this._server = http.createServer((req, res) => {
-            const body = http.STATUS_CODES[426];
+          this._server = http2.createServer((req, res) => {
+            const body = http2.STATUS_CODES[426];
             res.writeHead(426, {
               "Content-Length": body.length,
               "Content-Type": "text/plain"
@@ -3616,7 +3616,7 @@ var require_websocket_server = __commonJS({
       this.destroy();
     }
     function abortHandshake(socket, code, message, headers) {
-      message = message || http.STATUS_CODES[code];
+      message = message || http2.STATUS_CODES[code];
       headers = {
         Connection: "close",
         "Content-Type": "text/html",
@@ -3625,7 +3625,7 @@ var require_websocket_server = __commonJS({
       };
       socket.once("finish", socket.destroy);
       socket.end(
-        `HTTP/1.1 ${code} ${http.STATUS_CODES[code]}\r
+        `HTTP/1.1 ${code} ${http2.STATUS_CODES[code]}\r
 ` + Object.keys(headers).map((h) => `${h}: ${headers[h]}`).join("\r\n") + "\r\n\r\n" + message
       );
     }
@@ -12462,7 +12462,7 @@ var require_file = __commonJS({
 var require_http = __commonJS({
   "node_modules/winston/lib/winston/transports/http.js"(exports2, module2) {
     "use strict";
-    var http = require("http");
+    var http2 = require("http");
     var https = require("https");
     var { Stream } = require_readable();
     var TransportStream = require_winston_transport();
@@ -12655,7 +12655,7 @@ var require_http = __commonJS({
         if (auth && auth.bearer) {
           headers.Authorization = `Bearer ${auth.bearer}`;
         }
-        const req = (this.ssl ? https : http).request({
+        const req = (this.ssl ? https : http2).request({
           ...this.options,
           method: "POST",
           host: this.host,
@@ -32075,10 +32075,10 @@ var require_layer = __commonJS({
 var require_methods = __commonJS({
   "node_modules/methods/index.js"(exports2, module2) {
     "use strict";
-    var http = require("http");
+    var http2 = require("http");
     module2.exports = getCurrentNodeMethods() || getBasicNodeMethods();
     function getCurrentNodeMethods() {
-      return http.METHODS && http.METHODS.map(function lowerCaseMethod(method) {
+      return http2.METHODS && http2.METHODS.map(function lowerCaseMethod(method) {
         return method.toLowerCase();
       });
     }
@@ -34809,7 +34809,7 @@ var require_application = __commonJS({
     var query = require_query();
     var debug = require_src()("express:application");
     var View = require_view();
-    var http = require("http");
+    var http2 = require("http");
     var compileETag = require_utils2().compileETag;
     var compileQueryParser = require_utils2().compileQueryParser;
     var compileTrust = require_utils2().compileTrust;
@@ -35058,7 +35058,7 @@ var require_application = __commonJS({
       tryRender(view, renderOptions, done);
     };
     app2.listen = function listen() {
-      var server = http.createServer(this);
+      var server = http2.createServer(this);
       return server.listen.apply(server, arguments);
     };
     function logerror(err) {
@@ -35660,12 +35660,12 @@ var require_request = __commonJS({
     var deprecate = require_depd()("express");
     var isIP = require("net").isIP;
     var typeis = require_type_is();
-    var http = require("http");
+    var http2 = require("http");
     var fresh = require_fresh();
     var parseRange = require_range_parser();
     var parse = require_parseurl();
     var proxyaddr = require_proxy_addr();
-    var req = Object.create(http.IncomingMessage.prototype);
+    var req = Object.create(http2.IncomingMessage.prototype);
     module2.exports = req;
     req.get = req.header = function header(name) {
       if (!name) {
@@ -36086,7 +36086,7 @@ var require_response = __commonJS({
     var deprecate = require_depd()("express");
     var encodeUrl = require_encodeurl();
     var escapeHtml = require_escape_html();
-    var http = require("http");
+    var http2 = require("http");
     var isAbsolute = require_utils2().isAbsolute;
     var onFinished = require_on_finished();
     var path2 = require("path");
@@ -36102,7 +36102,7 @@ var require_response = __commonJS({
     var mime = send.mime;
     var resolve = path2.resolve;
     var vary = require_vary();
-    var res = Object.create(http.ServerResponse.prototype);
+    var res = Object.create(http2.ServerResponse.prototype);
     module2.exports = res;
     var charsetRegExp = /;\s*charset\s*=/;
     res.status = function status(code) {
@@ -39023,18 +39023,33 @@ var UdpReceiver = class {
     this.packetCounts = {};
     this.parseFailCounts = {};
     this.lastLogTime = 0;
+    this.started = false;
+    this.bindAttempted = false;
+    this.bindSucceeded = false;
+    this.bindError = null;
+    this.lastPacketAt = null;
+    this.lastValidPacketId = null;
+    this.lastParseSuccessAt = null;
+    this.parseFailureCount = 0;
+    this.packetTimestamps = [];
     this.reducer = reducer;
     this.logger = logger2;
     this.options = options;
     this.socket = import_dgram.default.createSocket("udp4");
   }
   start() {
+    this.bindAttempted = true;
     this.socket.on("message", (msg, rinfo) => {
+      const now = Date.now();
+      this.lastPacketAt = now;
+      this.packetTimestamps.push(now);
+      this.prunePacketTimestamps(now);
       try {
         const header = parsePacketHeader(msg);
         if (!header) {
           this.logger.warn("Invalid packet header received");
           this.parseFailCounts["header"] = (this.parseFailCounts["header"] || 0) + 1;
+          this.parseFailureCount += 1;
           return;
         }
         this.packetCounts[header.packetId] = (this.packetCounts[header.packetId] || 0) + 1;
@@ -39049,10 +39064,12 @@ var UdpReceiver = class {
         if (!parsed) {
           this.logger.warn(`Unknown or unhandled packetId: ${header.packetId}`);
           this.parseFailCounts[header.packetId] = (this.parseFailCounts[header.packetId] || 0) + 1;
+          this.parseFailureCount += 1;
           return;
         }
+        this.lastValidPacketId = header.packetId;
+        this.lastParseSuccessAt = now;
         this.reducer.handlePacket(header, parsed);
-        const now = Date.now();
         if (now - this.lastLogTime > 1e3) {
           const state = this.reducer.getState();
           const player = state.playerCarIndex != null ? state.cars[state.playerCarIndex] : null;
@@ -39064,12 +39081,18 @@ var UdpReceiver = class {
         this.selfCheck();
       } catch (e) {
         this.logger.error("Packet parse error", e);
+        this.parseFailureCount += 1;
       }
     });
     this.socket.on("error", (err) => {
       this.logger.error("UDP socket error", err);
+      this.bindError = err instanceof Error ? err.message : String(err);
+      this.bindSucceeded = false;
     });
     this.socket.bind(this.options.port, this.options.address, () => {
+      this.started = true;
+      this.bindSucceeded = true;
+      this.bindError = null;
       this.logger.info(`UDP listening on ${this.options.address || "0.0.0.0"}:${this.options.port}`);
     });
     if (this.options.verbose) {
@@ -39077,6 +39100,30 @@ var UdpReceiver = class {
         this.logger.debug("[F1] packetId counts: " + JSON.stringify(this.packetCounts));
         this.logger.debug("[F1] parseFail counts: " + JSON.stringify(this.parseFailCounts));
       }, 5e3);
+    }
+  }
+  getDiagnosticsSnapshot(now = Date.now()) {
+    this.prunePacketTimestamps(now);
+    return {
+      started: this.started,
+      bindAttempted: this.bindAttempted,
+      bindSucceeded: this.bindSucceeded,
+      bindError: this.bindError,
+      udpPort: this.options.port,
+      udpAddress: this.options.address || "0.0.0.0",
+      recentPackets10s: this.packetTimestamps.length,
+      lastPacketAt: this.lastPacketAt,
+      lastValidPacketId: this.lastValidPacketId,
+      lastSessionUID: this.lastSessionUID,
+      lastParseSuccessAt: this.lastParseSuccessAt,
+      parseFailureCount: this.parseFailureCount,
+      parseFailureByPacketId: { ...this.parseFailCounts }
+    };
+  }
+  prunePacketTimestamps(now) {
+    const cutoff = now - 1e4;
+    while (this.packetTimestamps.length > 0 && this.packetTimestamps[0] < cutoff) {
+      this.packetTimestamps.shift();
     }
   }
   selfCheck() {
@@ -39108,6 +39155,7 @@ var UdpReceiver = class {
     }
   }
   stop() {
+    this.started = false;
     this.socket.close();
   }
 };
@@ -39410,6 +39458,7 @@ var RelayAgentAdapter = class {
 
 // src/relay/index.ts
 var import_express3 = __toESM(require_express2(), 1);
+var import_http = __toESM(require("http"), 1);
 var import_path = __toESM(require("path"), 1);
 var import_fs = __toESM(require("fs"), 1);
 var import_child_process = require("child_process");
@@ -39560,7 +39609,9 @@ function createViewerApiRouter(relayServer2) {
     if (!info) {
       return res.status(501).json({ error: "relay_info_unavailable" });
     }
-    res.json(info);
+    const viewerBaseUrl = info.viewerBaseUrl || "";
+    const publicUrlWarning = viewerBaseUrl.includes("127.0.0.1") || viewerBaseUrl.includes("localhost");
+    res.json({ ...info, publicUrlWarning });
   });
   router.get("/notes/:sessionId", (req, res) => {
     const { sessionId } = req.params;
@@ -39753,6 +39804,14 @@ function createViewerApiRouter(relayServer2) {
     });
   });
   router.patch("/session-access/:sessionId", (req, res) => {
+    const requiredToken = (process.env.MPP_OPS_TOKEN || "").trim();
+    if (requiredToken) {
+      const authHeader = req.headers["authorization"] || "";
+      const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
+      if (provided !== requiredToken) {
+        return res.status(401).json({ error: "unauthorized" });
+      }
+    }
     const { sessionId } = req.params;
     const {
       shareEnabled,
@@ -39794,7 +39853,7 @@ var WS_PORT = readPortFromEnv("RELAY_WS_PORT", 4e3);
 var DEBUG_HTTP_PORT = readPortFromEnv("RELAY_DEBUG_HTTP_PORT", 4001);
 var HTTP_PORT = readPortFromEnv("VIEWER_HTTP_PORT", 4100);
 var ENABLE_DEBUG_HTTP = readBooleanFromEnv("RELAY_ENABLE_DEBUG_HTTP", false);
-var ENABLE_CORS = readBooleanFromEnv("RELAY_ENABLE_CORS", false);
+var ENABLE_CORS = readBooleanFromEnv("RELAY_ENABLE_CORS", true);
 var ALLOWED_ORIGINS = readListFromEnv("RELAY_ALLOWED_ORIGINS");
 var PUBLIC_VIEWER_BASE_URL = readPublicUrlFromEnv(
   "RELAY_PUBLIC_URL",
@@ -39806,6 +39865,11 @@ var PUBLIC_RELAY_WS_URL = readPublicWsUrlFromEnv(
   WS_PORT
 );
 var RELAY_LABEL = (process.env.RELAY_LABEL || "").trim() || inferRelayLabel(PUBLIC_VIEWER_BASE_URL);
+if (PUBLIC_VIEWER_BASE_URL.includes("127.0.0.1") || PUBLIC_VIEWER_BASE_URL.includes("localhost")) {
+  logger.warn(
+    `[Config] RELAY_PUBLIC_URL is still localhost (${PUBLIC_VIEWER_BASE_URL}). Remote viewers will receive broken join/overlay links. Set RELAY_PUBLIC_URL=http://<your-public-ip-or-domain>:<port> to fix this.`
+  );
+}
 var embeddedUdp = null;
 var embeddedRelayClient = null;
 var embeddedAgentStarted = false;
@@ -40121,16 +40185,42 @@ if (ENABLE_CORS) {
 app.use(import_express3.default.json());
 var publicDir = resolvePublicDir();
 app.use(import_express3.default.static(publicDir));
-app.get("/healthz", (_req, res) => {
-  const requiredFiles = ["ops.html", "viewer.html", "host.html", "archives.html", "rooms.html"];
-  const missingFiles = requiredFiles.filter(
-    (name) => !import_fs.default.existsSync(import_path.default.join(publicDir, name))
-  );
-  const healthy = missingFiles.length === 0;
-  res.status(healthy ? 200 : 500).json({
-    ok: healthy,
+var coreAssetFiles = [
+  "overlay.html",
+  "viewer.html",
+  "host.html",
+  "ops.html",
+  "rooms.html",
+  "archives.html",
+  "dashboard.html"
+];
+function readAssetDiagnostics() {
+  const assets = coreAssetFiles.map((name) => {
+    const fullPath = import_path.default.join(publicDir, name);
+    const exists = import_fs.default.existsSync(fullPath);
+    return {
+      name,
+      exists,
+      path: fullPath
+    };
+  });
+  const missingFiles = assets.filter((a) => !a.exists).map((a) => a.name);
+  return {
     publicDir,
-    missingFiles,
+    assets,
+    missingFiles
+  };
+}
+function readRuntimeDiagnostics() {
+  const asset = readAssetDiagnostics();
+  const udp = embeddedUdp?.getDiagnosticsSnapshot() || null;
+  const healthy = asset.missingFiles.length === 0;
+  return {
+    ok: healthy,
+    checkedAt: Date.now(),
+    publicDir: asset.publicDir,
+    assets: asset.assets,
+    missingFiles: asset.missingFiles,
     relay: {
       wsPort: WS_PORT,
       viewerPort: HTTP_PORT,
@@ -40145,9 +40235,29 @@ app.get("/healthz", (_req, res) => {
       enabled: shouldStartEmbeddedAgent(),
       started: embeddedAgentStarted,
       udpPort: readPortFromEnv("F1_UDP_PORT", 20777),
-      udpAddress: process.env.F1_UDP_ADDR || "0.0.0.0"
+      udpAddress: process.env.F1_UDP_ADDR || "0.0.0.0",
+      udpBindSucceeded: udp?.bindSucceeded ?? false,
+      udpBindAttempted: udp?.bindAttempted ?? false,
+      udpBindError: udp?.bindError ?? null,
+      recentPackets10s: udp?.recentPackets10s ?? 0,
+      lastPacketAt: udp?.lastPacketAt ?? null,
+      lastValidPacketId: udp?.lastValidPacketId ?? null,
+      lastSessionUID: udp?.lastSessionUID ?? null,
+      lastParseSuccessAt: udp?.lastParseSuccessAt ?? null,
+      parseFailureCount: udp?.parseFailureCount ?? 0,
+      parseFailureByPacketId: udp?.parseFailureByPacketId ?? {}
     }
-  });
+  };
+}
+app.get("/healthz", (_req, res) => {
+  const diagnostics = readRuntimeDiagnostics();
+  res.status(diagnostics.ok ? 200 : 500).json(diagnostics);
+});
+app.get("/diagnostics", (_req, res) => {
+  res.json(readRuntimeDiagnostics());
+});
+app.get("/api/viewer/diagnostics", (_req, res) => {
+  res.json(readRuntimeDiagnostics());
 });
 app.use("/api/viewer", createViewerApiRouter(relayServer));
 app.use("/viewer", import_express3.default.static(publicDir));
@@ -40186,7 +40296,18 @@ app.get("/overlay/:sessionId", (req, res) => {
 app.get("/overlay/join/:joinCode", (req, res) => {
   res.sendFile(import_path.default.join(publicDir, "overlay.html"));
 });
-app.listen(HTTP_PORT, () => {
+app.get("/hud/:sessionId", (req, res) => {
+  res.sendFile(import_path.default.join(publicDir, "overlay.html"));
+});
+app.get("/hud/join/:joinCode", (req, res) => {
+  res.sendFile(import_path.default.join(publicDir, "overlay.html"));
+});
+var httpServer = import_http.default.createServer(app);
+var attachViewerHttpServer = relayServer.attachViewerHttpServer;
+if (typeof attachViewerHttpServer === "function") {
+  attachViewerHttpServer.call(relayServer, httpServer);
+}
+httpServer.listen(HTTP_PORT, () => {
   logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);
   logger.info(`[Viewer] Static assets from: ${publicDir}`);
   if (shouldAutoOpenDashboard()) {

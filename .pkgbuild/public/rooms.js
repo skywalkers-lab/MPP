@@ -9,9 +9,14 @@
   var $passwordInput = document.getElementById('password-input');
   var $permissionCodeInput = document.getElementById('permission-code-input');
   var $refreshBtn = document.getElementById('refresh-btn');
+  var $diagChip = document.getElementById('diag-chip');
+  var $diagBanner = document.getElementById('diag-banner');
+  var $diagDismiss = document.getElementById('diag-dismiss');
+  var $diagDetails = document.getElementById('diag-details');
 
   var selectedRoom = null;
   var roomsCache = [];
+  var DIAG_DISMISS_KEY = 'mpp.diagBannerDismissed.v1';
 
   function safe(v) {
     return v === null || v === undefined || v === '' ? '-' : String(v);
@@ -81,12 +86,85 @@
     $relayChip.textContent = 'relay: ' + safe(relay.relayLabel) + ' @ ' + safe(relay.viewerBaseUrl || relay.relayNamespace);
   }
 
-  async function fetchRooms() {
-    var res = await fetch('/api/viewer/rooms/active');
+  function parseTime(ts) {
+    if (!ts) return '-';
+    var d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return '-';
+    return d.toLocaleTimeString();
+  }
+
+  async function fetchDiagnostics() {
+    var res = await fetch('/diagnostics');
     var data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || 'rooms_fetch_failed');
+      throw new Error(data.error || 'diagnostics_fetch_failed');
     }
+    return data;
+  }
+
+  function shouldShowBanner(diag) {
+    if (!diag || !diag.embeddedAgent) {
+      return true;
+    }
+    var agent = diag.embeddedAgent;
+    if (!agent.started) return true;
+    if (!agent.udpBindSucceeded) return true;
+    if (agent.recentPackets10s < 1) return true;
+    return false;
+  }
+
+  function updateDiagnosticsUi(diag) {
+    if (!$diagChip || !$diagBanner || !$diagDetails) return;
+    if (!diag || !diag.embeddedAgent) {
+      $diagChip.textContent = 'diagnostics: unknown';
+      $diagBanner.classList.add('show');
+      $diagDetails.textContent = '진단 데이터를 가져오지 못했습니다. /diagnostics 응답을 확인하세요.';
+      return;
+    }
+
+    var agent = diag.embeddedAgent;
+    var warn = shouldShowBanner(diag);
+    $diagChip.textContent = 'diagnostics: ' + (warn ? 'warning' : 'ok');
+
+    var detailParts = [
+      'bind=' + safe(agent.udpBindSucceeded),
+      'recentPackets10s=' + safe(agent.recentPackets10s),
+      'lastPacket=' + parseTime(agent.lastPacketAt),
+      'lastPacketId=' + safe(agent.lastValidPacketId),
+      'lastSessionUID=' + safe(agent.lastSessionUID),
+      'parseFails=' + safe(agent.parseFailureCount)
+    ];
+    if (agent.udpBindError) {
+      detailParts.push('bindError=' + safe(agent.udpBindError));
+    }
+    $diagDetails.textContent = detailParts.join(' | ');
+
+    if (!warn) {
+      $diagBanner.classList.remove('show');
+      return;
+    }
+
+    var dismissed = window.localStorage.getItem(DIAG_DISMISS_KEY) === '1';
+    if (!dismissed || (agent.udpBindError || agent.recentPackets10s < 1)) {
+      $diagBanner.classList.add('show');
+    }
+  }
+
+  async function fetchRooms() {
+    var results = await Promise.all([
+      fetch('/api/viewer/rooms/active').then(function (res) {
+        return res.json().then(function (data) {
+          if (!res.ok) throw new Error(data.error || 'rooms_fetch_failed');
+          return data;
+        });
+      }),
+      fetchDiagnostics().catch(function () {
+        return null;
+      })
+    ]);
+
+    var data = results[0];
+    var diagnostics = results[1];
 
     roomsCache = data.rooms || [];
     if (!selectedRoom && roomsCache.length > 0) {
@@ -97,6 +175,7 @@
 
     $roomCount.textContent = 'rooms: ' + roomsCache.length;
     syncRelayChip(data.relay);
+    updateDiagnosticsUi(diagnostics);
     renderRooms(roomsCache);
     renderSelection();
   }
@@ -140,6 +219,15 @@
       $selectedRoom.textContent = 'Room 목록 로드 실패: ' + (err && err.message ? err.message : err);
     });
   });
+
+  if ($diagDismiss) {
+    $diagDismiss.addEventListener('click', function () {
+      window.localStorage.setItem(DIAG_DISMISS_KEY, '1');
+      if ($diagBanner) {
+        $diagBanner.classList.remove('show');
+      }
+    });
+  }
 
   fetchRooms().catch(function (err) {
     $selectedRoom.textContent = 'Room 목록 로드 실패: ' + (err && err.message ? err.message : err);

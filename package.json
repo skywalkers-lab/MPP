@@ -1,6 +1,6 @@
 {
   "name": "f1-25-local-agent",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
@@ -8,7 +8,8 @@
     "build": "tsc",
     "test": "jest",
     "relay": "tsx src/relay/index.ts",
-    "package:windows": "bash scripts/package-windows.sh"
+    "package:windows": "bash scripts/package-windows.sh",
+    "hud:native": "electron electron/main.cjs"
   },
   "dependencies": {
     "@types/express": "^5.0.6",
@@ -25,6 +26,8 @@
     "@types/supertest": "^2.0.12",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.28.0",
+    "electron": "^36.2.1",
+    "electron-builder": "^25.1.8",
     "jest": "^29.7.0",
     "nexe": "^5.0.0-beta.4",
     "pkg": "^5.8.1",

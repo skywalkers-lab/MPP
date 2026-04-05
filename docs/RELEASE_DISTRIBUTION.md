@@ -107,3 +107,40 @@ RELAY_ALLOWED_ORIGINS=https://mpp-relay.example.com,https://ops.example.com
 
 - Host 화면 공유 링크는 절대 URL(`RELAY_PUBLIC_URL` 기반)로 생성
 - 외부 사용자에게는 joinCode 단독이 아니라 relay endpoint + joinCode 형태 링크 전달 권장
+
+## 8. Portable + UDP + HUD 구현/검증 계획
+
+이번 배포부터 아래 항목을 기본 품질 게이트로 유지합니다.
+
+### 8-1. 포터블 실행 검증 절차
+
+1. `MPP-portable.exe` 실행 후 `/rooms` 자동 진입 확인
+2. `/healthz`, `/diagnostics` 응답 확인
+3. 확인 필드
+  - embedded agent 시작 여부
+  - UDP bind 성공 여부 / bind error
+  - 최근 10초 패킷 수
+  - 마지막 packetId/sessionUID
+  - 마지막 parse 성공 시각 / parse 실패 횟수
+  - publicDir 경로 / 핵심 자산 존재 여부(`overlay.html` 포함)
+
+### 8-2. 게임 UDP 연동 검증 절차
+
+1. 게임 Telemetry UDP On, 포트 `20777` 설정
+2. 주행 중 `/diagnostics`의 `recentPackets10s` 증가 확인
+3. 세션 전환 시 `lastSessionUID` 갱신 확인
+4. 파싱 실패 상황에서 `parseFailureCount` 증가 확인
+
+### 8-3. 오버레이 클릭스루/투명 배경 검증 절차
+
+1. Browser surface: `/overlay/:sessionId?preset=broadcast|engineer_compact|driver_hud`
+2. Native HUD surface: `/hud/:sessionId?preset=driver_hud&surface=native`
+3. Native HUD 창 속성 확인
+  - transparent
+  - frameless
+  - always-on-top
+  - skipTaskbar
+  - focusable false
+4. 클릭스루 토글 확인
+  - `Ctrl+Shift+F10` 클릭스루 토글
+  - `Ctrl+Shift+F11` 표시/숨김 토글

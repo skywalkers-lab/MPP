@@ -53,10 +53,55 @@ Windows `.exe`를 실행하면 기본 브라우저에서 대시보드(`/ops`)를
 자동 오픈을 끄려면 실행 환경에서 `MPP_AUTO_OPEN_DASHBOARD=false`를 설정하세요.
 Windows `.exe`는 기본적으로 embedded agent도 함께 실행되어 F1 UDP(기본 20777)를 수신합니다.
 게임에서 Telemetry UDP를 켜지 않으면 Room 목록이 비어 있을 수 있습니다.
+첫 실행 시 `/rooms` 상단 배너에서 UDP 설정 점검(포트 20777, 로컬 수신 허용, 방화벽 정책)을 안내합니다.
 여러 사용자가 같은 Room을 보려면 같은 Relay 서버를 바라봐야 합니다(`RELAY_URL` 동일). 같은 Relay에서 동일한 경기 `sessionUID`가 감지되면 canonical session으로 자동 병합됩니다.
 화면이 열리지 않으면 먼저 `http://localhost:4100/rooms`를 수동으로 열어 확인하세요.
 Portable 실행 직후 창이 닫히면 `.exe`와 같은 폴더의 `mpp-crash.log`를 확인하세요.
 그래도 접속이 안 되면 앱을 다시 실행하고, 로컬 보안 정책(방화벽/백신)에서 로컬 포트 접근이 차단되지 않았는지 확인하세요.
+
+### Diagnostics Endpoint
+
+- `GET /healthz`
+- `GET /diagnostics`
+- `GET /api/viewer/diagnostics`
+
+아래 핵심 진단 필드를 제공합니다.
+
+- embedded agent started / enabled
+- UDP bind 성공 여부, bind error
+- 최근 10초 수신 패킷 수
+- 마지막 유효 `packetId`
+- 마지막 `sessionUID`
+- 마지막 parse 성공 시각
+- parse 실패 횟수
+- 현재 `publicDir`
+- `overlay.html` 포함 핵심 자산 존재 여부
+
+포터블 환경에서 UDP가 잡히지 않을 때 `/diagnostics`를 먼저 확인하면 원인(바인드 실패, 패킷 무수신, 자산 누락)을 빠르게 좁힐 수 있습니다.
+
+### Browser Overlay vs Native HUD Surface
+
+- Browser surface: `/overlay/:sessionId` 또는 `/overlay/join/:joinCode`
+- Native HUD surface: `/hud/:sessionId` 또는 `/hud/join/:joinCode`
+
+overlay preset:
+
+- `broadcast`
+- `driver_hud`
+- `engineer_compact`
+
+`driver_hud`는 운전 중 가독성을 위해 LAP, POSITION, TYRE, FUEL LAPS, ERS, PIT CALL, STRATEGY ALERT 중심으로 축약된 표시를 제공합니다.
+
+Electron HUD 실행:
+
+```bash
+npm run hud:native
+```
+
+HUD 기본 단축키:
+
+- `Ctrl+Shift+F10`: 클릭스루 on/off 토글
+- `Ctrl+Shift+F11`: HUD 표시/숨김 토글
 
 ## Public Relay 모드
 

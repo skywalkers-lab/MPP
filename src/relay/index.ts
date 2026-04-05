@@ -8,6 +8,7 @@ import { StateReducer } from '../agent/StateReducer.js';
 import { RelayClient } from './RelayClient.js';
 import { RelayAgentAdapter } from '../agent/RelayAgentAdapter.js';
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import { spawn } from 'child_process';
@@ -18,7 +19,7 @@ const WS_PORT = readPortFromEnv('RELAY_WS_PORT', 4000);
 const DEBUG_HTTP_PORT = readPortFromEnv('RELAY_DEBUG_HTTP_PORT', 4001);
 const HTTP_PORT = readPortFromEnv('VIEWER_HTTP_PORT', 4100);
 const ENABLE_DEBUG_HTTP = readBooleanFromEnv('RELAY_ENABLE_DEBUG_HTTP', false);
-const ENABLE_CORS = readBooleanFromEnv('RELAY_ENABLE_CORS', false);
+const ENABLE_CORS = readBooleanFromEnv('RELAY_ENABLE_CORS', true);
 const ALLOWED_ORIGINS = readListFromEnv('RELAY_ALLOWED_ORIGINS');
 const PUBLIC_VIEWER_BASE_URL = readPublicUrlFromEnv(
   'RELAY_PUBLIC_URL',
@@ -30,6 +31,17 @@ const PUBLIC_RELAY_WS_URL = readPublicWsUrlFromEnv(
   WS_PORT
 );
 const RELAY_LABEL = (process.env.RELAY_LABEL || '').trim() || inferRelayLabel(PUBLIC_VIEWER_BASE_URL);
+
+if (
+  PUBLIC_VIEWER_BASE_URL.includes('127.0.0.1') ||
+  PUBLIC_VIEWER_BASE_URL.includes('localhost')
+) {
+  logger.warn(
+    `[Config] RELAY_PUBLIC_URL is still localhost (${PUBLIC_VIEWER_BASE_URL}). ` +
+    'Remote viewers will receive broken join/overlay links. ' +
+    'Set RELAY_PUBLIC_URL=http://<your-public-ip-or-domain>:<port> to fix this.'
+  );
+}
 let embeddedUdp: UdpReceiver | null = null;
 let embeddedRelayClient: RelayClient | null = null;
 let embeddedAgentStarted = false;
@@ -407,16 +419,45 @@ app.use(express.json()); // PATCH body parsing
 const publicDir = resolvePublicDir();
 app.use(express.static(publicDir)); // 루트 static 서빙
 
-app.get('/healthz', (_req, res) => {
-  const requiredFiles = ['ops.html', 'viewer.html', 'host.html', 'archives.html', 'rooms.html'];
-  const missingFiles = requiredFiles.filter(
-    (name) => !fs.existsSync(path.join(publicDir, name))
-  );
-  const healthy = missingFiles.length === 0;
-  res.status(healthy ? 200 : 500).json({
-    ok: healthy,
+const coreAssetFiles = [
+  'overlay.html',
+  'viewer.html',
+  'host.html',
+  'ops.html',
+  'rooms.html',
+  'archives.html',
+  'dashboard.html',
+];
+
+function readAssetDiagnostics() {
+  const assets = coreAssetFiles.map((name) => {
+    const fullPath = path.join(publicDir, name);
+    const exists = fs.existsSync(fullPath);
+    return {
+      name,
+      exists,
+      path: fullPath,
+    };
+  });
+
+  const missingFiles = assets.filter((a) => !a.exists).map((a) => a.name);
+  return {
     publicDir,
+    assets,
     missingFiles,
+  };
+}
+
+function readRuntimeDiagnostics() {
+  const asset = readAssetDiagnostics();
+  const udp = embeddedUdp?.getDiagnosticsSnapshot() || null;
+  const healthy = asset.missingFiles.length === 0;
+  return {
+    ok: healthy,
+    checkedAt: Date.now(),
+    publicDir: asset.publicDir,
+    assets: asset.assets,
+    missingFiles: asset.missingFiles,
     relay: {
       wsPort: WS_PORT,
       viewerPort: HTTP_PORT,
@@ -432,8 +473,31 @@ app.get('/healthz', (_req, res) => {
       started: embeddedAgentStarted,
       udpPort: readPortFromEnv('F1_UDP_PORT', 20777),
       udpAddress: process.env.F1_UDP_ADDR || '0.0.0.0',
+      udpBindSucceeded: udp?.bindSucceeded ?? false,
+      udpBindAttempted: udp?.bindAttempted ?? false,
+      udpBindError: udp?.bindError ?? null,
+      recentPackets10s: udp?.recentPackets10s ?? 0,
+      lastPacketAt: udp?.lastPacketAt ?? null,
+      lastValidPacketId: udp?.lastValidPacketId ?? null,
+      lastSessionUID: udp?.lastSessionUID ?? null,
+      lastParseSuccessAt: udp?.lastParseSuccessAt ?? null,
+      parseFailureCount: udp?.parseFailureCount ?? 0,
+      parseFailureByPacketId: udp?.parseFailureByPacketId ?? {},
     },
-  });
+  };
+}
+
+app.get('/healthz', (_req, res) => {
+  const diagnostics = readRuntimeDiagnostics();
+  res.status(diagnostics.ok ? 200 : 500).json(diagnostics);
+});
+
+app.get('/diagnostics', (_req, res) => {
+  res.json(readRuntimeDiagnostics());
+});
+
+app.get('/api/viewer/diagnostics', (_req, res) => {
+  res.json(readRuntimeDiagnostics());
 });
 
 app.use('/api/viewer', createViewerApiRouter(relayServer));
@@ -477,8 +541,20 @@ app.get('/overlay/:sessionId', (req, res) => {
 app.get('/overlay/join/:joinCode', (req, res) => {
   res.sendFile(path.join(publicDir, 'overlay.html'));
 });
+app.get('/hud/:sessionId', (req, res) => {
+  res.sendFile(path.join(publicDir, 'overlay.html'));
+});
+app.get('/hud/join/:joinCode', (req, res) => {
+  res.sendFile(path.join(publicDir, 'overlay.html'));
+});
 
-app.listen(HTTP_PORT, () => {
+const httpServer = http.createServer(app);
+const attachViewerHttpServer = (relayServer as any).attachViewerHttpServer;
+if (typeof attachViewerHttpServer === 'function') {
+  attachViewerHttpServer.call(relayServer, httpServer);
+}
+
+httpServer.listen(HTTP_PORT, () => {
   logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);
   logger.info(`[Viewer] Static assets from: ${publicDir}`);
 

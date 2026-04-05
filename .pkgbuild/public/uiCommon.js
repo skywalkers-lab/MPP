@@ -38,9 +38,31 @@
   function getPreset(defaultPreset) {
     var params = new URLSearchParams(window.location.search);
     var preset = params.get('preset') || defaultPreset || 'ops';
-    var allowed = ['broadcast', 'ops', 'host', 'replay', 'live', 'console-live', 'console-replay'];
+    var allowed = [
+      'broadcast',
+      'driver_hud',
+      'engineer_compact',
+      'ops',
+      'host',
+      'replay',
+      'live',
+      'console-live',
+      'console-replay'
+    ];
     if (allowed.indexOf(preset) < 0) preset = defaultPreset || 'ops';
     return preset;
+  }
+
+  function getSurface(defaultSurface) {
+    var params = new URLSearchParams(window.location.search);
+    var fromQuery = params.get('surface');
+    var pathParts = window.location.pathname.split('/').filter(Boolean);
+    var fromPath = pathParts[0] === 'hud' ? 'native' : (pathParts[0] === 'overlay' ? 'browser' : null);
+    var surface = fromQuery || fromPath || defaultSurface || 'browser';
+    if (surface !== 'native' && surface !== 'browser') {
+      surface = defaultSurface || 'browser';
+    }
+    return surface;
   }
 
   function applyPreset(defaultPreset) {
@@ -53,6 +75,12 @@
     return preset;
   }
 
+  function applySurface(defaultSurface) {
+    var surface = getSurface(defaultSurface);
+    document.body.setAttribute('data-surface', surface);
+    return surface;
+  }
+
   window.UiCommon = {
     safe: safe,
     fmtMs: fmtMs,
@@ -61,5 +89,7 @@
     freshnessBarHtml: freshnessBarHtml,
     getPreset: getPreset,
     applyPreset: applyPreset,
+    getSurface: getSurface,
+    applySurface: applySurface,
   };
 })();

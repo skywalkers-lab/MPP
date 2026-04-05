@@ -40105,7 +40105,7 @@ function openBrowser(url) {
 function resolvePublicDir() {
   const modulePath = process.argv[1] || process.cwd();
   const moduleDir = import_path.default.dirname(modulePath);
-  const runtimeDir = __dirname;
+  const runtimeDir = moduleDir;
   const snapshotDir = import_path.default.join(runtimeDir, "..");
   const pkgEntrypoint = process.pkg?.entrypoint;
   const pkgEntryDir = pkgEntrypoint ? import_path.default.dirname(pkgEntrypoint) : null;

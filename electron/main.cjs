@@ -32,21 +32,29 @@ function startRelayIfNeeded() {
     return;
   }
 
+  const useTsx = String(process.env.MPP_HUD_RELAY_USE_TSX || '').toLowerCase() === 'true';
   const relayEntry = path.join(__dirname, '..', 'dist', 'relay', 'index.js');
-  if (!fs.existsSync(relayEntry)) {
-    console.warn('[HUD] relay entry not found:', relayEntry);
-    console.warn('[HUD] Run `npm run build` or set MPP_HUD_START_RELAY=false when relay is already running.');
-    return;
-  }
+  const projectRoot = path.join(__dirname, '..');
+  const relayEnv = {
+    ...process.env,
+    MPP_AUTO_OPEN_DASHBOARD: 'false',
+  };
 
-  relayProc = spawn(process.execPath, [relayEntry], {
-    cwd: path.join(__dirname, '..'),
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      MPP_AUTO_OPEN_DASHBOARD: 'false',
-    },
-  });
+  if (!useTsx && fs.existsSync(relayEntry)) {
+    relayProc = spawn(process.execPath, [relayEntry], {
+      cwd: projectRoot,
+      stdio: 'inherit',
+      env: relayEnv,
+    });
+  } else {
+    // Dev-friendly fallback when dist relay entry is missing or ESM import resolution differs.
+    relayProc = spawn('npx', ['tsx', 'src/relay/index.ts'], {
+      cwd: projectRoot,
+      stdio: 'inherit',
+      env: relayEnv,
+      shell: process.platform === 'win32',
+    });
+  }
 
   relayProc.on('exit', (code) => {
     console.warn('[HUD] relay process exited with code', code);

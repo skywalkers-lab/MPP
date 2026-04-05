@@ -1,6 +1,6 @@
 {
   "name": "f1-25-local-agent",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "test": "jest",
     "relay": "tsx src/relay/index.ts",
     "package:windows": "bash scripts/package-windows.sh",
-    "hud:native": "electron electron/main.cjs"
+    "hud:native": "npx electron electron/main.cjs"
   },
   "dependencies": {
     "@types/express": "^5.0.6",

@@ -318,7 +318,7 @@ function openBrowser(url: string): void {
 function resolvePublicDir(): string {
   const modulePath = process.argv[1] || process.cwd();
   const moduleDir = path.dirname(modulePath);
-  const runtimeDir = __dirname;
+  const runtimeDir = moduleDir;
   const snapshotDir = path.join(runtimeDir, '..');
   const pkgEntrypoint = (process as NodeJS.Process & { pkg?: { entrypoint?: string } }).pkg?.entrypoint;
   const pkgEntryDir = pkgEntrypoint ? path.dirname(pkgEntrypoint) : null;

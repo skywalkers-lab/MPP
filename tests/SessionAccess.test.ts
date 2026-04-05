@@ -124,4 +124,45 @@ describe('Session Access/Invite (joinCode) API', () => {
     expect(res.body.roomAccess.grantedRole).toBe('strategist');
     expect(res.body.roomAccess.permissionGranted).toBe(true);
   });
+
+  it('ops token이 설정된 경우 session-access 제어 API는 토큰을 요구한다', async () => {
+    const prevToken = process.env.MPP_OPS_TOKEN;
+    const prevTrustLocal = process.env.MPP_TRUST_LOCAL_OPS;
+    process.env.MPP_OPS_TOKEN = 'ops-secret-token';
+    process.env.MPP_TRUST_LOCAL_OPS = '0';
+
+    try {
+      let res = await request(app).get(`/api/viewer/session-access/${sessionId}`);
+      expect(res.status).toBe(401);
+
+      res = await request(app)
+        .get(`/api/viewer/session-access/${sessionId}`)
+        .set('Authorization', 'Bearer ops-secret-token');
+      expect(res.status).toBe(200);
+
+      let patch = await request(app)
+        .patch(`/api/viewer/session-access/${sessionId}`)
+        .send({ shareEnabled: true, visibility: 'code' });
+      expect(patch.status).toBe(401);
+
+      patch = await request(app)
+        .patch(`/api/viewer/session-access/${sessionId}`)
+        .set('x-ops-token', 'ops-secret-token')
+        .send({ shareEnabled: true, visibility: 'code' });
+      expect(patch.status).toBe(200);
+      expect(patch.body.access.shareEnabled).toBe(true);
+    } finally {
+      if (prevToken === undefined) {
+        delete process.env.MPP_OPS_TOKEN;
+      } else {
+        process.env.MPP_OPS_TOKEN = prevToken;
+      }
+
+      if (prevTrustLocal === undefined) {
+        delete process.env.MPP_TRUST_LOCAL_OPS;
+      } else {
+        process.env.MPP_TRUST_LOCAL_OPS = prevTrustLocal;
+      }
+    }
+  });
 });

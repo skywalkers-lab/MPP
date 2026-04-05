@@ -37068,6 +37068,31 @@ var InMemorySessionNotesStore = class {
     }
     return latest;
   }
+  mergeSessions(fromSessionId, toSessionId) {
+    if (fromSessionId === toSessionId) {
+      return;
+    }
+    const source = this.notesBySession.get(fromSessionId);
+    if (!source || source.length === 0) {
+      return;
+    }
+    const target = this.notesBySession.get(toSessionId) ?? [];
+    const merged = [
+      ...target,
+      ...source.map((note) => ({
+        ...note,
+        sessionId: toSessionId
+      }))
+    ];
+    merged.sort((a, b) => {
+      if (a.timestamp !== b.timestamp) {
+        return a.timestamp - b.timestamp;
+      }
+      return a.createdAt - b.createdAt;
+    });
+    this.notesBySession.set(toSessionId, merged);
+    this.notesBySession.delete(fromSessionId);
+  }
 };
 
 // src/relay/strategyMetrics.ts
@@ -38553,71 +38578,234 @@ var RelayServer = class {
     }
   }
   resolveCanonicalSessionForTelemetry(currentSessionId, telemetrySessionUid, connId) {
+    const currentCanonicalSessionId = this.resolveCanonicalSessionId(currentSessionId).canonicalSessionId;
     if (!telemetrySessionUid || telemetrySessionUid.length === 0) {
-      return currentSessionId;
+      return currentCanonicalSessionId;
     }
-    const mapped = this.telemetrySessionUidToSessionId.get(telemetrySessionUid);
-    if (!mapped) {
-      this.telemetrySessionUidToSessionId.set(telemetrySessionUid, currentSessionId);
-      return currentSessionId;
+    const mappedSessionId = this.telemetrySessionUidToSessionId.get(telemetrySessionUid);
+    if (!mappedSessionId) {
+      this.telemetrySessionUidToSessionId.set(
+        telemetrySessionUid,
+        currentCanonicalSessionId
+      );
+      return currentCanonicalSessionId;
     }
-    if (mapped === currentSessionId) {
-      return currentSessionId;
+    const mappedCanonicalSessionId = this.resolveCanonicalSessionId(mappedSessionId).canonicalSessionId;
+    if (mappedCanonicalSessionId === currentCanonicalSessionId) {
+      this.telemetrySessionUidToSessionId.set(
+        telemetrySessionUid,
+        mappedCanonicalSessionId
+      );
+      return mappedCanonicalSessionId;
     }
-    const sourceSession = this.sessions.get(currentSessionId);
-    const targetSession = this.sessions.get(mapped);
-    if (!sourceSession || !targetSession) {
-      this.telemetrySessionUidToSessionId.set(telemetrySessionUid, currentSessionId);
-      return currentSessionId;
+    const currentSession = this.sessions.get(currentCanonicalSessionId);
+    const mappedSession = this.sessions.get(mappedCanonicalSessionId);
+    if (!currentSession && mappedSession) {
+      this.untrackConnectionForSession(connId, currentCanonicalSessionId);
+      this.trackConnectionForSession(connId, mappedCanonicalSessionId);
+      this.connToSession.set(connId, mappedCanonicalSessionId);
+      this.telemetrySessionUidToSessionId.set(
+        telemetrySessionUid,
+        mappedCanonicalSessionId
+      );
+      return mappedCanonicalSessionId;
+    }
+    if (currentSession && !mappedSession) {
+      this.telemetrySessionUidToSessionId.set(
+        telemetrySessionUid,
+        currentCanonicalSessionId
+      );
+      return currentCanonicalSessionId;
+    }
+    if (!currentSession || !mappedSession) {
+      this.telemetrySessionUidToSessionId.set(
+        telemetrySessionUid,
+        currentCanonicalSessionId
+      );
+      return currentCanonicalSessionId;
+    }
+    const canonicalSessionId = this.pickCanonicalSessionId(
+      currentSession,
+      mappedSession
+    );
+    const aliasSessionId = canonicalSessionId === currentCanonicalSessionId ? mappedCanonicalSessionId : currentCanonicalSessionId;
+    this.telemetrySessionUidToSessionId.set(telemetrySessionUid, canonicalSessionId);
+    this.mergeSessionAlias(aliasSessionId, canonicalSessionId, telemetrySessionUid);
+    return canonicalSessionId;
+  }
+  pickCanonicalSessionId(left, right) {
+    if (left.latestSequence !== right.latestSequence) {
+      return left.latestSequence >= right.latestSequence ? left.sessionId : right.sessionId;
+    }
+    const leftConnections = this.sessionToConnections.get(left.sessionId)?.size ?? 0;
+    const rightConnections = this.sessionToConnections.get(right.sessionId)?.size ?? 0;
+    if (leftConnections !== rightConnections) {
+      return leftConnections >= rightConnections ? left.sessionId : right.sessionId;
+    }
+    if (left.updatedAt !== right.updatedAt) {
+      return left.updatedAt >= right.updatedAt ? left.sessionId : right.sessionId;
+    }
+    if (left.createdAt !== right.createdAt) {
+      return left.createdAt <= right.createdAt ? left.sessionId : right.sessionId;
+    }
+    return left.sessionId <= right.sessionId ? left.sessionId : right.sessionId;
+  }
+  mergeSessionAlias(aliasSessionId, canonicalSessionId, telemetrySessionUid) {
+    if (aliasSessionId === canonicalSessionId) {
+      return;
+    }
+    const aliasSession = this.sessions.get(aliasSessionId);
+    const canonicalSession = this.sessions.get(canonicalSessionId);
+    if (!aliasSession || !canonicalSession) {
+      return;
     }
     const mergedAt = Date.now();
-    this.untrackConnectionForSession(connId, currentSessionId);
-    this.trackConnectionForSession(connId, mapped);
-    this.connToSession.set(connId, mapped);
-    const sourceJoinCode = this.sessionAccess.get(currentSessionId)?.joinCode;
-    if (sourceJoinCode) {
-      this.joinCodeToSessionId.set(sourceJoinCode, mapped);
+    this.rebindSessionConnections(
+      aliasSessionId,
+      canonicalSessionId,
+      telemetrySessionUid,
+      mergedAt
+    );
+    if (aliasSession.latestSequence > canonicalSession.latestSequence || aliasSession.latestSequence === canonicalSession.latestSequence && aliasSession.updatedAt > canonicalSession.updatedAt) {
+      canonicalSession.latestSequence = aliasSession.latestSequence;
+      canonicalSession.latestState = aliasSession.latestState;
+    } else if (!canonicalSession.latestState && aliasSession.latestState) {
+      canonicalSession.latestState = aliasSession.latestState;
     }
-    this.archiveStore.mergeActiveRecordings(currentSessionId, mapped);
-    const sourceCache = this.strategyCache.get(currentSessionId);
-    const targetCache = this.strategyCache.get(mapped);
-    if (!targetCache && sourceCache) {
-      this.strategyCache.set(mapped, sourceCache);
-    }
-    this.sessions.delete(currentSessionId);
-    this.sessionAccess.delete(currentSessionId);
-    this.strategyCache.delete(currentSessionId);
-    this.sessionAliasToCanonical.set(currentSessionId, {
-      canonicalSessionId: mapped,
+    canonicalSession.updatedAt = Math.max(
+      canonicalSession.updatedAt,
+      aliasSession.updatedAt,
+      mergedAt
+    );
+    canonicalSession.lastHeartbeatAt = Math.max(
+      canonicalSession.lastHeartbeatAt,
+      aliasSession.lastHeartbeatAt,
+      mergedAt
+    );
+    canonicalSession.status = "active";
+    this.remapJoinCodes(aliasSessionId, canonicalSessionId);
+    this.mergeSessionAccessRecords(aliasSessionId, canonicalSessionId, mergedAt);
+    this.notesStore.mergeSessions(aliasSessionId, canonicalSessionId);
+    this.archiveStore.mergeActiveRecordings(aliasSessionId, canonicalSessionId);
+    this.mergeStrategyCaches(aliasSessionId, canonicalSessionId);
+    this.sessions.delete(aliasSessionId);
+    this.strategyCache.delete(aliasSessionId);
+    this.sessionAliasToCanonical.set(aliasSessionId, {
+      canonicalSessionId,
       telemetrySessionUid,
       mergedAt
     });
-    this.sessionSyncUntil.set(mapped, mergedAt + 8e3);
-    targetSession.updatedAt = mergedAt;
-    targetSession.lastHeartbeatAt = mergedAt;
-    targetSession.status = "active";
-    this.emitOpsEvent("session_rebound", mapped, {
-      previousSessionId: currentSessionId,
-      canonicalSessionId: mapped,
+    this.sessionSyncUntil.set(canonicalSessionId, mergedAt + 8e3);
+    this.emitOpsEvent("session_rebound", canonicalSessionId, {
+      previousSessionId: aliasSessionId,
+      canonicalSessionId,
       telemetrySessionUid,
       mergedAt
     });
-    const ws = this.connToWs.get(connId);
-    if (ws) {
+    this.logger.info(
+      `[Relay] Merged telemetry session ${telemetrySessionUid}: ${aliasSessionId} -> ${canonicalSessionId}`
+    );
+  }
+  rebindSessionConnections(fromSessionId, toSessionId, telemetrySessionUid, mergedAt) {
+    const sourceConnections = Array.from(
+      this.sessionToConnections.get(fromSessionId) ?? []
+    );
+    for (const connectionId of sourceConnections) {
+      this.untrackConnectionForSession(connectionId, fromSessionId);
+      this.trackConnectionForSession(connectionId, toSessionId);
+      this.connToSession.set(connectionId, toSessionId);
+      const ws = this.connToWs.get(connectionId);
+      if (!ws) {
+        continue;
+      }
       ws.send(
         JSON.stringify({
           type: "session_rebound",
-          sessionId: mapped,
-          previousSessionId: currentSessionId,
+          sessionId: toSessionId,
+          previousSessionId: fromSessionId,
           telemetrySessionUid,
           mergedAt
         })
       );
     }
-    this.logger.info(
-      `[Relay] Merged telemetry session ${telemetrySessionUid}: ${currentSessionId} -> ${mapped}`
-    );
-    return mapped;
+  }
+  remapJoinCodes(fromSessionId, toSessionId) {
+    for (const [joinCode, mappedSessionId] of this.joinCodeToSessionId.entries()) {
+      if (mappedSessionId === fromSessionId) {
+        this.joinCodeToSessionId.set(joinCode, toSessionId);
+      }
+    }
+  }
+  mergeSessionAccessRecords(fromSessionId, toSessionId, mergedAt) {
+    const sourceAccess = this.sessionAccess.get(fromSessionId);
+    const targetAccess = this.sessionAccess.get(toSessionId);
+    if (!sourceAccess && !targetAccess) {
+      return;
+    }
+    if (!targetAccess && sourceAccess) {
+      this.sessionAccess.set(toSessionId, {
+        ...sourceAccess,
+        sessionId: toSessionId,
+        updatedAt: Math.max(sourceAccess.updatedAt, mergedAt)
+      });
+      this.sessionAccess.delete(fromSessionId);
+      if (sourceAccess.joinCode) {
+        this.joinCodeToSessionId.set(sourceAccess.joinCode, toSessionId);
+      }
+      return;
+    }
+    if (sourceAccess && targetAccess) {
+      if (!targetAccess.roomTitle && sourceAccess.roomTitle) {
+        targetAccess.roomTitle = sourceAccess.roomTitle;
+      }
+      if (!targetAccess.roomPassword && sourceAccess.roomPassword) {
+        targetAccess.roomPassword = sourceAccess.roomPassword;
+      }
+      if (!targetAccess.permissionCode && sourceAccess.permissionCode) {
+        targetAccess.permissionCode = sourceAccess.permissionCode;
+      }
+      if (!targetAccess.driverLabel && sourceAccess.driverLabel) {
+        targetAccess.driverLabel = sourceAccess.driverLabel;
+      }
+      if (!targetAccess.carLabel && sourceAccess.carLabel) {
+        targetAccess.carLabel = sourceAccess.carLabel;
+      }
+      targetAccess.visibility = targetAccess.visibility === "code" || sourceAccess.visibility === "code" ? "code" : "private";
+      targetAccess.shareEnabled = targetAccess.shareEnabled || sourceAccess.shareEnabled;
+      targetAccess.createdAt = Math.min(targetAccess.createdAt, sourceAccess.createdAt);
+      targetAccess.updatedAt = Math.max(
+        targetAccess.updatedAt,
+        sourceAccess.updatedAt,
+        mergedAt
+      );
+      if (sourceAccess.joinCode) {
+        this.joinCodeToSessionId.set(sourceAccess.joinCode, toSessionId);
+      }
+      if (targetAccess.joinCode) {
+        this.joinCodeToSessionId.set(targetAccess.joinCode, toSessionId);
+      }
+      this.archiveStore.updateAccessMetadata(toSessionId, {
+        joinCode: targetAccess.joinCode,
+        visibility: targetAccess.visibility
+      });
+    }
+    this.sessionAccess.delete(fromSessionId);
+  }
+  mergeStrategyCaches(fromSessionId, toSessionId) {
+    const sourceCache = this.strategyCache.get(fromSessionId);
+    const targetCache = this.strategyCache.get(toSessionId);
+    if (!sourceCache) {
+      return;
+    }
+    if (!targetCache) {
+      this.strategyCache.set(toSessionId, sourceCache);
+      return;
+    }
+    const sourceSeq = sourceCache.latestSequence ?? -1;
+    const targetSeq = targetCache.latestSequence ?? -1;
+    if (sourceSeq > targetSeq) {
+      this.strategyCache.set(toSessionId, sourceCache);
+    }
   }
   startDebugHttp(port) {
     const app2 = (0, import_express.default)();
@@ -39464,11 +39652,214 @@ var import_fs = __toESM(require("fs"), 1);
 var import_child_process = require("child_process");
 
 // src/relay/viewerApi.ts
+var import_crypto3 = require("crypto");
 var import_express2 = __toESM(require_express2(), 1);
 function createViewerApiRouter(relayServer2) {
   const router = import_express2.default.Router();
+  const viewerRoleRank = {
+    viewer: 0,
+    engineer: 1,
+    strategist: 2,
+    ops: 3
+  };
   function readQueryString(v) {
     return typeof v === "string" ? v.trim() : "";
+  }
+  function readHeaderString(v) {
+    if (Array.isArray(v)) {
+      return typeof v[0] === "string" ? v[0].trim() : "";
+    }
+    return typeof v === "string" ? v.trim() : "";
+  }
+  function secureCompareSecret(expected, provided) {
+    const expectedBuf = Buffer.from(expected, "utf8");
+    const providedBuf = Buffer.from(provided, "utf8");
+    if (expectedBuf.length !== providedBuf.length) {
+      return false;
+    }
+    return (0, import_crypto3.timingSafeEqual)(expectedBuf, providedBuf);
+  }
+  function readRequiredOpsToken() {
+    return (process.env.MPP_OPS_TOKEN || "").trim();
+  }
+  function readOpsTokenFromRequest(req) {
+    const authHeader = readHeaderString(req.headers.authorization);
+    if (authHeader.toLowerCase().startsWith("bearer ")) {
+      return authHeader.slice(7).trim();
+    }
+    const tokenHeader = readHeaderString(req.headers["x-ops-token"]);
+    if (tokenHeader) {
+      return tokenHeader;
+    }
+    return authHeader;
+  }
+  function isLoopbackAddress(address) {
+    const normalized = address.trim();
+    if (!normalized) {
+      return false;
+    }
+    if (normalized === "::1" || normalized === "127.0.0.1") {
+      return true;
+    }
+    if (normalized.startsWith("::ffff:")) {
+      return normalized.slice(7) === "127.0.0.1";
+    }
+    return false;
+  }
+  function isLoopbackHost(hostHeader) {
+    const host = hostHeader.split(":")[0].trim().toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+  }
+  function isTrustedLocalRequest(req) {
+    const remoteAddress = req.socket.remoteAddress || "";
+    if (isLoopbackAddress(remoteAddress)) {
+      return true;
+    }
+    const hostHeader = readHeaderString(req.headers.host);
+    return hostHeader ? isLoopbackHost(hostHeader) : false;
+  }
+  function allowLocalOpsBypass() {
+    const raw = (process.env.MPP_TRUST_LOCAL_OPS || "").trim().toLowerCase();
+    if (!raw) {
+      return true;
+    }
+    if (["0", "false", "off", "no"].includes(raw)) {
+      return false;
+    }
+    return true;
+  }
+  function requirePermissionForMutations() {
+    const raw = (process.env.MPP_REQUIRE_PERMISSION_FOR_MUTATIONS || "").trim().toLowerCase();
+    if (!raw) {
+      return false;
+    }
+    return ["1", "true", "on", "yes"].includes(raw);
+  }
+  function hasValidOpsToken(req) {
+    const requiredToken = readRequiredOpsToken();
+    if (!requiredToken) {
+      return false;
+    }
+    const providedToken = readOpsTokenFromRequest(req);
+    if (!providedToken) {
+      return false;
+    }
+    return secureCompareSecret(requiredToken, providedToken);
+  }
+  function requireOpsControlAccess(req, res) {
+    const requiredToken = readRequiredOpsToken();
+    if (!requiredToken) {
+      return true;
+    }
+    if (allowLocalOpsBypass() && isTrustedLocalRequest(req) || hasValidOpsToken(req)) {
+      return true;
+    }
+    res.status(401).json({ error: "unauthorized" });
+    return false;
+  }
+  function readViewerCredentials(req) {
+    const headerPassword = readHeaderString(req.headers["x-room-password"]);
+    const queryPassword = readQueryString(req.query.password);
+    const roomPassword = headerPassword || queryPassword;
+    const headerPermission = readHeaderString(req.headers["x-permission-code"]).toUpperCase();
+    const queryPermission = readQueryString(req.query.permissionCode).toUpperCase();
+    const permissionCode = headerPermission || queryPermission;
+    return {
+      roomPassword,
+      permissionCode,
+      usedQueryCredentials: !headerPassword && !!queryPassword || !headerPermission && !!queryPermission,
+      permissionProvided: permissionCode.length > 0
+    };
+  }
+  function resolveSessionAccess(requestedSessionId) {
+    const resolution = resolveSession(requestedSessionId);
+    const canonicalSessionId = resolution.canonicalSessionId;
+    const access = relayServer2.getSessionAccess(canonicalSessionId);
+    return { canonicalSessionId, rebound: resolution.rebound, access };
+  }
+  function deriveGrantedViewerRole(req, access) {
+    if (hasValidOpsToken(req)) {
+      return {
+        role: "ops",
+        permissionProvided: false,
+        usedQueryCredentials: false
+      };
+    }
+    const credentials = readViewerCredentials(req);
+    if (!access || !access.shareEnabled || access.visibility !== "code") {
+      return {
+        role: "viewer",
+        permissionProvided: credentials.permissionProvided,
+        usedQueryCredentials: credentials.usedQueryCredentials
+      };
+    }
+    const expectedPassword = access.roomPassword || "";
+    const expectedPermission = (access.permissionCode || "").trim().toUpperCase();
+    if (expectedPassword) {
+      if (!credentials.roomPassword) {
+        return {
+          role: null,
+          accessError: {
+            code: "password_required",
+            message: "\uC774 Room\uC740 Password\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4."
+          },
+          permissionProvided: credentials.permissionProvided,
+          usedQueryCredentials: credentials.usedQueryCredentials
+        };
+      }
+      if (!secureCompareSecret(expectedPassword, credentials.roomPassword)) {
+        return {
+          role: null,
+          accessError: {
+            code: "invalid_password",
+            message: "Room Password\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."
+          },
+          permissionProvided: credentials.permissionProvided,
+          usedQueryCredentials: credentials.usedQueryCredentials
+        };
+      }
+    }
+    const permissionGranted = expectedPermission.length > 0 && credentials.permissionCode.length > 0 && secureCompareSecret(expectedPermission, credentials.permissionCode);
+    return {
+      role: permissionGranted ? "strategist" : expectedPassword ? "engineer" : "viewer",
+      permissionProvided: credentials.permissionProvided,
+      usedQueryCredentials: credentials.usedQueryCredentials
+    };
+  }
+  function ensureViewerRole(req, res, requestedSessionId, requiredRole) {
+    const { canonicalSessionId, rebound, access } = resolveSessionAccess(requestedSessionId);
+    const grant = deriveGrantedViewerRole(req, access);
+    if (!grant.role) {
+      res.status(403).json({
+        error: "forbidden",
+        accessError: grant.accessError,
+        sessionId: canonicalSessionId,
+        requestedSessionId,
+        rebound
+      });
+      return null;
+    }
+    const desiredRole = typeof requiredRole === "function" ? requiredRole(access) : requiredRole;
+    const effectiveRequiredRole = access && access.shareEnabled && access.visibility === "code" ? desiredRole : "viewer";
+    if (viewerRoleRank[grant.role] < viewerRoleRank[effectiveRequiredRole]) {
+      const code = effectiveRequiredRole === "strategist" ? grant.permissionProvided ? "invalid_permission_code" : "permission_required" : "password_required";
+      const message = effectiveRequiredRole === "strategist" ? grant.permissionProvided ? "Permission Code\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." : "\uC774 \uC791\uC5C5\uC740 Permission Code\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4." : "\uC774 \uC791\uC5C5\uC740 Room Password \uAD8C\uD55C\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
+      res.status(403).json({
+        error: "forbidden",
+        accessError: { code, message },
+        sessionId: canonicalSessionId,
+        requestedSessionId,
+        rebound
+      });
+      return null;
+    }
+    return {
+      canonicalSessionId,
+      rebound,
+      access,
+      role: grant.role,
+      usedQueryCredentials: grant.usedQueryCredentials
+    };
   }
   function getRelayInfo() {
     if (typeof relayServer2.getRelayRuntimeInfo !== "function") {
@@ -39549,10 +39940,16 @@ function createViewerApiRouter(relayServer2) {
     };
   }
   router.get("/ops/sessions", (req, res) => {
+    if (!requireOpsControlAccess(req, res)) {
+      return;
+    }
     const sessions = relayServer2.listSessionOpsSummaries();
     res.json({ sessions, count: sessions.length });
   });
-  router.get("/rooms/active", (_req, res) => {
+  router.get("/rooms/active", (req, res) => {
+    if (!requireOpsControlAccess(req, res)) {
+      return;
+    }
     const rooms = relayServer2.listSessionOpsSummaries().filter((row) => row.relayStatus !== "closed").map((row) => ({
       sessionId: row.sessionId,
       joinCode: row.joinCode,
@@ -39598,6 +39995,9 @@ function createViewerApiRouter(relayServer2) {
     });
   });
   router.get("/ops/events/recent", (req, res) => {
+    if (!requireOpsControlAccess(req, res)) {
+      return;
+    }
     const limitRaw = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 50;
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, limitRaw)) : 50;
     const sessionId = typeof req.query.sessionId === "string" ? req.query.sessionId : void 0;
@@ -39614,42 +40014,114 @@ function createViewerApiRouter(relayServer2) {
     res.json({ ...info, publicUrlWarning });
   });
   router.get("/notes/:sessionId", (req, res) => {
-    const { sessionId } = req.params;
-    const notes = relayServer2.listSessionNotes(sessionId);
-    res.json({ sessionId, notes, count: notes.length });
+    const auth = ensureViewerRole(req, res, req.params.sessionId, "viewer");
+    if (!auth) {
+      return;
+    }
+    const notes = relayServer2.listSessionNotes(auth.canonicalSessionId);
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId: req.params.sessionId,
+      rebound: auth.rebound,
+      notes,
+      count: notes.length
+    });
   });
   router.post("/notes/:sessionId", (req, res) => {
-    const { sessionId } = req.params;
+    const auth = ensureViewerRole(req, res, req.params.sessionId, (access) => {
+      if (!access || !access.shareEnabled || access.visibility !== "code") {
+        return "viewer";
+      }
+      if (requirePermissionForMutations() && access.permissionCode) {
+        return "strategist";
+      }
+      if (access.roomPassword) {
+        return "engineer";
+      }
+      return "viewer";
+    });
+    if (!auth) {
+      return;
+    }
     const parsed = parseNotePayload(req.body);
     if (parsed.error || !parsed.payload) {
       return res.status(400).json({ error: parsed.error ?? "invalid_note_payload" });
     }
-    const note = relayServer2.addSessionNote(sessionId, parsed.payload);
-    res.status(201).json({ sessionId, note });
+    const note = relayServer2.addSessionNote(auth.canonicalSessionId, parsed.payload);
+    res.status(201).json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId: req.params.sessionId,
+      rebound: auth.rebound,
+      note
+    });
   });
   router.delete("/notes/:sessionId/:noteId", (req, res) => {
-    const { sessionId, noteId } = req.params;
-    const deleted = relayServer2.deleteSessionNote(sessionId, noteId);
+    const auth = ensureViewerRole(req, res, req.params.sessionId, (access) => {
+      if (!access || !access.shareEnabled || access.visibility !== "code") {
+        return "viewer";
+      }
+      if (requirePermissionForMutations() && access.permissionCode) {
+        return "strategist";
+      }
+      if (access.roomPassword) {
+        return "engineer";
+      }
+      return "viewer";
+    });
+    if (!auth) {
+      return;
+    }
+    const { noteId } = req.params;
+    const deleted = relayServer2.deleteSessionNote(auth.canonicalSessionId, noteId);
     if (!deleted) {
       return res.status(404).json({ error: "not_found" });
     }
-    res.json({ sessionId, noteId, deleted: true });
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId: req.params.sessionId,
+      rebound: auth.rebound,
+      noteId,
+      deleted: true
+    });
   });
   router.get("/timeline/:sessionId", (req, res) => {
-    const { sessionId } = req.params;
+    const auth = ensureViewerRole(req, res, req.params.sessionId, "viewer");
+    if (!auth) {
+      return;
+    }
     const limitRaw = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 100;
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, limitRaw)) : 100;
-    const timeline = relayServer2.getSessionTimeline(sessionId, limit);
-    res.json({ sessionId, timeline, count: timeline.length, limit });
+    const timeline = relayServer2.getSessionTimeline(auth.canonicalSessionId, limit);
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId: req.params.sessionId,
+      rebound: auth.rebound,
+      timeline,
+      count: timeline.length,
+      limit
+    });
   });
   router.get("/strategy/:sessionId", (req, res) => {
-    const { sessionId: requestedSessionId } = req.params;
-    const resolution = resolveSession(requestedSessionId);
-    const strategy = relayServer2.getSessionStrategy(resolution.canonicalSessionId);
-    if (strategy.strategyUnavailable && strategy.reason === "session_not_found") {
-      return res.status(404).json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, ...strategy });
+    const requestedSessionId = req.params.sessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, "viewer");
+    if (!auth) {
+      return;
     }
-    res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, ...strategy });
+    const strategy = relayServer2.getSessionStrategy(auth.canonicalSessionId);
+    if (strategy.strategyUnavailable && strategy.reason === "session_not_found") {
+      return res.status(404).json({
+        sessionId: auth.canonicalSessionId,
+        requestedSessionId,
+        rebound: auth.rebound,
+        ...strategy
+      });
+    }
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId,
+      rebound: auth.rebound,
+      ...strategy
+    });
   });
   router.get("/archives", (req, res) => {
     const limitRaw = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 100;
@@ -39658,56 +40130,89 @@ function createViewerApiRouter(relayServer2) {
     res.json({ archives, count: archives.length, limit });
   });
   router.get("/archive/:sessionId", (req, res) => {
-    const { sessionId: requestedSessionId } = req.params;
-    const resolution = resolveSession(requestedSessionId);
-    const archive = relayServer2.getSessionArchive(resolution.canonicalSessionId);
+    const requestedSessionId = req.params.sessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, "viewer");
+    if (!auth) {
+      return;
+    }
+    const archive = relayServer2.getSessionArchive(auth.canonicalSessionId);
     if (!archive) {
       return res.status(404).json({ error: "not_found" });
     }
-    res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, archive });
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId,
+      rebound: auth.rebound,
+      archive
+    });
   });
   router.get("/archive/:sessionId/summary", (req, res) => {
-    const { sessionId: requestedSessionId } = req.params;
-    const resolution = resolveSession(requestedSessionId);
-    const summary = relayServer2.getSessionArchiveSummary(resolution.canonicalSessionId);
+    const requestedSessionId = req.params.sessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, "viewer");
+    if (!auth) {
+      return;
+    }
+    const summary = relayServer2.getSessionArchiveSummary(auth.canonicalSessionId);
     if (!summary) {
       return res.status(404).json({ error: "not_found" });
     }
-    res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, summary });
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId,
+      rebound: auth.rebound,
+      summary
+    });
   });
   router.get("/archive/:sessionId/timeline", (req, res) => {
-    const { sessionId: requestedSessionId } = req.params;
-    const resolution = resolveSession(requestedSessionId);
-    const summary = relayServer2.getSessionArchiveSummary(resolution.canonicalSessionId);
+    const requestedSessionId = req.params.sessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, "viewer");
+    if (!auth) {
+      return;
+    }
+    const summary = relayServer2.getSessionArchiveSummary(auth.canonicalSessionId);
     if (!summary) {
       return res.status(404).json({ error: "not_found" });
     }
     const limitRaw = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 500;
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(5e3, limitRaw)) : 500;
-    const timeline = relayServer2.getSessionArchiveTimeline(resolution.canonicalSessionId, limit);
-    res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, timeline, count: timeline.length, limit });
+    const timeline = relayServer2.getSessionArchiveTimeline(auth.canonicalSessionId, limit);
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId,
+      rebound: auth.rebound,
+      timeline,
+      count: timeline.length,
+      limit
+    });
   });
   router.get("/health/:sessionId", (req, res) => {
-    const { sessionId: requestedSessionId } = req.params;
-    const resolution = resolveSession(requestedSessionId);
-    const health = relayServer2.getSessionHealth(resolution.canonicalSessionId);
-    res.json({ ...health, requestedSessionId, rebound: resolution.rebound });
+    const requestedSessionId = req.params.sessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, "viewer");
+    if (!auth) {
+      return;
+    }
+    const health = relayServer2.getSessionHealth(auth.canonicalSessionId);
+    res.json({ ...health, requestedSessionId, rebound: auth.rebound });
   });
   router.get("/sessions/:sessionId", (req, res) => {
     const requestedSessionId = req.params.sessionId;
-    const resolution = resolveSession(requestedSessionId);
-    const sessionId = resolution.canonicalSessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, "viewer");
+    if (!auth) {
+      return;
+    }
+    const sessionId = auth.canonicalSessionId;
     const session = relayServer2.getSession(sessionId);
     const payload = serializeViewerSession(session);
     const access = serializeSessionAccess(relayServer2.getSessionAccess(sessionId));
     const response = {
       ...payload,
       requestedSessionId,
-      rebound: resolution.rebound,
+      rebound: auth.rebound,
       access,
       joinCode: access?.joinCode,
       shareEnabled: access?.shareEnabled,
-      visibility: access?.visibility
+      visibility: access?.visibility,
+      credentialWarning: auth.usedQueryCredentials ? "query_credentials_deprecated" : void 0
     };
     if (!session) {
       res.status(404).json(response);
@@ -39716,6 +40221,9 @@ function createViewerApiRouter(relayServer2) {
     }
   });
   router.get("/session-access/:sessionId", (req, res) => {
+    if (!requireOpsControlAccess(req, res)) {
+      return;
+    }
     const { sessionId: requestedSessionId } = req.params;
     const resolution = resolveSession(requestedSessionId);
     const sessionId = resolution.canonicalSessionId;
@@ -39741,8 +40249,9 @@ function createViewerApiRouter(relayServer2) {
   });
   router.get("/join/:joinCode", (req, res) => {
     const joinCode = req.params.joinCode;
-    const roomPassword = readQueryString(req.query.password);
-    const permissionCode = readQueryString(req.query.permissionCode).toUpperCase();
+    const credentials = readViewerCredentials(req);
+    const roomPassword = credentials.roomPassword;
+    const permissionCode = credentials.permissionCode;
     const { sessionId, access } = relayServer2.resolveJoinCode(joinCode);
     if (!sessionId || !access) {
       return res.status(404).json({
@@ -39768,21 +40277,27 @@ function createViewerApiRouter(relayServer2) {
         message: "\uC774 \uC138\uC158\uC740 \uD604\uC7AC \uACF5\uC720 \uC911\uC774 \uC544\uB2D9\uB2C8\uB2E4."
       });
     }
-    if (access.roomPassword && roomPassword !== access.roomPassword) {
-      return res.status(403).json({
-        viewerStatus: "password_required",
-        accessError: {
-          code: roomPassword ? "invalid_password" : "password_required",
-          message: roomPassword ? "Room Password\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." : "\uC774 Room\uC740 Password\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4."
-        },
-        sessionId,
-        roomTitle: access.roomTitle,
-        joinCode,
-        passwordEnabled: true
-      });
+    const expectedPassword = access.roomPassword || "";
+    if (expectedPassword) {
+      const passwordMatched = roomPassword.length > 0 && secureCompareSecret(expectedPassword, roomPassword);
+      if (!passwordMatched) {
+        return res.status(403).json({
+          viewerStatus: "password_required",
+          accessError: {
+            code: roomPassword ? "invalid_password" : "password_required",
+            message: roomPassword ? "Room Password\uAC00 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." : "\uC774 Room\uC740 Password\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4."
+          },
+          sessionId,
+          roomTitle: access.roomTitle,
+          joinCode,
+          passwordEnabled: true,
+          credentialWarning: credentials.usedQueryCredentials ? "query_credentials_deprecated" : void 0
+        });
+      }
     }
-    const permissionGranted = !!access.permissionCode && permissionCode === access.permissionCode;
-    const grantedRole = permissionGranted ? "strategist" : access.roomPassword ? "engineer" : "viewer";
+    const expectedPermission = (access.permissionCode || "").trim().toUpperCase();
+    const permissionGranted = expectedPermission.length > 0 && permissionCode.length > 0 && secureCompareSecret(expectedPermission, permissionCode);
+    const grantedRole = permissionGranted ? "strategist" : expectedPassword ? "engineer" : "viewer";
     const session = relayServer2.getSession(sessionId);
     const payload = serializeViewerSession(session);
     res.json({
@@ -39798,19 +40313,15 @@ function createViewerApiRouter(relayServer2) {
       roomAccess: {
         grantedRole,
         permissionGranted,
-        usedPassword: !!access.roomPassword
+        usedPassword: !!expectedPassword
       },
+      credentialWarning: credentials.usedQueryCredentials ? "query_credentials_deprecated" : void 0,
       relay: getRelayInfo()
     });
   });
   router.patch("/session-access/:sessionId", (req, res) => {
-    const requiredToken = (process.env.MPP_OPS_TOKEN || "").trim();
-    if (requiredToken) {
-      const authHeader = req.headers["authorization"] || "";
-      const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
-      if (provided !== requiredToken) {
-        return res.status(401).json({ error: "unauthorized" });
-      }
+    if (!requireOpsControlAccess(req, res)) {
+      return;
     }
     const { sessionId } = req.params;
     const {

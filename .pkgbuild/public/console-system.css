@@ -76,12 +76,18 @@ body.console-app {
   font: 600 12px var(--console-font-ui);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  cursor: pointer;
 }
 
 .console-nav-tab.active {
   color: var(--console-cyan);
   border-bottom-color: var(--console-cyan);
   background: rgba(97, 214, 223, 0.07);
+}
+
+.console-nav-tab:hover {
+  color: var(--console-text);
+  background: rgba(97, 214, 223, 0.05);
 }
 
 .top-icons-row {
@@ -138,6 +144,49 @@ body.console-app {
   padding: 12px;
   display: grid;
   gap: 10px;
+}
+
+.console-status-line {
+  min-height: 34px;
+  border: 1px solid var(--console-line);
+  background: rgba(10, 17, 27, 0.85);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.status-chip {
+  border: 1px solid var(--console-line-strong);
+  color: var(--console-cyan);
+  font: 600 10px var(--console-font-ui);
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-text,
+.status-flash {
+  margin-left: auto;
+  font: 600 10px var(--console-font-mono);
+  letter-spacing: 0.03em;
+  color: var(--console-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-flash-info {
+  color: var(--console-cyan);
+}
+
+.status-flash-ok {
+  color: var(--console-green);
+}
+
+.status-flash-error {
+  color: var(--console-red);
 }
 
 .live-body-grid {
@@ -210,12 +259,18 @@ body.console-app {
   align-items: center;
   justify-content: center;
   gap: 3px;
+  cursor: pointer;
 }
 
 .icon-rail-item.active {
   color: var(--console-cyan);
   border-color: var(--console-cyan);
   background: rgba(97, 214, 223, 0.08);
+}
+
+.icon-rail-item:hover {
+  color: var(--console-text);
+  border-color: var(--console-line-strong);
 }
 
 .icon-rail-glyph {
@@ -607,6 +662,11 @@ body.console-app {
   font: 700 11px var(--console-font-ui);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cmd-btn:hover {
+  border-color: var(--console-cyan);
 }
 
 .cmd-btn-danger {
@@ -679,6 +739,7 @@ body.console-app {
   width: 14px;
   height: 14px;
   accent-color: var(--console-cyan);
+  cursor: pointer;
 }
 
 .replay-telemetry-svg {
@@ -751,6 +812,7 @@ body.console-app {
   min-height: 28px;
   padding: 0 8px;
   font-size: 10px;
+  cursor: pointer;
 }
 
 .speed-btn-active,

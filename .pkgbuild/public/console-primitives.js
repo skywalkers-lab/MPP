@@ -105,7 +105,7 @@
       var key = tab && tab.key ? tab.key : '';
       var label = tab && tab.label ? tab.label : key;
       var active = key === activeKey ? ' active' : '';
-      return '<button class="console-nav-tab' + active + '">' + esc(label) + '</button>';
+      return '<button class="console-nav-tab' + active + '" type="button" data-tab-key="' + esc(key) + '">' + esc(label) + '</button>';
     }).join('');
     return '<div class="console-nav-tabs">' + content + '</div>';
   }
@@ -115,7 +115,8 @@
       var icon = item && item.icon ? item.icon : '•';
       var label = item && item.label ? item.label : '';
       var active = item && item.active ? ' active' : '';
-      return '<button class="icon-rail-item ' + (extraClass || '') + active + '">' +
+      var key = item && item.key ? item.key : (label || icon || 'item');
+      return '<button class="icon-rail-item ' + (extraClass || '') + active + '" type="button" data-rail-key="' + esc(String(key).toLowerCase()) + '">' +
         '<span class="icon-rail-glyph">' + esc(icon) + '</span>' +
         '<span class="icon-rail-label">' + esc(label) + '</span>' +
       '</button>';
@@ -266,7 +267,8 @@
   }
 
   function cmdButton(label, tone, extraClass) {
-    return '<button class="cmd-btn cmd-btn-' + esc(tone || 'secondary') + (extraClass ? (' ' + esc(extraClass)) : '') + '">' + esc(label || '-') + '</button>';
+    var cmd = String(label || '').trim().toLowerCase().replace(/\s+/g, '_');
+    return '<button class="cmd-btn cmd-btn-' + esc(tone || 'secondary') + (extraClass ? (' ' + esc(extraClass)) : '') + '" type="button" data-cmd="' + esc(cmd) + '">' + esc(label || '-') + '</button>';
   }
 
   function classificationItem(pos, driver, team, gap, laps, selected) {
@@ -276,7 +278,7 @@
       '<span class="replay-item-team">' + esc(team || '-') + '</span>' +
       '<span class="replay-item-gap">' + esc(gap || '-') + '</span>' +
       '<span class="replay-item-laps">L' + esc(laps || '-') + '</span>' +
-      '<input class="replay-item-check" type="checkbox" ' + (selected ? 'checked' : '') + ' />' +
+      '<input class="replay-item-check" type="checkbox" data-action="toggle-driver" data-driver="' + esc(driver || '') + '" ' + (selected ? 'checked' : '') + ' />' +
     '</div>';
   }
 
@@ -285,7 +287,7 @@
       '<div class="event-card-type">' + esc(type || '-') + '</div>' +
       '<div class="event-card-title">' + esc(title || '-') + '</div>' +
       '<div class="event-card-meta">' + esc(lapStr || '-') + ' | ' + esc(timeStr || '-') + '</div>' +
-      '<a class="jump-link" href="#">JUMP_TO_TIMECODE</a>' +
+      '<a class="jump-link" href="#" data-action="jump_to_timecode" data-time="' + esc(timeStr || '') + '">JUMP_TO_TIMECODE</a>' +
     '</article>';
   }
 
@@ -301,21 +303,26 @@
 
   function playbackBar(config) {
     var speed = config && config.speed ? String(config.speed) : '1.8X';
+    var speedNum = Number.parseFloat(speed);
+    function speedClass(target) {
+      if (!Number.isFinite(speedNum)) return '';
+      return Math.abs(speedNum - target) < 0.001 ? ' speed-btn-active' : '';
+    }
     return '<section class="playback-bar">' +
       '<div class="playback-controls">' +
-        '<button class="transport-btn">&#x23EE;</button>' +
-        '<button class="transport-btn">&#x23EA;</button>' +
-        '<button class="transport-btn">' + ((config && config.isPlaying) ? '&#x23F8;' : '&#x25B6;') + '</button>' +
-        '<button class="transport-btn">&#x23E9;</button>' +
-        '<button class="transport-btn">&#x23ED;</button>' +
+        '<button class="transport-btn" type="button" data-action="skip-start">&#x23EE;</button>' +
+        '<button class="transport-btn" type="button" data-action="step-back">&#x23EA;</button>' +
+        '<button class="transport-btn" type="button" data-action="play-pause">' + ((config && config.isPlaying) ? '&#x23F8;' : '&#x25B6;') + '</button>' +
+        '<button class="transport-btn" type="button" data-action="step-forward">&#x23E9;</button>' +
+        '<button class="transport-btn" type="button" data-action="skip-end">&#x23ED;</button>' +
       '</div>' +
       '<div class="playback-speed">' +
-        '<button class="speed-btn">0.5X</button>' +
-        '<button class="speed-btn speed-btn-active">' + esc(speed) + '</button>' +
-        '<button class="speed-btn">2.0X</button>' +
+        '<button class="speed-btn' + speedClass(0.5) + '" type="button" data-speed="0.5">0.5X</button>' +
+        '<button class="speed-btn' + speedClass(1.8) + '" type="button" data-speed="1.8">1.8X</button>' +
+        '<button class="speed-btn' + speedClass(2.0) + '" type="button" data-speed="2.0">2.0X</button>' +
       '</div>' +
       '<div class="playback-clock">' + esc(config && config.time || '01:28:44.215') + '</div>' +
-      '<button class="sync-live-btn">SYNC_TO_LIVE</button>' +
+      '<button class="sync-live-btn" type="button" data-action="sync-live">SYNC_TO_LIVE</button>' +
       '<div class="playback-meta">DATA_LATENCY: ' + esc(config && config.latency || '0.02s') + ' | BUFFER: ' + esc(config && config.buffer || '98%') + '</div>' +
     '</section>';
   }

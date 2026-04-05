@@ -137,6 +137,16 @@ describe('Relay telemetry session merge', () => {
         .send({ shareEnabled: true, visibility: 'code' })
         .expect(200);
 
+      await request(app)
+        .post('/api/viewer/notes/S-JOINA1')
+        .send({ text: 'canonical note', category: 'general', authorLabel: 'Engineer' })
+        .expect(201);
+
+      await request(app)
+        .post('/api/viewer/notes/S-JOINB2')
+        .send({ text: 'alias note', category: 'strategy', authorLabel: 'Strategist' })
+        .expect(201);
+
       (relayServer as any).connToWs.set('conn-a', ws1);
       (relayServer as any).connToWs.set('conn-b', ws2);
 
@@ -159,6 +169,10 @@ describe('Relay telemetry session merge', () => {
       expect(joinRes.status).toBe(200);
       expect(joinRes.body.sessionId).toBe('S-JOINA1');
       expect(joinRes.body.joinUrl).toBe(`http://127.0.0.1:4100/join/${accessB!.joinCode}`);
+
+      const mergedNotes = await request(app).get('/api/viewer/notes/S-JOINA1');
+      expect(mergedNotes.status).toBe(200);
+      expect(mergedNotes.body.count).toBe(2);
 
       (relayServer as any).handleClose('conn-a');
       (relayServer as any).handleClose('conn-b');

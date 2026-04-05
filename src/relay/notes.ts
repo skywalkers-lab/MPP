@@ -38,6 +38,7 @@ export interface SessionNotesStore {
   deleteNote(sessionId: string, noteId: string): boolean;
   getNoteCount(sessionId: string): number;
   getLatestNote(sessionId: string): SessionNote | null;
+  mergeSessions(fromSessionId: string, toSessionId: string): void;
 }
 
 export class InMemorySessionNotesStore implements SessionNotesStore {
@@ -100,5 +101,35 @@ export class InMemorySessionNotesStore implements SessionNotesStore {
       }
     }
     return latest;
+  }
+
+  mergeSessions(fromSessionId: string, toSessionId: string): void {
+    if (fromSessionId === toSessionId) {
+      return;
+    }
+
+    const source = this.notesBySession.get(fromSessionId);
+    if (!source || source.length === 0) {
+      return;
+    }
+
+    const target = this.notesBySession.get(toSessionId) ?? [];
+    const merged: SessionNote[] = [
+      ...target,
+      ...source.map((note) => ({
+        ...note,
+        sessionId: toSessionId,
+      })),
+    ];
+
+    merged.sort((a, b) => {
+      if (a.timestamp !== b.timestamp) {
+        return a.timestamp - b.timestamp;
+      }
+      return a.createdAt - b.createdAt;
+    });
+
+    this.notesBySession.set(toSessionId, merged);
+    this.notesBySession.delete(fromSessionId);
   }
 }

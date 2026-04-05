@@ -77,6 +77,89 @@
     };
   }
 
+  var REPLAY_MAX_MS = 2 * 60 * 60 * 1000;
+
+  function formatReplayClock(ms) {
+    var value = Number.isFinite(ms) ? Math.max(0, Math.round(ms)) : 0;
+    var hours = Math.floor(value / 3600000);
+    var minutes = Math.floor((value % 3600000) / 60000);
+    var seconds = Math.floor((value % 60000) / 1000);
+    var millis = value % 1000;
+    return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0') + '.' + String(millis).padStart(3, '0');
+  }
+
+  function parseReplayTimecode(raw) {
+    var value = String(raw || '').trim();
+    if (!value) return null;
+    var parts = value.split(':').map(function (token) {
+      return Number(token);
+    });
+    if (parts.some(function (n) { return !Number.isFinite(n); })) {
+      return null;
+    }
+    if (parts.length === 3) {
+      return Math.max(0, (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000);
+    }
+    if (parts.length === 2) {
+      return Math.max(0, (parts[0] * 60 + parts[1]) * 1000);
+    }
+    return null;
+  }
+
+  function clampReplayClock(ms) {
+    if (!Number.isFinite(ms)) return 0;
+    return Math.min(REPLAY_MAX_MS, Math.max(0, Math.round(ms)));
+  }
+
+  function setFlash(state, message, tone) {
+    state.flash = {
+      message: String(message || ''),
+      tone: tone || 'info',
+      expiresAt: Date.now() + 3200,
+    };
+  }
+
+  function getFlash(state) {
+    if (!state.flash) return null;
+    if (Date.now() > state.flash.expiresAt) {
+      state.flash = null;
+      return null;
+    }
+    return state.flash;
+  }
+
+  function withSessionQuery(path, state) {
+    var params = new URLSearchParams();
+    if (state.sessionId) params.set('sessionId', state.sessionId);
+    if (state.joinCode) params.set('joinCode', state.joinCode);
+    var query = params.toString();
+    return query ? (path + '?' + query) : path;
+  }
+
+  function getTabRoute(tabKey, state) {
+    if (tabKey === 'live') return withSessionQuery('/console/live', state);
+    if (tabKey === 'replay') return withSessionQuery('/console/replay', state);
+    if (tabKey === 'archive') return withSessionQuery('/archives', state);
+    if (tabKey === 'hub') return withSessionQuery('/ops', state);
+    if (tabKey === 'strategy') {
+      if (state.sessionId) {
+        return '/host/' + encodeURIComponent(state.sessionId) + '?preset=host';
+      }
+      return '/ops?preset=ops';
+    }
+    if (tabKey === 'garage') {
+      if (state.sessionId) {
+        return '/viewer/' + encodeURIComponent(state.sessionId) + '?preset=live';
+      }
+      return '/rooms';
+    }
+    return '';
+  }
+
+  function commandLabelFromKey(cmd) {
+    return String(cmd || '').replace(/_/g, ' ').toUpperCase().trim();
+  }
+
   function buildJoinApi(joinCode, query) {
     var params = new URLSearchParams();
     if (query.password) params.set('password', query.password);
@@ -85,8 +168,8 @@
     return '/api/viewer/join/' + encodeURIComponent(joinCode) + (q ? ('?' + q) : '');
   }
 
-  async function apiJson(url) {
-    var res = await fetch(url);
+  async function apiJson(url, options) {
+    var res = await fetch(url, options);
     var data = await res.json();
     if (!res.ok) {
       var err = new Error(data.error || data.reason || data.viewerStatus || 'api_failed');
@@ -166,7 +249,7 @@
     return row.teamName || 'TEAM';
   }
 
-  function buildHeader(state, mode) {
+  function buildHeader(state, mode, activeTab) {
     var session = state.session || {};
     var snapshot = session.snapshot || null;
     var meta = snapshot && snapshot.sessionMeta ? snapshot.sessionMeta : null;
@@ -189,7 +272,7 @@
 
     return '<header class="top-nav">' +
       '<div class="brand-title">' + esc(title) + '</div>' +
-      P.navTabs(tabs, mode === 'replay' ? 'replay' : 'live') +
+      P.navTabs(tabs, activeTab || (mode === 'replay' ? 'replay' : 'live')) +
       '<div class="top-meta">SESSION ' + esc(safe(state.access && state.access.roomTitle, 'GP: MONZA')) + ' | LAPS ' + esc(lap) + '/' + esc(total) + '</div>' +
       '<div class="top-icons-row">' +
         '<span class="top-icon">S</span>' +
@@ -199,32 +282,65 @@
     '</header>';
   }
 
-  function buildIconRail(mode) {
+  function buildIconRail(mode, state) {
+    var activeRail = mode === 'replay'
+      ? (state.activeReplayRail || 'map')
+      : (state.activeLiveRail || 'ver');
+
     if (mode === 'replay') {
       return P.iconRail([
-        { icon: 'X', label: 'TELEM', active: false },
-        { icon: 'M', label: 'MAP', active: true },
-        { icon: 'D', label: 'SYNC', active: false },
-        { icon: 'T', label: 'TIRES', active: false },
-        { icon: 'S', label: 'STRAT', active: false },
+        { key: 'telem', icon: 'X', label: 'TELEM', active: activeRail === 'telem' },
+        { key: 'map', icon: 'M', label: 'MAP', active: activeRail === 'map' },
+        { key: 'sync', icon: 'D', label: 'SYNC', active: activeRail === 'sync' },
+        { key: 'tires', icon: 'T', label: 'TIRES', active: activeRail === 'tires' },
+        { key: 'strat', icon: 'S', label: 'STRAT', active: activeRail === 'strat' },
       ], [
-        { icon: 'L', label: 'LOG' },
+        { key: 'log', icon: 'L', label: 'LOG', active: activeRail === 'log' },
       ]);
     }
 
     return P.iconRail([
-      { icon: 'G', label: 'GRID', active: false },
-      { icon: 'V', label: 'VER', active: true },
-      { icon: 'P', label: 'PER', active: false },
-      { icon: 'L', label: 'LEC', active: false },
-      { icon: 'S', label: 'SAI', active: false },
-      { icon: 'H', label: 'HAM', active: false },
-      { icon: 'R', label: 'RUS', active: false },
+      { key: 'grid', icon: 'G', label: 'GRID', active: activeRail === 'grid' },
+      { key: 'ver', icon: 'V', label: 'VER', active: activeRail === 'ver' },
+      { key: 'per', icon: 'P', label: 'PER', active: activeRail === 'per' },
+      { key: 'lec', icon: 'L', label: 'LEC', active: activeRail === 'lec' },
+      { key: 'sai', icon: 'S', label: 'SAI', active: activeRail === 'sai' },
+      { key: 'ham', icon: 'H', label: 'HAM', active: activeRail === 'ham' },
+      { key: 'rus', icon: 'R', label: 'RUS', active: activeRail === 'rus' },
     ], [
-      { icon: '+', label: '' },
-      { icon: 'M', label: '' },
-      { icon: 'C', label: '' },
+      { key: 'add', icon: '+', label: '', active: activeRail === 'add' },
+      { key: 'map', icon: 'M', label: '', active: activeRail === 'map' },
+      { key: 'cam', icon: 'C', label: '', active: activeRail === 'cam' },
     ]);
+  }
+
+  function buildStatusLine(state, mode) {
+    var flash = getFlash(state);
+    var health = state.health && state.health.health ? String(state.health.health).toUpperCase() : 'UNKNOWN';
+    var errorText = state.error ? ('ERROR: ' + state.error) : 'stream nominal';
+    if (mode === 'replay') {
+      var playback = state.playback || {};
+      var speed = Number(playback.speed);
+      var speedLabel = Number.isFinite(speed) ? speed.toFixed(1) + 'X' : '1.0X';
+      return '<section class="console-status-line">' +
+        '<span class="status-chip">REPLAY ' + (playback.isPlaying ? 'PLAYING' : 'PAUSED') + '</span>' +
+        '<span class="status-chip">SPEED ' + esc(speedLabel) + '</span>' +
+        '<span class="status-chip">TC ' + esc(formatReplayClock(playback.clockMs || 0)) + '</span>' +
+        (flash ? '<span class="status-flash status-flash-' + esc(flash.tone) + '">' + esc(flash.message) + '</span>' : '<span class="status-text">preview controls active</span>') +
+      '</section>';
+    }
+
+    var last = state.lastCommand
+      ? ('LAST CMD: ' + state.lastCommand.label + ' @ ' + state.lastCommand.at)
+      : 'LAST CMD: -';
+    var line = state.error ? errorText : last;
+
+    return '<section class="console-status-line">' +
+      '<span class="status-chip">HEALTH ' + esc(health) + '</span>' +
+      '<span class="status-chip">SESSION ' + esc(safe(state.sessionId, 'pending')) + '</span>' +
+      '<span class="status-chip">JOIN ' + esc(safe(state.joinCode, '-')) + '</span>' +
+      (flash ? '<span class="status-flash status-flash-' + esc(flash.tone) + '">' + esc(flash.message) + '</span>' : '<span class="status-text">' + esc(line) + '</span>') +
+    '</section>';
   }
 
   function buildDriverPanel(state) {
@@ -398,10 +514,11 @@
 
   function renderLiveShell(root, state) {
     root.innerHTML =
-      buildHeader(state, 'live') +
+      buildHeader(state, 'live', 'live') +
       '<div class="console-shell">' +
-        buildIconRail('live') +
+        buildIconRail('live', state) +
         '<main class="console-main">' +
+          buildStatusLine(state, 'live') +
           '<div class="live-body-grid">' +
             '<div class="live-col-left">' + buildDriverPanel(state) + '</div>' +
             '<div class="live-col-center">' + buildTrackPanel(state) + '</div>' +
@@ -423,7 +540,11 @@
     ]);
   }
 
-  function renderReplayShell(root) {
+  function renderReplayShell(root, state) {
+    var playback = state.playback || {};
+    var speedValue = Number(playback.speed);
+    var speedLabel = Number.isFinite(speedValue) ? speedValue.toFixed(1) + 'X' : '1.8X';
+
     var left = P.panel('Classification',
       P.classificationItem('01', 'VER', 'RED BULL', 'LEADER', '53', true) +
       P.classificationItem('02', 'LEC', 'FERRARI', '+1.242', '53', true) +
@@ -450,24 +571,174 @@
     );
 
     root.innerHTML =
-      buildHeader({}, 'replay') +
+      buildHeader(state, 'replay', 'replay') +
       '<div class="console-shell">' +
-        buildIconRail('replay') +
+        buildIconRail('replay', state) +
         '<main class="console-main">' +
+          buildStatusLine(state, 'replay') +
           '<div class="replay-layout">' +
             left +
             '<div class="live-col-center">' + centerTop + centerBottom + '</div>' +
             right +
           '</div>' +
           P.playbackBar({
-            time: '01:28:44.215',
-            isPlaying: false,
-            speed: '1.8X',
-            latency: '0.02s',
-            buffer: '96%',
+            time: formatReplayClock(playback.clockMs || 0),
+            isPlaying: !!playback.isPlaying,
+            speed: speedLabel,
+            latency: playback.latency || '0.02s',
+            buffer: playback.buffer || '96%',
           }) +
         '</main>' +
       '</div>';
+  }
+
+  async function postConsoleCommand(state, cmdKey) {
+    if (!state.sessionId) {
+      throw new Error('session_unavailable');
+    }
+
+    var lap = null;
+    if (state.session && state.session.snapshot && state.session.snapshot.sessionMeta) {
+      lap = Number(state.session.snapshot.sessionMeta.currentLap);
+    }
+
+    var payload = {
+      category: 'strategy',
+      authorLabel: 'Engineer',
+      severity: 'medium',
+      text: '[CONSOLE_CMD] ' + commandLabelFromKey(cmdKey),
+    };
+    if (Number.isFinite(lap) && lap > 0) {
+      payload.lap = Math.floor(lap);
+    }
+
+    await apiJson('/api/viewer/notes/' + encodeURIComponent(state.sessionId), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  function renderByMode(root, state) {
+    if (state.mode === 'replay') {
+      renderReplayShell(root, state);
+      return;
+    }
+    renderLiveShell(root, state);
+  }
+
+  function wireConsoleInteractions(root, state) {
+    root.addEventListener('click', async function (event) {
+      var rawTarget = event.target;
+      if (!(rawTarget instanceof Element)) return;
+
+      var target = rawTarget.closest('[data-tab-key],[data-cmd],[data-action],[data-speed],[data-rail-key]');
+      if (!target || !root.contains(target)) return;
+
+      if (target.tagName === 'A') {
+        event.preventDefault();
+      }
+
+      var tabKey = target.getAttribute('data-tab-key');
+      if (tabKey) {
+        var route = getTabRoute(tabKey, state);
+        if (route) {
+          window.location.assign(route);
+        }
+        return;
+      }
+
+      var railKey = target.getAttribute('data-rail-key');
+      if (railKey) {
+        if (state.mode === 'replay') {
+          state.activeReplayRail = railKey;
+        } else {
+          state.activeLiveRail = railKey;
+        }
+        setFlash(state, 'PANEL: ' + String(railKey).toUpperCase(), 'info');
+        renderByMode(root, state);
+        return;
+      }
+
+      var cmd = target.getAttribute('data-cmd');
+      if (cmd) {
+        var cmdLabel = commandLabelFromKey(cmd);
+        try {
+          setFlash(state, 'COMMAND SENDING: ' + cmdLabel, 'info');
+          renderByMode(root, state);
+          await postConsoleCommand(state, cmd);
+          state.lastCommand = {
+            label: cmdLabel,
+            at: new Date().toLocaleTimeString(),
+          };
+          setFlash(state, 'COMMAND LOGGED: ' + cmdLabel, 'ok');
+        } catch (err) {
+          setFlash(state, 'COMMAND FAILED: ' + (err && err.message ? err.message : 'unknown_error'), 'error');
+        }
+        renderByMode(root, state);
+        return;
+      }
+
+      var speed = target.getAttribute('data-speed');
+      if (speed) {
+        var speedNum = Number(speed);
+        if (Number.isFinite(speedNum) && speedNum > 0) {
+          state.playback.speed = speedNum;
+          setFlash(state, 'SPEED SET: ' + speedNum.toFixed(1) + 'X', 'ok');
+          renderReplayShell(root, state);
+        }
+        return;
+      }
+
+      var action = target.getAttribute('data-action');
+      if (!action) return;
+
+      if (action === 'toggle-driver') {
+        var driver = target.getAttribute('data-driver') || 'DRIVER';
+        var enabled = target instanceof HTMLInputElement ? target.checked : true;
+        setFlash(state, (enabled ? 'TRACKING ON: ' : 'TRACKING OFF: ') + driver, 'info');
+        renderByMode(root, state);
+        return;
+      }
+
+      if (state.mode !== 'replay') {
+        return;
+      }
+
+      if (action === 'play-pause') {
+        state.playback.isPlaying = !state.playback.isPlaying;
+        setFlash(state, state.playback.isPlaying ? 'PLAYBACK RUNNING' : 'PLAYBACK PAUSED', 'ok');
+      } else if (action === 'skip-start') {
+        state.playback.clockMs = 0;
+        state.playback.isPlaying = false;
+        setFlash(state, 'MOVED TO START', 'info');
+      } else if (action === 'step-back') {
+        state.playback.clockMs = clampReplayClock((state.playback.clockMs || 0) - 5000);
+        setFlash(state, 'STEP BACK 5S', 'info');
+      } else if (action === 'step-forward') {
+        state.playback.clockMs = clampReplayClock((state.playback.clockMs || 0) + 5000);
+        setFlash(state, 'STEP FORWARD 5S', 'info');
+      } else if (action === 'skip-end') {
+        state.playback.clockMs = REPLAY_MAX_MS;
+        state.playback.isPlaying = false;
+        setFlash(state, 'MOVED TO END', 'info');
+      } else if (action === 'sync-live') {
+        state.playback.clockMs = 0;
+        state.playback.isPlaying = false;
+        setFlash(state, 'SYNCED TO LIVE EDGE', 'ok');
+      } else if (action === 'jump_to_timecode') {
+        var jumped = parseReplayTimecode(target.getAttribute('data-time'));
+        if (Number.isFinite(jumped)) {
+          state.playback.clockMs = clampReplayClock(jumped);
+          state.playback.isPlaying = false;
+          setFlash(state, 'JUMPED TO ' + formatReplayClock(jumped), 'ok');
+        }
+      }
+
+      renderReplayShell(root, state);
+    });
   }
 
   function boot() {
@@ -477,13 +748,9 @@
     }
 
     var type = document.body.getAttribute('data-console-type');
-    if (type === 'replay') {
-      renderReplayShell(root);
-      return;
-    }
-
     var query = parseQuery();
     var state = {
+      mode: type === 'replay' ? 'replay' : 'live',
       sessionId: query.sessionId || '',
       joinCode: query.joinCode || '',
       query: query,
@@ -495,7 +762,39 @@
       health: null,
       timeline: null,
       error: null,
+      flash: null,
+      lastCommand: null,
+      playback: {
+        clockMs: 0,
+        isPlaying: false,
+        speed: 1.8,
+        latency: '0.02s',
+        buffer: '96%',
+      },
+      activeLiveRail: 'ver',
+      activeReplayRail: 'map',
     };
+
+    wireConsoleInteractions(root, state);
+
+    if (state.mode === 'replay') {
+      renderReplayShell(root, state);
+      window.setInterval(function () {
+        if (!state.playback.isPlaying) {
+          return;
+        }
+        var speed = Number(state.playback.speed);
+        var delta = Number.isFinite(speed) ? Math.max(0.5, speed) * 1000 : 1000;
+        state.playback.clockMs = clampReplayClock((state.playback.clockMs || 0) + delta);
+        if (state.playback.clockMs >= REPLAY_MAX_MS) {
+          state.playback.clockMs = REPLAY_MAX_MS;
+          state.playback.isPlaying = false;
+          setFlash(state, 'REPLAY END REACHED', 'info');
+        }
+        renderReplayShell(root, state);
+      }, 1000);
+      return;
+    }
 
     async function resolveTargetSession() {
       if (state.sessionId) {
@@ -550,7 +849,7 @@
         state.error = err && err.message ? err.message : String(err);
       }
 
-      renderLiveShell(root, state);
+      renderByMode(root, state);
     }
 
     tick();

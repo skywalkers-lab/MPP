@@ -112,4 +112,54 @@ describe('Session Notes API', () => {
       timeline.body.timeline.some((i: any) => i.kind === 'ops_event')
     ).toBe(true);
   });
+
+  it('공유 세션에 Permission Code가 설정되면 노트 작성은 strategist 권한을 요구한다', async () => {
+    const prevFlag = process.env.MPP_REQUIRE_PERMISSION_FOR_MUTATIONS;
+    process.env.MPP_REQUIRE_PERMISSION_FOR_MUTATIONS = '1';
+
+    try {
+      await request(app)
+        .patch(`/api/viewer/session-access/${sessionId}`)
+        .send({
+          shareEnabled: true,
+          visibility: 'code',
+          roomPassword: 'pitwall',
+          permissionCode: 'STRAT99',
+        })
+        .expect(200);
+
+      let post = await request(app)
+        .post(`/api/viewer/notes/${sessionId}`)
+        .send({ text: 'unauthorized note', category: 'general', authorLabel: 'Engineer' });
+      expect(post.status).toBe(403);
+      expect(post.body.accessError.code).toBe('password_required');
+
+      post = await request(app)
+        .post(`/api/viewer/notes/${sessionId}`)
+        .set('x-room-password', 'pitwall')
+        .send({ text: 'still unauthorized', category: 'general', authorLabel: 'Engineer' });
+      expect(post.status).toBe(403);
+      expect(post.body.accessError.code).toBe('permission_required');
+
+      post = await request(app)
+        .post(`/api/viewer/notes/${sessionId}`)
+        .set('x-room-password', 'pitwall')
+        .set('x-permission-code', 'STRAT99')
+        .send({ text: 'authorized note', category: 'strategy', authorLabel: 'Strategist' });
+      expect(post.status).toBe(201);
+
+      const list = await request(app)
+        .get(`/api/viewer/notes/${sessionId}`)
+        .set('x-room-password', 'pitwall');
+      expect(list.status).toBe(200);
+      expect(list.body.count).toBe(1);
+      expect(list.body.notes[0].text).toBe('authorized note');
+    } finally {
+      if (prevFlag === undefined) {
+        delete process.env.MPP_REQUIRE_PERMISSION_FOR_MUTATIONS;
+      } else {
+        process.env.MPP_REQUIRE_PERMISSION_FOR_MUTATIONS = prevFlag;
+      }
+    }
+  });
 });

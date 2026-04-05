@@ -1125,83 +1125,301 @@ export class RelayServer {
     telemetrySessionUid: string | null,
     connId: string
   ): string {
+    const currentCanonicalSessionId =
+      this.resolveCanonicalSessionId(currentSessionId).canonicalSessionId;
+
     if (!telemetrySessionUid || telemetrySessionUid.length === 0) {
-      return currentSessionId;
+      return currentCanonicalSessionId;
     }
 
-    const mapped = this.telemetrySessionUidToSessionId.get(telemetrySessionUid);
-    if (!mapped) {
-      this.telemetrySessionUidToSessionId.set(telemetrySessionUid, currentSessionId);
-      return currentSessionId;
+    const mappedSessionId = this.telemetrySessionUidToSessionId.get(telemetrySessionUid);
+    if (!mappedSessionId) {
+      this.telemetrySessionUidToSessionId.set(
+        telemetrySessionUid,
+        currentCanonicalSessionId
+      );
+      return currentCanonicalSessionId;
     }
 
-    if (mapped === currentSessionId) {
-      return currentSessionId;
+    const mappedCanonicalSessionId =
+      this.resolveCanonicalSessionId(mappedSessionId).canonicalSessionId;
+
+    if (mappedCanonicalSessionId === currentCanonicalSessionId) {
+      this.telemetrySessionUidToSessionId.set(
+        telemetrySessionUid,
+        mappedCanonicalSessionId
+      );
+      return mappedCanonicalSessionId;
     }
 
-    const sourceSession = this.sessions.get(currentSessionId);
-    const targetSession = this.sessions.get(mapped);
-    if (!sourceSession || !targetSession) {
-      this.telemetrySessionUidToSessionId.set(telemetrySessionUid, currentSessionId);
-      return currentSessionId;
+    const currentSession = this.sessions.get(currentCanonicalSessionId);
+    const mappedSession = this.sessions.get(mappedCanonicalSessionId);
+
+    if (!currentSession && mappedSession) {
+      this.untrackConnectionForSession(connId, currentCanonicalSessionId);
+      this.trackConnectionForSession(connId, mappedCanonicalSessionId);
+      this.connToSession.set(connId, mappedCanonicalSessionId);
+      this.telemetrySessionUidToSessionId.set(
+        telemetrySessionUid,
+        mappedCanonicalSessionId
+      );
+      return mappedCanonicalSessionId;
+    }
+
+    if (currentSession && !mappedSession) {
+      this.telemetrySessionUidToSessionId.set(
+        telemetrySessionUid,
+        currentCanonicalSessionId
+      );
+      return currentCanonicalSessionId;
+    }
+
+    if (!currentSession || !mappedSession) {
+      this.telemetrySessionUidToSessionId.set(
+        telemetrySessionUid,
+        currentCanonicalSessionId
+      );
+      return currentCanonicalSessionId;
+    }
+
+    const canonicalSessionId = this.pickCanonicalSessionId(
+      currentSession,
+      mappedSession
+    );
+    const aliasSessionId =
+      canonicalSessionId === currentCanonicalSessionId
+        ? mappedCanonicalSessionId
+        : currentCanonicalSessionId;
+
+    this.telemetrySessionUidToSessionId.set(telemetrySessionUid, canonicalSessionId);
+    this.mergeSessionAlias(aliasSessionId, canonicalSessionId, telemetrySessionUid);
+
+    return canonicalSessionId;
+  }
+
+  private pickCanonicalSessionId(left: RelaySession, right: RelaySession): string {
+    if (left.latestSequence !== right.latestSequence) {
+      return left.latestSequence >= right.latestSequence
+        ? left.sessionId
+        : right.sessionId;
+    }
+
+    const leftConnections = this.sessionToConnections.get(left.sessionId)?.size ?? 0;
+    const rightConnections = this.sessionToConnections.get(right.sessionId)?.size ?? 0;
+    if (leftConnections !== rightConnections) {
+      return leftConnections >= rightConnections ? left.sessionId : right.sessionId;
+    }
+
+    if (left.updatedAt !== right.updatedAt) {
+      return left.updatedAt >= right.updatedAt ? left.sessionId : right.sessionId;
+    }
+
+    if (left.createdAt !== right.createdAt) {
+      return left.createdAt <= right.createdAt ? left.sessionId : right.sessionId;
+    }
+
+    return left.sessionId <= right.sessionId ? left.sessionId : right.sessionId;
+  }
+
+  private mergeSessionAlias(
+    aliasSessionId: string,
+    canonicalSessionId: string,
+    telemetrySessionUid: string
+  ): void {
+    if (aliasSessionId === canonicalSessionId) {
+      return;
+    }
+
+    const aliasSession = this.sessions.get(aliasSessionId);
+    const canonicalSession = this.sessions.get(canonicalSessionId);
+    if (!aliasSession || !canonicalSession) {
+      return;
     }
 
     const mergedAt = Date.now();
+    this.rebindSessionConnections(
+      aliasSessionId,
+      canonicalSessionId,
+      telemetrySessionUid,
+      mergedAt
+    );
 
-    this.untrackConnectionForSession(connId, currentSessionId);
-    this.trackConnectionForSession(connId, mapped);
-    this.connToSession.set(connId, mapped);
-
-    const sourceJoinCode = this.sessionAccess.get(currentSessionId)?.joinCode;
-    if (sourceJoinCode) {
-      this.joinCodeToSessionId.set(sourceJoinCode, mapped);
+    if (
+      aliasSession.latestSequence > canonicalSession.latestSequence ||
+      (aliasSession.latestSequence === canonicalSession.latestSequence &&
+        aliasSession.updatedAt > canonicalSession.updatedAt)
+    ) {
+      canonicalSession.latestSequence = aliasSession.latestSequence;
+      canonicalSession.latestState = aliasSession.latestState;
+    } else if (!canonicalSession.latestState && aliasSession.latestState) {
+      canonicalSession.latestState = aliasSession.latestState;
     }
 
-    this.archiveStore.mergeActiveRecordings(currentSessionId, mapped);
-    const sourceCache = this.strategyCache.get(currentSessionId);
-    const targetCache = this.strategyCache.get(mapped);
-    if (!targetCache && sourceCache) {
-      this.strategyCache.set(mapped, sourceCache);
-    }
-    this.sessions.delete(currentSessionId);
-    this.sessionAccess.delete(currentSessionId);
-    this.strategyCache.delete(currentSessionId);
-    this.sessionAliasToCanonical.set(currentSessionId, {
-      canonicalSessionId: mapped,
+    canonicalSession.updatedAt = Math.max(
+      canonicalSession.updatedAt,
+      aliasSession.updatedAt,
+      mergedAt
+    );
+    canonicalSession.lastHeartbeatAt = Math.max(
+      canonicalSession.lastHeartbeatAt,
+      aliasSession.lastHeartbeatAt,
+      mergedAt
+    );
+    canonicalSession.status = 'active';
+
+    this.remapJoinCodes(aliasSessionId, canonicalSessionId);
+    this.mergeSessionAccessRecords(aliasSessionId, canonicalSessionId, mergedAt);
+    this.notesStore.mergeSessions(aliasSessionId, canonicalSessionId);
+    this.archiveStore.mergeActiveRecordings(aliasSessionId, canonicalSessionId);
+    this.mergeStrategyCaches(aliasSessionId, canonicalSessionId);
+
+    this.sessions.delete(aliasSessionId);
+    this.strategyCache.delete(aliasSessionId);
+    this.sessionAliasToCanonical.set(aliasSessionId, {
+      canonicalSessionId,
       telemetrySessionUid,
       mergedAt,
     });
-    this.sessionSyncUntil.set(mapped, mergedAt + 8000);
+    this.sessionSyncUntil.set(canonicalSessionId, mergedAt + 8000);
 
-    targetSession.updatedAt = mergedAt;
-    targetSession.lastHeartbeatAt = mergedAt;
-    targetSession.status = 'active';
-
-    this.emitOpsEvent('session_rebound', mapped, {
-      previousSessionId: currentSessionId,
-      canonicalSessionId: mapped,
+    this.emitOpsEvent('session_rebound', canonicalSessionId, {
+      previousSessionId: aliasSessionId,
+      canonicalSessionId,
       telemetrySessionUid,
       mergedAt,
     });
 
-    const ws = this.connToWs.get(connId);
-    if (ws) {
+    this.logger.info(
+      `[Relay] Merged telemetry session ${telemetrySessionUid}: ${aliasSessionId} -> ${canonicalSessionId}`
+    );
+  }
+
+  private rebindSessionConnections(
+    fromSessionId: string,
+    toSessionId: string,
+    telemetrySessionUid: string,
+    mergedAt: number
+  ): void {
+    const sourceConnections = Array.from(
+      this.sessionToConnections.get(fromSessionId) ?? []
+    );
+
+    for (const connectionId of sourceConnections) {
+      this.untrackConnectionForSession(connectionId, fromSessionId);
+      this.trackConnectionForSession(connectionId, toSessionId);
+      this.connToSession.set(connectionId, toSessionId);
+
+      const ws = this.connToWs.get(connectionId);
+      if (!ws) {
+        continue;
+      }
+
       ws.send(
         JSON.stringify({
           type: 'session_rebound',
-          sessionId: mapped,
-          previousSessionId: currentSessionId,
+          sessionId: toSessionId,
+          previousSessionId: fromSessionId,
           telemetrySessionUid,
           mergedAt,
         })
       );
     }
+  }
 
-    this.logger.info(
-      `[Relay] Merged telemetry session ${telemetrySessionUid}: ${currentSessionId} -> ${mapped}`
-    );
+  private remapJoinCodes(fromSessionId: string, toSessionId: string): void {
+    for (const [joinCode, mappedSessionId] of this.joinCodeToSessionId.entries()) {
+      if (mappedSessionId === fromSessionId) {
+        this.joinCodeToSessionId.set(joinCode, toSessionId);
+      }
+    }
+  }
 
-    return mapped;
+  private mergeSessionAccessRecords(
+    fromSessionId: string,
+    toSessionId: string,
+    mergedAt: number
+  ): void {
+    const sourceAccess = this.sessionAccess.get(fromSessionId);
+    const targetAccess = this.sessionAccess.get(toSessionId);
+
+    if (!sourceAccess && !targetAccess) {
+      return;
+    }
+
+    if (!targetAccess && sourceAccess) {
+      this.sessionAccess.set(toSessionId, {
+        ...sourceAccess,
+        sessionId: toSessionId,
+        updatedAt: Math.max(sourceAccess.updatedAt, mergedAt),
+      });
+      this.sessionAccess.delete(fromSessionId);
+      if (sourceAccess.joinCode) {
+        this.joinCodeToSessionId.set(sourceAccess.joinCode, toSessionId);
+      }
+      return;
+    }
+
+    if (sourceAccess && targetAccess) {
+      if (!targetAccess.roomTitle && sourceAccess.roomTitle) {
+        targetAccess.roomTitle = sourceAccess.roomTitle;
+      }
+      if (!targetAccess.roomPassword && sourceAccess.roomPassword) {
+        targetAccess.roomPassword = sourceAccess.roomPassword;
+      }
+      if (!targetAccess.permissionCode && sourceAccess.permissionCode) {
+        targetAccess.permissionCode = sourceAccess.permissionCode;
+      }
+      if (!targetAccess.driverLabel && sourceAccess.driverLabel) {
+        targetAccess.driverLabel = sourceAccess.driverLabel;
+      }
+      if (!targetAccess.carLabel && sourceAccess.carLabel) {
+        targetAccess.carLabel = sourceAccess.carLabel;
+      }
+
+      targetAccess.visibility =
+        targetAccess.visibility === 'code' || sourceAccess.visibility === 'code'
+          ? 'code'
+          : 'private';
+      targetAccess.shareEnabled = targetAccess.shareEnabled || sourceAccess.shareEnabled;
+      targetAccess.createdAt = Math.min(targetAccess.createdAt, sourceAccess.createdAt);
+      targetAccess.updatedAt = Math.max(
+        targetAccess.updatedAt,
+        sourceAccess.updatedAt,
+        mergedAt
+      );
+
+      if (sourceAccess.joinCode) {
+        this.joinCodeToSessionId.set(sourceAccess.joinCode, toSessionId);
+      }
+      if (targetAccess.joinCode) {
+        this.joinCodeToSessionId.set(targetAccess.joinCode, toSessionId);
+      }
+      this.archiveStore.updateAccessMetadata(toSessionId, {
+        joinCode: targetAccess.joinCode,
+        visibility: targetAccess.visibility,
+      });
+    }
+
+    this.sessionAccess.delete(fromSessionId);
+  }
+
+  private mergeStrategyCaches(fromSessionId: string, toSessionId: string): void {
+    const sourceCache = this.strategyCache.get(fromSessionId);
+    const targetCache = this.strategyCache.get(toSessionId);
+    if (!sourceCache) {
+      return;
+    }
+
+    if (!targetCache) {
+      this.strategyCache.set(toSessionId, sourceCache);
+      return;
+    }
+
+    const sourceSeq = sourceCache.latestSequence ?? -1;
+    const targetSeq = targetCache.latestSequence ?? -1;
+    if (sourceSeq > targetSeq) {
+      this.strategyCache.set(toSessionId, sourceCache);
+    }
   }
 
   private startDebugHttp(port: number) {

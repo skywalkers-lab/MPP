@@ -58,4 +58,29 @@ export class InMemorySessionNotesStore {
         }
         return latest;
     }
+    mergeSessions(fromSessionId, toSessionId) {
+        if (fromSessionId === toSessionId) {
+            return;
+        }
+        const source = this.notesBySession.get(fromSessionId);
+        if (!source || source.length === 0) {
+            return;
+        }
+        const target = this.notesBySession.get(toSessionId) ?? [];
+        const merged = [
+            ...target,
+            ...source.map((note) => ({
+                ...note,
+                sessionId: toSessionId,
+            })),
+        ];
+        merged.sort((a, b) => {
+            if (a.timestamp !== b.timestamp) {
+                return a.timestamp - b.timestamp;
+            }
+            return a.createdAt - b.createdAt;
+        });
+        this.notesBySession.set(toSessionId, merged);
+        this.notesBySession.delete(fromSessionId);
+    }
 }

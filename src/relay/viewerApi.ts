@@ -1,5 +1,6 @@
-import express from 'express';
-import { RelayServer } from './RelayServer';
+import { timingSafeEqual } from 'crypto';
+import express, { Request, Response } from 'express';
+import { RelayServer, SessionAccessRecord } from './RelayServer';
 import { serializeViewerSession } from './viewerStatus';
 import { serializeSessionAccess } from './RelayServer';
 import {
@@ -13,8 +14,303 @@ import {
 export function createViewerApiRouter(relayServer: RelayServer) {
   const router = express.Router();
 
+  type ViewerRole = 'viewer' | 'engineer' | 'strategist' | 'ops';
+  type RequestedViewerRole = 'viewer' | 'engineer' | 'strategist';
+
+  const viewerRoleRank: Record<ViewerRole, number> = {
+    viewer: 0,
+    engineer: 1,
+    strategist: 2,
+    ops: 3,
+  };
+
   function readQueryString(v: unknown): string {
     return typeof v === 'string' ? v.trim() : '';
+  }
+
+  function readHeaderString(v: unknown): string {
+    if (Array.isArray(v)) {
+      return typeof v[0] === 'string' ? v[0].trim() : '';
+    }
+    return typeof v === 'string' ? v.trim() : '';
+  }
+
+  function secureCompareSecret(expected: string, provided: string): boolean {
+    const expectedBuf = Buffer.from(expected, 'utf8');
+    const providedBuf = Buffer.from(provided, 'utf8');
+    if (expectedBuf.length !== providedBuf.length) {
+      return false;
+    }
+    return timingSafeEqual(expectedBuf, providedBuf);
+  }
+
+  function readRequiredOpsToken(): string {
+    return (process.env.MPP_OPS_TOKEN || '').trim();
+  }
+
+  function readOpsTokenFromRequest(req: Request): string {
+    const authHeader = readHeaderString(req.headers.authorization);
+    if (authHeader.toLowerCase().startsWith('bearer ')) {
+      return authHeader.slice(7).trim();
+    }
+
+    const tokenHeader = readHeaderString(req.headers['x-ops-token']);
+    if (tokenHeader) {
+      return tokenHeader;
+    }
+
+    return authHeader;
+  }
+
+  function isLoopbackAddress(address: string): boolean {
+    const normalized = address.trim();
+    if (!normalized) {
+      return false;
+    }
+    if (normalized === '::1' || normalized === '127.0.0.1') {
+      return true;
+    }
+    if (normalized.startsWith('::ffff:')) {
+      return normalized.slice(7) === '127.0.0.1';
+    }
+    return false;
+  }
+
+  function isLoopbackHost(hostHeader: string): boolean {
+    const host = hostHeader.split(':')[0].trim().toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+  }
+
+  function isTrustedLocalRequest(req: Request): boolean {
+    const remoteAddress = req.socket.remoteAddress || '';
+    if (isLoopbackAddress(remoteAddress)) {
+      return true;
+    }
+
+    const hostHeader = readHeaderString(req.headers.host);
+    return hostHeader ? isLoopbackHost(hostHeader) : false;
+  }
+
+  function allowLocalOpsBypass(): boolean {
+    const raw = (process.env.MPP_TRUST_LOCAL_OPS || '').trim().toLowerCase();
+    if (!raw) {
+      return true;
+    }
+    if (['0', 'false', 'off', 'no'].includes(raw)) {
+      return false;
+    }
+    return true;
+  }
+
+  function requirePermissionForMutations(): boolean {
+    const raw = (process.env.MPP_REQUIRE_PERMISSION_FOR_MUTATIONS || '')
+      .trim()
+      .toLowerCase();
+    if (!raw) {
+      return false;
+    }
+    return ['1', 'true', 'on', 'yes'].includes(raw);
+  }
+
+  function hasValidOpsToken(req: Request): boolean {
+    const requiredToken = readRequiredOpsToken();
+    if (!requiredToken) {
+      return false;
+    }
+    const providedToken = readOpsTokenFromRequest(req);
+    if (!providedToken) {
+      return false;
+    }
+    return secureCompareSecret(requiredToken, providedToken);
+  }
+
+  function requireOpsControlAccess(req: Request, res: Response): boolean {
+    const requiredToken = readRequiredOpsToken();
+    if (!requiredToken) {
+      return true;
+    }
+
+    if (
+      (allowLocalOpsBypass() && isTrustedLocalRequest(req)) ||
+      hasValidOpsToken(req)
+    ) {
+      return true;
+    }
+
+    res.status(401).json({ error: 'unauthorized' });
+    return false;
+  }
+
+  function readViewerCredentials(req: Request): {
+    roomPassword: string;
+    permissionCode: string;
+    usedQueryCredentials: boolean;
+    permissionProvided: boolean;
+  } {
+    const headerPassword = readHeaderString(req.headers['x-room-password']);
+    const queryPassword = readQueryString(req.query.password);
+    const roomPassword = headerPassword || queryPassword;
+
+    const headerPermission = readHeaderString(req.headers['x-permission-code']).toUpperCase();
+    const queryPermission = readQueryString(req.query.permissionCode).toUpperCase();
+    const permissionCode = headerPermission || queryPermission;
+
+    return {
+      roomPassword,
+      permissionCode,
+      usedQueryCredentials:
+        (!headerPassword && !!queryPassword) || (!headerPermission && !!queryPermission),
+      permissionProvided: permissionCode.length > 0,
+    };
+  }
+
+  function resolveSessionAccess(
+    requestedSessionId: string
+  ): {
+    canonicalSessionId: string;
+    rebound: ReturnType<typeof resolveSession>['rebound'];
+    access: SessionAccessRecord | undefined;
+  } {
+    const resolution = resolveSession(requestedSessionId);
+    const canonicalSessionId = resolution.canonicalSessionId;
+    const access = relayServer.getSessionAccess(canonicalSessionId);
+    return { canonicalSessionId, rebound: resolution.rebound, access };
+  }
+
+  function deriveGrantedViewerRole(
+    req: Request,
+    access: SessionAccessRecord | undefined
+  ): {
+    role: ViewerRole | null;
+    accessError?: { code: string; message: string };
+    permissionProvided: boolean;
+    usedQueryCredentials: boolean;
+  } {
+    if (hasValidOpsToken(req)) {
+      return {
+        role: 'ops',
+        permissionProvided: false,
+        usedQueryCredentials: false,
+      };
+    }
+
+    const credentials = readViewerCredentials(req);
+    if (!access || !access.shareEnabled || access.visibility !== 'code') {
+      return {
+        role: 'viewer',
+        permissionProvided: credentials.permissionProvided,
+        usedQueryCredentials: credentials.usedQueryCredentials,
+      };
+    }
+
+    const expectedPassword = access.roomPassword || '';
+    const expectedPermission = (access.permissionCode || '').trim().toUpperCase();
+
+    if (expectedPassword) {
+      if (!credentials.roomPassword) {
+        return {
+          role: null,
+          accessError: {
+            code: 'password_required',
+            message: '이 Room은 Password가 필요합니다.',
+          },
+          permissionProvided: credentials.permissionProvided,
+          usedQueryCredentials: credentials.usedQueryCredentials,
+        };
+      }
+
+      if (!secureCompareSecret(expectedPassword, credentials.roomPassword)) {
+        return {
+          role: null,
+          accessError: {
+            code: 'invalid_password',
+            message: 'Room Password가 일치하지 않습니다.',
+          },
+          permissionProvided: credentials.permissionProvided,
+          usedQueryCredentials: credentials.usedQueryCredentials,
+        };
+      }
+    }
+
+    const permissionGranted =
+      expectedPermission.length > 0 &&
+      credentials.permissionCode.length > 0 &&
+      secureCompareSecret(expectedPermission, credentials.permissionCode);
+
+    return {
+      role: permissionGranted ? 'strategist' : expectedPassword ? 'engineer' : 'viewer',
+      permissionProvided: credentials.permissionProvided,
+      usedQueryCredentials: credentials.usedQueryCredentials,
+    };
+  }
+
+  function ensureViewerRole(
+    req: Request,
+    res: Response,
+    requestedSessionId: string,
+    requiredRole: RequestedViewerRole | ((access: SessionAccessRecord | undefined) => RequestedViewerRole)
+  ):
+    | {
+        canonicalSessionId: string;
+        rebound: ReturnType<typeof resolveSession>['rebound'];
+        access: SessionAccessRecord | undefined;
+        role: ViewerRole;
+        usedQueryCredentials: boolean;
+      }
+    | null {
+    const { canonicalSessionId, rebound, access } = resolveSessionAccess(requestedSessionId);
+    const grant = deriveGrantedViewerRole(req, access);
+
+    if (!grant.role) {
+      res.status(403).json({
+        error: 'forbidden',
+        accessError: grant.accessError,
+        sessionId: canonicalSessionId,
+        requestedSessionId,
+        rebound,
+      });
+      return null;
+    }
+
+    const desiredRole =
+      typeof requiredRole === 'function' ? requiredRole(access) : requiredRole;
+    const effectiveRequiredRole: RequestedViewerRole =
+      access && access.shareEnabled && access.visibility === 'code'
+        ? desiredRole
+        : 'viewer';
+
+    if (viewerRoleRank[grant.role] < viewerRoleRank[effectiveRequiredRole]) {
+      const code =
+        effectiveRequiredRole === 'strategist'
+          ? grant.permissionProvided
+            ? 'invalid_permission_code'
+            : 'permission_required'
+          : 'password_required';
+
+      const message =
+        effectiveRequiredRole === 'strategist'
+          ? grant.permissionProvided
+            ? 'Permission Code가 일치하지 않습니다.'
+            : '이 작업은 Permission Code가 필요합니다.'
+          : '이 작업은 Room Password 권한이 필요합니다.';
+
+      res.status(403).json({
+        error: 'forbidden',
+        accessError: { code, message },
+        sessionId: canonicalSessionId,
+        requestedSessionId,
+        rebound,
+      });
+      return null;
+    }
+
+    return {
+      canonicalSessionId,
+      rebound,
+      access,
+      role: grant.role,
+      usedQueryCredentials: grant.usedQueryCredentials,
+    };
   }
 
   function getRelayInfo() {
@@ -108,12 +404,18 @@ export function createViewerApiRouter(relayServer: RelayServer) {
 
   // GET /api/viewer/ops/sessions
   router.get('/ops/sessions', (req, res) => {
+    if (!requireOpsControlAccess(req, res)) {
+      return;
+    }
     const sessions = relayServer.listSessionOpsSummaries();
     res.json({ sessions, count: sessions.length });
   });
 
   // GET /api/viewer/rooms/active
-  router.get('/rooms/active', (_req, res) => {
+  router.get('/rooms/active', (req, res) => {
+    if (!requireOpsControlAccess(req, res)) {
+      return;
+    }
     const rooms = relayServer
       .listSessionOpsSummaries()
       .filter((row) => row.relayStatus !== 'closed')
@@ -168,6 +470,9 @@ export function createViewerApiRouter(relayServer: RelayServer) {
 
   // GET /api/viewer/ops/events/recent?limit=50
   router.get('/ops/events/recent', (req, res) => {
+    if (!requireOpsControlAccess(req, res)) {
+      return;
+    }
     const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 50;
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, limitRaw)) : 50;
     const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
@@ -192,51 +497,128 @@ export function createViewerApiRouter(relayServer: RelayServer) {
 
   // GET /api/viewer/notes/:sessionId
   router.get('/notes/:sessionId', (req, res) => {
-    const { sessionId } = req.params;
-    const notes = relayServer.listSessionNotes(sessionId);
-    res.json({ sessionId, notes, count: notes.length });
+    const auth = ensureViewerRole(req, res, req.params.sessionId, 'viewer');
+    if (!auth) {
+      return;
+    }
+
+    const notes = relayServer.listSessionNotes(auth.canonicalSessionId);
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId: req.params.sessionId,
+      rebound: auth.rebound,
+      notes,
+      count: notes.length,
+    });
   });
 
   // POST /api/viewer/notes/:sessionId
   router.post('/notes/:sessionId', (req, res) => {
-    const { sessionId } = req.params;
+    const auth = ensureViewerRole(req, res, req.params.sessionId, (access) => {
+      if (!access || !access.shareEnabled || access.visibility !== 'code') {
+        return 'viewer';
+      }
+      if (requirePermissionForMutations() && access.permissionCode) {
+        return 'strategist';
+      }
+      if (access.roomPassword) {
+        return 'engineer';
+      }
+      return 'viewer';
+    });
+    if (!auth) {
+      return;
+    }
+
     const parsed = parseNotePayload(req.body);
     if (parsed.error || !parsed.payload) {
       return res.status(400).json({ error: parsed.error ?? 'invalid_note_payload' });
     }
 
-    const note = relayServer.addSessionNote(sessionId, parsed.payload);
-    res.status(201).json({ sessionId, note });
+    const note = relayServer.addSessionNote(auth.canonicalSessionId, parsed.payload);
+    res.status(201).json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId: req.params.sessionId,
+      rebound: auth.rebound,
+      note,
+    });
   });
 
   // DELETE /api/viewer/notes/:sessionId/:noteId
   router.delete('/notes/:sessionId/:noteId', (req, res) => {
-    const { sessionId, noteId } = req.params;
-    const deleted = relayServer.deleteSessionNote(sessionId, noteId);
+    const auth = ensureViewerRole(req, res, req.params.sessionId, (access) => {
+      if (!access || !access.shareEnabled || access.visibility !== 'code') {
+        return 'viewer';
+      }
+      if (requirePermissionForMutations() && access.permissionCode) {
+        return 'strategist';
+      }
+      if (access.roomPassword) {
+        return 'engineer';
+      }
+      return 'viewer';
+    });
+    if (!auth) {
+      return;
+    }
+
+    const { noteId } = req.params;
+    const deleted = relayServer.deleteSessionNote(auth.canonicalSessionId, noteId);
     if (!deleted) {
       return res.status(404).json({ error: 'not_found' });
     }
-    res.json({ sessionId, noteId, deleted: true });
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId: req.params.sessionId,
+      rebound: auth.rebound,
+      noteId,
+      deleted: true,
+    });
   });
 
   // GET /api/viewer/timeline/:sessionId?limit=100
   router.get('/timeline/:sessionId', (req, res) => {
-    const { sessionId } = req.params;
+    const auth = ensureViewerRole(req, res, req.params.sessionId, 'viewer');
+    if (!auth) {
+      return;
+    }
+
     const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 100;
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, limitRaw)) : 100;
-    const timeline = relayServer.getSessionTimeline(sessionId, limit);
-    res.json({ sessionId, timeline, count: timeline.length, limit });
+    const timeline = relayServer.getSessionTimeline(auth.canonicalSessionId, limit);
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId: req.params.sessionId,
+      rebound: auth.rebound,
+      timeline,
+      count: timeline.length,
+      limit,
+    });
   });
 
   // GET /api/viewer/strategy/:sessionId
   router.get('/strategy/:sessionId', (req, res) => {
-    const { sessionId: requestedSessionId } = req.params;
-    const resolution = resolveSession(requestedSessionId);
-    const strategy = relayServer.getSessionStrategy(resolution.canonicalSessionId);
-    if (strategy.strategyUnavailable && strategy.reason === 'session_not_found') {
-      return res.status(404).json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, ...strategy });
+    const requestedSessionId = req.params.sessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, 'viewer');
+    if (!auth) {
+      return;
     }
-    res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, ...strategy });
+
+    const strategy = relayServer.getSessionStrategy(auth.canonicalSessionId);
+    if (strategy.strategyUnavailable && strategy.reason === 'session_not_found') {
+      return res.status(404).json({
+        sessionId: auth.canonicalSessionId,
+        requestedSessionId,
+        rebound: auth.rebound,
+        ...strategy,
+      });
+    }
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId,
+      rebound: auth.rebound,
+      ...strategy,
+    });
   });
 
   // GET /api/viewer/archives?limit=100
@@ -249,65 +631,103 @@ export function createViewerApiRouter(relayServer: RelayServer) {
 
   // GET /api/viewer/archive/:sessionId
   router.get('/archive/:sessionId', (req, res) => {
-    const { sessionId: requestedSessionId } = req.params;
-    const resolution = resolveSession(requestedSessionId);
-    const archive = relayServer.getSessionArchive(resolution.canonicalSessionId);
+    const requestedSessionId = req.params.sessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, 'viewer');
+    if (!auth) {
+      return;
+    }
+
+    const archive = relayServer.getSessionArchive(auth.canonicalSessionId);
     if (!archive) {
       return res.status(404).json({ error: 'not_found' });
     }
-    res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, archive });
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId,
+      rebound: auth.rebound,
+      archive,
+    });
   });
 
   // GET /api/viewer/archive/:sessionId/summary
   router.get('/archive/:sessionId/summary', (req, res) => {
-    const { sessionId: requestedSessionId } = req.params;
-    const resolution = resolveSession(requestedSessionId);
-    const summary = relayServer.getSessionArchiveSummary(resolution.canonicalSessionId);
+    const requestedSessionId = req.params.sessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, 'viewer');
+    if (!auth) {
+      return;
+    }
+
+    const summary = relayServer.getSessionArchiveSummary(auth.canonicalSessionId);
     if (!summary) {
       return res.status(404).json({ error: 'not_found' });
     }
-    res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, summary });
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId,
+      rebound: auth.rebound,
+      summary,
+    });
   });
 
   // GET /api/viewer/archive/:sessionId/timeline?limit=500
   router.get('/archive/:sessionId/timeline', (req, res) => {
-    const { sessionId: requestedSessionId } = req.params;
-    const resolution = resolveSession(requestedSessionId);
-    const summary = relayServer.getSessionArchiveSummary(resolution.canonicalSessionId);
+    const requestedSessionId = req.params.sessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, 'viewer');
+    if (!auth) {
+      return;
+    }
+
+    const summary = relayServer.getSessionArchiveSummary(auth.canonicalSessionId);
     if (!summary) {
       return res.status(404).json({ error: 'not_found' });
     }
 
     const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 500;
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(5000, limitRaw)) : 500;
-    const timeline = relayServer.getSessionArchiveTimeline(resolution.canonicalSessionId, limit);
-    res.json({ sessionId: resolution.canonicalSessionId, requestedSessionId, rebound: resolution.rebound, timeline, count: timeline.length, limit });
+    const timeline = relayServer.getSessionArchiveTimeline(auth.canonicalSessionId, limit);
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId,
+      rebound: auth.rebound,
+      timeline,
+      count: timeline.length,
+      limit,
+    });
   });
 
   // GET /api/viewer/health/:sessionId
   router.get('/health/:sessionId', (req, res) => {
-    const { sessionId: requestedSessionId } = req.params;
-    const resolution = resolveSession(requestedSessionId);
-    const health = relayServer.getSessionHealth(resolution.canonicalSessionId);
-    res.json({ ...health, requestedSessionId, rebound: resolution.rebound });
+    const requestedSessionId = req.params.sessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, 'viewer');
+    if (!auth) {
+      return;
+    }
+
+    const health = relayServer.getSessionHealth(auth.canonicalSessionId);
+    res.json({ ...health, requestedSessionId, rebound: auth.rebound });
   });
 
   // GET /api/viewer/sessions/:sessionId
   router.get('/sessions/:sessionId', (req, res) => {
     const requestedSessionId = req.params.sessionId;
-    const resolution = resolveSession(requestedSessionId);
-    const sessionId = resolution.canonicalSessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, 'viewer');
+    if (!auth) {
+      return;
+    }
+
+    const sessionId = auth.canonicalSessionId;
     const session = relayServer.getSession(sessionId);
     const payload = serializeViewerSession(session);
     const access = serializeSessionAccess(relayServer.getSessionAccess(sessionId));
     const response = {
       ...payload,
       requestedSessionId,
-      rebound: resolution.rebound,
+      rebound: auth.rebound,
       access,
       joinCode: access?.joinCode,
       shareEnabled: access?.shareEnabled,
       visibility: access?.visibility,
+      credentialWarning: auth.usedQueryCredentials ? 'query_credentials_deprecated' : undefined,
     };
     if (!session) {
       res.status(404).json(response);
@@ -318,6 +738,10 @@ export function createViewerApiRouter(relayServer: RelayServer) {
 
   // GET /api/viewer/session-access/:sessionId
   router.get('/session-access/:sessionId', (req, res) => {
+    if (!requireOpsControlAccess(req, res)) {
+      return;
+    }
+
     const { sessionId: requestedSessionId } = req.params;
     const resolution = resolveSession(requestedSessionId);
     const sessionId = resolution.canonicalSessionId;
@@ -346,8 +770,9 @@ export function createViewerApiRouter(relayServer: RelayServer) {
   // GET /api/viewer/join/:joinCode
   router.get('/join/:joinCode', (req, res) => {
     const joinCode = req.params.joinCode;
-    const roomPassword = readQueryString(req.query.password);
-    const permissionCode = readQueryString(req.query.permissionCode).toUpperCase();
+    const credentials = readViewerCredentials(req);
+    const roomPassword = credentials.roomPassword;
+    const permissionCode = credentials.permissionCode;
     const { sessionId, access } = relayServer.resolveJoinCode(joinCode);
     if (!sessionId || !access) {
       return res.status(404).json({
@@ -376,26 +801,39 @@ export function createViewerApiRouter(relayServer: RelayServer) {
       });
     }
 
-    if (access.roomPassword && roomPassword !== access.roomPassword) {
-      return res.status(403).json({
-        viewerStatus: 'password_required',
-        accessError: {
-          code: roomPassword ? 'invalid_password' : 'password_required',
-          message: roomPassword
-            ? 'Room Password가 일치하지 않습니다.'
-            : '이 Room은 Password가 필요합니다.',
-        },
-        sessionId,
-        roomTitle: access.roomTitle,
-        joinCode,
-        passwordEnabled: true,
-      });
+    const expectedPassword = access.roomPassword || '';
+    if (expectedPassword) {
+      const passwordMatched =
+        roomPassword.length > 0 && secureCompareSecret(expectedPassword, roomPassword);
+      if (!passwordMatched) {
+        return res.status(403).json({
+          viewerStatus: 'password_required',
+          accessError: {
+            code: roomPassword ? 'invalid_password' : 'password_required',
+            message: roomPassword
+              ? 'Room Password가 일치하지 않습니다.'
+              : '이 Room은 Password가 필요합니다.',
+          },
+          sessionId,
+          roomTitle: access.roomTitle,
+          joinCode,
+          passwordEnabled: true,
+          credentialWarning: credentials.usedQueryCredentials
+            ? 'query_credentials_deprecated'
+            : undefined,
+        });
+      }
     }
 
-    const permissionGranted = !!access.permissionCode && permissionCode === access.permissionCode;
+    const expectedPermission = (access.permissionCode || '').trim().toUpperCase();
+    const permissionGranted =
+      expectedPermission.length > 0 &&
+      permissionCode.length > 0 &&
+      secureCompareSecret(expectedPermission, permissionCode);
+
     const grantedRole = permissionGranted
       ? 'strategist'
-      : access.roomPassword
+      : expectedPassword
       ? 'engineer'
       : 'viewer';
 
@@ -414,23 +852,21 @@ export function createViewerApiRouter(relayServer: RelayServer) {
       roomAccess: {
         grantedRole,
         permissionGranted,
-        usedPassword: !!access.roomPassword,
+        usedPassword: !!expectedPassword,
       },
+      credentialWarning: credentials.usedQueryCredentials
+        ? 'query_credentials_deprecated'
+        : undefined,
       relay: getRelayInfo(),
     });
   });
 
   // PATCH /api/viewer/session-access/:sessionId
   router.patch('/session-access/:sessionId', (req, res) => {
-    // Optional ops token gate: if MPP_OPS_TOKEN is set, require matching Authorization header.
-    const requiredToken = (process.env.MPP_OPS_TOKEN || '').trim();
-    if (requiredToken) {
-      const authHeader = req.headers['authorization'] || '';
-      const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
-      if (provided !== requiredToken) {
-        return res.status(401).json({ error: 'unauthorized' });
-      }
+    if (!requireOpsControlAccess(req, res)) {
+      return;
     }
+
     const { sessionId } = req.params;
     const {
       shareEnabled,

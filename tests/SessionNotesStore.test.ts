@@ -71,4 +71,30 @@ describe('SessionNotesStore', () => {
     const notes = store.listNotes('S-T');
     expect(notes.map((n) => n.text)).toEqual(['ts100', 'ts200', 'ts300']);
   });
+
+  it('merges notes from rebound alias session into canonical session', () => {
+    const store = new InMemorySessionNotesStore();
+
+    store.addNote('S-CANON', {
+      text: 'canon-1',
+      timestamp: 200,
+      category: 'general',
+      authorLabel: 'Engineer',
+    });
+
+    store.addNote('S-ALIAS', {
+      text: 'alias-1',
+      timestamp: 100,
+      category: 'strategy',
+      authorLabel: 'Strategist',
+    });
+
+    store.mergeSessions('S-ALIAS', 'S-CANON');
+
+    expect(store.getNoteCount('S-ALIAS')).toBe(0);
+    const merged = store.listNotes('S-CANON');
+    expect(merged).toHaveLength(2);
+    expect(merged.map((note) => note.text)).toEqual(['alias-1', 'canon-1']);
+    expect(merged.every((note) => note.sessionId === 'S-CANON')).toBe(true);
+  });
 });

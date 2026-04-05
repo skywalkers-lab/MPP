@@ -178,6 +178,35 @@ function buildOverlayUrl(id) {
   return relayViewerBase() + '/overlay/' + encodeURIComponent(id) + '?preset=broadcast';
 }
 
+function normalizeFetchError(err) {
+  var raw = err && err.message ? String(err.message) : String(err || 'unknown_error');
+  if (/failed to fetch|networkerror|load failed/i.test(raw)) {
+    return (
+      'Relay API 연결 실패 (' +
+      window.location.origin +
+      '). relay 서버가 꺼져 있거나 포트(기본 4100)에 접근할 수 없습니다. `npm run relay` 실행 상태를 확인하세요.'
+    );
+  }
+  return raw;
+}
+
+async function fetchJson(url, options) {
+  var res;
+  try {
+    res = await fetch(url, options);
+  } catch (err) {
+    throw new Error(normalizeFetchError(err));
+  }
+
+  var data = null;
+  try {
+    data = await res.json();
+  } catch (_err) {
+    data = null;
+  }
+  return { res: res, data: data };
+}
+
 function applyAccess(access, joinUrlFromApi) {
   if (!access) return;
 
@@ -483,8 +512,9 @@ function renderStrategy(data) {
 
 async function fetchAccess() {
   try {
-    var res = await fetch(accessApiUrl);
-    var data = await res.json();
+    var response = await fetchJson(accessApiUrl);
+    var res = response.res;
+    var data = response.data || {};
     if (!res.ok) {
       throw new Error(data.error || 'not_found');
     }
@@ -500,8 +530,9 @@ async function fetchAccess() {
 
 async function fetchRelayInfo() {
   try {
-    var res = await fetch(relayInfoApiUrl);
-    var data = await res.json();
+    var response = await fetchJson(relayInfoApiUrl);
+    var res = response.res;
+    var data = response.data || {};
     if (!res.ok) throw new Error(data.error || 'relay_info_failed');
     renderRelayInfo(data);
   } catch (err) {
@@ -510,8 +541,9 @@ async function fetchRelayInfo() {
 }
 
 async function fetchSession() {
-  var res = await fetch(sessionApiUrl);
-  var data = await res.json();
+  var response = await fetchJson(sessionApiUrl);
+  var res = response.res;
+  var data = response.data || {};
   if (!res.ok && data.viewerStatus !== 'waiting') {
     throw new Error(data.error || data.viewerStatus || 'session_fetch_failed');
   }
@@ -519,8 +551,9 @@ async function fetchSession() {
 }
 
 async function fetchNotes() {
-  var res = await fetch(notesApiUrl);
-  var data = await res.json();
+  var response = await fetchJson(notesApiUrl);
+  var res = response.res;
+  var data = response.data || {};
   if (!res.ok) {
     throw new Error(data.error || 'notes_fetch_failed');
   }
@@ -547,12 +580,13 @@ async function addNote() {
     body.lap = Number(lap);
   }
 
-  var res = await fetch(notesApiUrl, {
+  var response = await fetchJson(notesApiUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  var data = await res.json();
+  var res = response.res;
+  var data = response.data || {};
   if (!res.ok) {
     throw new Error(data.error || 'note_add_failed');
   }
@@ -564,10 +598,11 @@ async function addNote() {
 }
 
 async function deleteNote(noteId) {
-  var res = await fetch(notesApiUrl + '/' + encodeURIComponent(noteId), {
+  var response = await fetchJson(notesApiUrl + '/' + encodeURIComponent(noteId), {
     method: 'DELETE',
   });
-  var data = await res.json();
+  var res = response.res;
+  var data = response.data || {};
   if (!res.ok) {
     throw new Error(data.error || 'note_delete_failed');
   }
@@ -575,8 +610,9 @@ async function deleteNote(noteId) {
 }
 
 async function fetchTimeline() {
-  var res = await fetch(timelineApiUrl);
-  var data = await res.json();
+  var response = await fetchJson(timelineApiUrl);
+  var res = response.res;
+  var data = response.data || {};
   if (!res.ok) {
     throw new Error(data.error || 'timeline_fetch_failed');
   }
@@ -584,8 +620,9 @@ async function fetchTimeline() {
 }
 
 async function fetchStrategy() {
-  var res = await fetch(strategyApiUrl);
-  var data = await res.json();
+  var response = await fetchJson(strategyApiUrl);
+  var res = response.res;
+  var data = response.data || {};
   if (!res.ok) {
     throw new Error(data.reason || data.error || 'strategy_fetch_failed');
   }
@@ -594,8 +631,9 @@ async function fetchStrategy() {
 }
 
 async function fetchHealth() {
-  var res = await fetch(healthApiUrl);
-  var data = await res.json();
+  var response = await fetchJson(healthApiUrl);
+  var res = response.res;
+  var data = response.data || {};
   if (!res.ok) {
     throw new Error(data.error || 'health_fetch_failed');
   }
@@ -612,12 +650,13 @@ async function saveAccess() {
       roomPassword: $roomPassword ? ($roomPassword.value || '').trim() : undefined,
       permissionCode: $permissionCode ? ($permissionCode.value || '').trim() : undefined,
     };
-    var res = await fetch(accessApiUrl, {
+    var response = await fetchJson(accessApiUrl, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
-    var data = await res.json();
+    var res = response.res;
+    var data = response.data || {};
     if (!res.ok) {
       throw new Error(data.error || 'update_failed');
     }

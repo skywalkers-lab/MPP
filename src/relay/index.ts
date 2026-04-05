@@ -201,9 +201,9 @@ function shouldStartEmbeddedAgent(): boolean {
     return true;
   }
 
-  const isPackaged = !!(process as NodeJS.Process & { pkg?: unknown }).pkg;
-  const isExe = process.platform === 'win32' && process.execPath.toLowerCase().endsWith('.exe');
-  return isPackaged || isExe;
+  // Relay mode should ingest UDP out of the box for local/dev users.
+  // Opt out explicitly with MPP_EMBEDDED_AGENT=0 when an external sender is used.
+  return true;
 }
 
 function startEmbeddedAgent(): void {

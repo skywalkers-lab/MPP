@@ -1,0 +1,30 @@
+# Render Blueprint for MPP Relay Server
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: mpp-relay
+    runtime: node
+    plan: free # 또는 starter, standard 등
+    buildCommand: npm install && npm run build && cd client && npm install && npm run build
+    startCommand: node dist/relay/index.js
+    envVars:
+      # Render는 PORT 환경변수를 자동 주입하므로 별도 설정 불필요
+      # 단일 포트 모드가 자동으로 활성화됨
+      # Public URL 설정 (배포 후 실제 URL로 변경 필요)
+      - key: RELAY_PUBLIC_URL
+        sync: false # 배포 후 수동 설정
+      - key: RELAY_PUBLIC_WS_URL
+        sync: false
+      - key: RELAY_LABEL
+        value: mpp-public-relay
+      # CORS 설정
+      - key: RELAY_ENABLE_CORS
+        value: "true"
+      # Embedded Agent 비활성화 (클라우드에서는 외부 Agent가 연결)
+      - key: MPP_EMBEDDED_AGENT
+        value: "false"
+      # 자동 브라우저 오픈 비활성화
+      - key: MPP_AUTO_OPEN_DASHBOARD
+        value: "false"
+    healthCheckPath: /healthz

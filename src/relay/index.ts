@@ -18,6 +18,10 @@ const logger = new ConsoleLogger('info');
 const WS_PORT = readPortFromEnv('RELAY_WS_PORT', 4000);
 const DEBUG_HTTP_PORT = readPortFromEnv('RELAY_DEBUG_HTTP_PORT', 4001);
 const HTTP_PORT = readPortFromEnv('VIEWER_HTTP_PORT', 4100);
+// Render/Railway 등 클라우드 환경에서는 PORT 환경변수를 사용
+const CLOUD_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : null;
+// 단일 포트 모드: 클라우드 환경이거나 명시적으로 활성화된 경우
+const SINGLE_PORT_MODE = CLOUD_PORT !== null || readBooleanFromEnv('RELAY_SINGLE_PORT', false);
 const ENABLE_DEBUG_HTTP = readBooleanFromEnv('RELAY_ENABLE_DEBUG_HTTP', false);
 const ENABLE_CORS = readBooleanFromEnv('RELAY_ENABLE_CORS', true);
 const ALLOWED_ORIGINS = readListFromEnv('RELAY_ALLOWED_ORIGINS');
@@ -163,7 +167,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const relayServer = new RelayServer({
-  wsPort: WS_PORT,
+  wsPort: SINGLE_PORT_MODE ? 0 : WS_PORT, // 단일 포트 모드에서는 무시됨
   debugHttpPort: ENABLE_DEBUG_HTTP ? DEBUG_HTTP_PORT : undefined,
   logger,
   heartbeatTimeoutMs: 10000,
@@ -173,8 +177,13 @@ const relayServer = new RelayServer({
   relayNamespace: PUBLIC_VIEWER_BASE_URL,
   debugHttpEnabled: ENABLE_DEBUG_HTTP,
   corsEnabled: ENABLE_CORS,
+  noServer: SINGLE_PORT_MODE, // 단일 포트 모드에서는 HTTP 서버에서 WebSocket 업그레이드 처리
 });
 registerProcessShutdown();
+
+if (SINGLE_PORT_MODE) {
+  logger.info(`[Config] Single port mode enabled (PORT=${CLOUD_PORT || HTTP_PORT})`);
+}
 
 if (shouldStartEmbeddedAgent()) {
   startEmbeddedAgent();
@@ -534,16 +543,28 @@ app.get('/console/replay', serveAppShell);
 
 const httpServer = http.createServer(app);
 const attachViewerHttpServer = (relayServer as any).attachViewerHttpServer;
-if (typeof attachViewerHttpServer === 'function') {
+  if (typeof attachViewerHttpServer === 'function') {
   attachViewerHttpServer.call(relayServer, httpServer);
+  }
+
+// 단일 포트 모드: HTTP 서버에서 WebSocket 업그레이드 처리
+if (SINGLE_PORT_MODE) {
+  httpServer.on('upgrade', (request, socket, head) => {
+    relayServer.handleUpgrade(request, socket, head);
+  });
 }
 
-httpServer.listen(HTTP_PORT, () => {
-  logger.info(`[Viewer] HTTP server running at http://localhost:${HTTP_PORT}/viewer/:sessionId`);
+const LISTEN_PORT = CLOUD_PORT || HTTP_PORT;
+  
+httpServer.listen(LISTEN_PORT, () => {
+  logger.info(`[Viewer] HTTP server running at http://localhost:${LISTEN_PORT}/viewer/:sessionId`);
+  if (SINGLE_PORT_MODE) {
+    logger.info(`[Viewer] WebSocket server running on same port (single port mode)`);
+  }
   logger.info(`[Viewer] Static assets from: ${publicDir}`);
 
-  if (shouldAutoOpenDashboard()) {
-    const dashboardUrl = `http://localhost:${HTTP_PORT}/rooms`;
+if (shouldAutoOpenDashboard()) {
+  const dashboardUrl = `http://localhost:${LISTEN_PORT}/rooms`;
     logger.info(`[Viewer] Auto-opening dashboard: ${dashboardUrl}`);
     setTimeout(() => openBrowser(dashboardUrl), 600);
   }

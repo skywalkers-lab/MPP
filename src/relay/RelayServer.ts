@@ -149,6 +149,8 @@ export interface RelayServerOptions {
   relayNamespace?: string;
   debugHttpEnabled?: boolean;
   corsEnabled?: boolean;
+  /** noServer 모드 - HTTP 서버에서 WebSocket 업그레이드를 처리할 때 사용 */
+  noServer?: boolean;
 }
 
 export interface CanonicalSessionResolution {
@@ -218,9 +220,16 @@ export class RelayServer {
   constructor(private options: RelayServerOptions) {
     this.logger = options.logger || new ConsoleLogger('info');
     this.heartbeatTimeoutMs = options.heartbeatTimeoutMs || 10000;
-    this.wss = new WebSocketServer({ port: options.wsPort });
+    
+    // noServer 모드: HTTP 서버에서 WebSocket 업그레이드를 직접 처리
+    if (options.noServer) {
+      this.wss = new WebSocketServer({ noServer: true });
+      this.logger.info(`[Relay] WebSocket server started in noServer mode (shared port)`);
+    } else {
+      this.wss = new WebSocketServer({ port: options.wsPort });
+      this.logger.info(`[Relay] WebSocket server started on :${options.wsPort}`);
+    }
     this.wss.on('connection', this.handleConnection.bind(this));
-    this.logger.info(`[Relay] WebSocket server started on :${options.wsPort}`);
 
     if (options.debugHttpPort) {
       this.startDebugHttp(options.debugHttpPort);
@@ -257,6 +266,27 @@ export class RelayServer {
       this.debugHttpServer.close();
       this.debugHttpServer = undefined;
     }
+  }
+
+  /**
+   * HTTP 서버의 'upgrade' 이벤트에서 호출하여 WebSocket 연결을 처리
+   * noServer 모드에서 사용
+   */
+  public handleUpgrade(
+    request: import('http').IncomingMessage,
+    socket: import('stream').Duplex,
+    head: Buffer
+  ): void {
+    this.wss.handleUpgrade(request, socket, head, (ws) => {
+      this.wss.emit('connection', ws, request);
+    });
+  }
+
+  /**
+   * WebSocketServer 인스턴스 반환 (외부에서 upgrade 처리 시 사용)
+   */
+  public getWebSocketServer(): WebSocketServer {
+    return this.wss;
   }
 
   /**

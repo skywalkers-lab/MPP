@@ -30,9 +30,87 @@ function sampleGaussian(mean: number, stdDev: number): number {
   return mean + stdDev * z;
 }
 
+/**
+ * Historical Safety Car probability by track (per lap)
+ * Based on historical incident rates
+ */
+export const TRACK_SC_PROBABILITY: Record<number, number> = {
+  0: 0.025,   // Melbourne - medium
+  1: 0.02,    // Paul Ricard - low (runoff)
+  2: 0.025,   // Shanghai
+  3: 0.02,    // Bahrain - low
+  4: 0.025,   // Catalunya
+  5: 0.08,    // Monaco - very high (walls)
+  6: 0.04,    // Montreal - high (walls)
+  7: 0.03,    // Silverstone
+  8: 0.025,   // Hockenheim
+  9: 0.03,    // Hungaroring
+  10: 0.035,  // Spa - longer track, more incidents
+  11: 0.025,  // Monza
+  12: 0.06,   // Singapore - street circuit
+  13: 0.03,   // Suzuka
+  14: 0.025,  // Abu Dhabi
+  15: 0.03,   // Austin
+  16: 0.035,  // Brazil - tricky conditions
+  17: 0.035,  // Austria
+  18: 0.025,  // Sochi
+  19: 0.03,   // Mexico
+  20: 0.07,   // Baku - very high (walls)
+  21: 0.065,  // Saudi Arabia - walls
+  22: 0.035,  // Miami
+  23: 0.04,   // Las Vegas - street
+  24: 0.03,   // Qatar
+};
+
+/**
+ * Calculate dynamic SC probability based on session context
+ */
+export function calculateDynamicSCProbability(input: {
+  trackId?: number | null;
+  incidentCountThisSession?: number;
+  lapsCompleted?: number;
+  weatherCondition?: 'dry' | 'wet' | 'mixed' | null;
+  sessionType?: string | null;
+}): number {
+  // Base probability from track history
+  let baseProbability = (input.trackId != null && TRACK_SC_PROBABILITY[input.trackId])
+    ? TRACK_SC_PROBABILITY[input.trackId]
+    : 0.03;
+  
+  // Adjust for weather - wet conditions increase SC probability significantly
+  if (input.weatherCondition === 'wet') {
+    baseProbability *= 2.0;
+  } else if (input.weatherCondition === 'mixed') {
+    baseProbability *= 1.5;
+  }
+  
+  // Adjust based on session incident rate
+  if (input.incidentCountThisSession != null && input.lapsCompleted != null && input.lapsCompleted > 5) {
+    const sessionIncidentRate = input.incidentCountThisSession / input.lapsCompleted;
+    const expectedRate = baseProbability;
+    
+    // If session has more incidents than expected, increase probability
+    if (sessionIncidentRate > expectedRate * 1.5) {
+      baseProbability *= 1.3;
+    } else if (sessionIncidentRate < expectedRate * 0.5) {
+      baseProbability *= 0.8;
+    }
+  }
+  
+  // Race sessions have higher SC probability than practice/quali
+  if (input.sessionType) {
+    const sessionLower = input.sessionType.toLowerCase();
+    if (sessionLower.includes('practice') || sessionLower.includes('quali')) {
+      baseProbability *= 0.6;
+    }
+  }
+  
+  return Math.max(0.01, Math.min(0.15, baseProbability));
+}
+
 export type MonteCarloResult = StrategySimulationMeta;
 
-export function runMonteCarloSimulation(input: {
+export interface MonteCarloInputExtended {
   currentLap: number | null;
   totalLaps: number | null;
   tyreAgeLaps: number | null;
@@ -41,12 +119,17 @@ export function runMonteCarloSimulation(input: {
   undercutScore: number | null;
   safetyCarProbPerLap?: number;
   iterations?: number;
-}): MonteCarloResult | null {
+  trackId?: number | null;
+  pitLaneTimeLoss?: number; // Track-specific pit lane time loss in seconds
+  convergenceThreshold?: number; // stdDev/mean ratio for convergence
+  adaptiveIterations?: boolean; // Enable adaptive iteration count
+}
+
+export function runMonteCarloSimulation(input: MonteCarloInputExtended): MonteCarloResult | null {
   const currentLap = input.currentLap;
   const totalLaps = input.totalLaps;
   if (currentLap == null || totalLaps == null || totalLaps <= 0) return null;
 
-  const N = Math.min(1000, Math.max(500, input.iterations ?? 500));
   const lapsRemaining = totalLaps - currentLap;
   if (lapsRemaining <= 0) return null;
 
@@ -54,7 +137,21 @@ export function runMonteCarloSimulation(input: {
   const fuelRisk = input.fuelRiskScore ?? 30;
   const undercutScore = input.undercutScore ?? 50;
   const tyreAge = input.tyreAgeLaps ?? 10;
-  const scProbPerLap = input.safetyCarProbPerLap ?? 0.03;
+  
+  // Use dynamic SC probability if trackId provided, else use provided or default
+  const scProbPerLap = input.safetyCarProbPerLap 
+    ?? (input.trackId != null ? (TRACK_SC_PROBABILITY[input.trackId] ?? 0.03) : 0.03);
+  
+  // Track-specific pit lane time loss (default 22 seconds)
+  const pitLaneTimeLoss = input.pitLaneTimeLoss ?? 22;
+  
+  // Convergence settings
+  const convergenceThreshold = input.convergenceThreshold ?? 0.5;
+  const adaptiveIterations = input.adaptiveIterations ?? false;
+  
+  // Start with base iterations, increase if not converging and adaptive is enabled
+  let N = Math.min(2000, Math.max(500, input.iterations ?? 800));
+  const maxIterations = adaptiveIterations ? 3000 : N;
 
   const pitWindowOpen = Math.max(currentLap + 1, currentLap + Math.round(((100 - tyreUrgency) / 100) * Math.min(lapsRemaining, 15)));
   const rawClose = pitWindowOpen + Math.round(lapsRemaining * 0.4);
@@ -62,63 +159,85 @@ export function runMonteCarloSimulation(input: {
 
   if (pitWindowClose < pitWindowOpen) return null;
 
-  const lapGains: number[] = [];
-  const sampledPitLaps: number[] = [];
+  let lapGains: number[] = [];
+  let sampledPitLaps: number[] = [];
+  let converged = false;
+  let totalIterations = 0;
+  
+  // Run simulation with adaptive iteration count
+  while (totalIterations < maxIterations && !converged) {
+    const batchSize = Math.min(N, maxIterations - totalIterations);
+    
+    for (let iter = 0; iter < batchSize; iter++) {
+      const noisyUrgency = Math.max(0, Math.min(100, sampleGaussian(tyreUrgency, 8)));
+      const noisyUndercutScore = Math.max(0, Math.min(100, sampleGaussian(undercutScore, 10)));
+      const noisyFuelRisk = Math.max(0, Math.min(100, sampleGaussian(fuelRisk, 6)));
 
-  for (let iter = 0; iter < N; iter++) {
-    const noisyUrgency = Math.max(0, Math.min(100, sampleGaussian(tyreUrgency, 8)));
-    const noisyUndercutScore = Math.max(0, Math.min(100, sampleGaussian(undercutScore, 10)));
-    const noisyFuelRisk = Math.max(0, Math.min(100, sampleGaussian(fuelRisk, 6)));
+      const urgencyFactor = noisyUrgency / 100;
+      const undercutFactor = noisyUndercutScore / 100;
 
-    const urgencyFactor = noisyUrgency / 100;
-    const undercutFactor = noisyUndercutScore / 100;
+      let hasSafetyCar = false;
+      for (let lap = currentLap; lap < pitWindowClose; lap++) {
+        if (Math.random() < scProbPerLap) { hasSafetyCar = true; break; }
+      }
 
-    let hasSafetyCar = false;
-    for (let lap = currentLap; lap < pitWindowClose; lap++) {
-      if (Math.random() < scProbPerLap) { hasSafetyCar = true; break; }
+      const scBonus = hasSafetyCar ? 0.15 : 0;
+
+      const optLapOffset = Math.round(
+        ((1 - urgencyFactor) * 0.4 + (1 - undercutFactor) * 0.3) * Math.min(10, lapsRemaining * 0.3)
+      );
+      let candidateLap = pitWindowOpen + optLapOffset;
+      candidateLap = Math.min(pitWindowClose, Math.max(pitWindowOpen, candidateLap));
+
+      // Use track-specific pit lane time with variation
+      const pitDeltaSeconds = sampleGaussian(pitLaneTimeLoss, 1.5);
+
+      const freshTyreGainPerLap = sampleGaussian(0.35 + undercutFactor * 0.2, 0.05);
+      const lapsOnFreshTyre = totalLaps - candidateLap;
+      const freshTyreGain = freshTyreGainPerLap * lapsOnFreshTyre;
+
+      const deg = (tyreAge + (candidateLap - currentLap)) * 0.05 + noisyUrgency / 100;
+      const stayCost = deg * (lapsOnFreshTyre * 0.4);
+
+      const gain = freshTyreGain - pitDeltaSeconds + stayCost + scBonus * pitDeltaSeconds - noisyFuelRisk * 0.05;
+
+      lapGains.push(gain);
+      sampledPitLaps.push(candidateLap);
     }
-
-    const scBonus = hasSafetyCar ? 0.15 : 0;
-
-    const optLapOffset = Math.round(
-      ((1 - urgencyFactor) * 0.4 + (1 - undercutFactor) * 0.3) * Math.min(10, lapsRemaining * 0.3)
-    );
-    let candidateLap = pitWindowOpen + optLapOffset;
-    candidateLap = Math.min(pitWindowClose, Math.max(pitWindowOpen, candidateLap));
-
-    const pitDeltaSeconds = sampleGaussian(22, 1.5);
-
-    const freshTyreGainPerLap = sampleGaussian(0.35 + undercutFactor * 0.2, 0.05);
-    const lapsOnFreshTyre = totalLaps - candidateLap;
-    const freshTyreGain = freshTyreGainPerLap * lapsOnFreshTyre;
-
-    const deg = (tyreAge + (candidateLap - currentLap)) * 0.05 + noisyUrgency / 100;
-    const stayCost = deg * (lapsOnFreshTyre * 0.4);
-
-    const gain = freshTyreGain - pitDeltaSeconds + stayCost + scBonus * pitDeltaSeconds - noisyFuelRisk * 0.05;
-
-    lapGains.push(gain);
-    sampledPitLaps.push(candidateLap);
+    
+    totalIterations += batchSize;
+    
+    // Check convergence
+    if (lapGains.length >= 500) {
+      const currentMean = lapGains.reduce((s, v) => s + v, 0) / lapGains.length;
+      const currentStdDev = Math.sqrt(lapGains.reduce((s, v) => s + (v - currentMean) ** 2, 0) / lapGains.length);
+      converged = currentStdDev < Math.abs(currentMean) * convergenceThreshold;
+      
+      // If converged or not using adaptive, break
+      if (converged || !adaptiveIterations) break;
+    }
   }
 
   lapGains.sort((a, b) => a - b);
   sampledPitLaps.sort((a, b) => a - b);
 
-  const p5 = lapGains[Math.floor(N * 0.05)];
-  const p95 = lapGains[Math.floor(N * 0.95)];
-  const meanGain = lapGains.reduce((s, v) => s + v, 0) / N;
-  const stdDev = Math.sqrt(lapGains.reduce((s, v) => s + (v - meanGain) ** 2, 0) / N);
+  const finalN = lapGains.length;
+  const p5 = lapGains[Math.floor(finalN * 0.05)];
+  const p95 = lapGains[Math.floor(finalN * 0.95)];
+  const meanGain = lapGains.reduce((s, v) => s + v, 0) / finalN;
+  const stdDev = Math.sqrt(lapGains.reduce((s, v) => s + (v - meanGain) ** 2, 0) / finalN);
 
-  const p5Lap = sampledPitLaps[Math.floor(N * 0.05)];
-  const p95Lap = sampledPitLaps[Math.floor(N * 0.95)];
-  const medianLap = sampledPitLaps[Math.floor(N * 0.5)];
+  const p5Lap = sampledPitLaps[Math.floor(finalN * 0.05)];
+  const p95Lap = sampledPitLaps[Math.floor(finalN * 0.95)];
+  const medianLap = sampledPitLaps[Math.floor(finalN * 0.5)];
 
-  const converged = stdDev < Math.abs(meanGain) * 0.5;
+  // Final convergence check
+  converged = stdDev < Math.abs(meanGain) * convergenceThreshold;
 
   return {
     optimalPitLap: medianLap,
     confidenceInterval: [p5Lap, p95Lap],
-    iterations: N,
+    iterations: totalIterations,
     converged,
     meanGainSeconds: meanGain,
     stdDevGainSeconds: stdDev,
@@ -302,7 +421,12 @@ export class StrategyEngine {
       };
     }
 
-    const tyreUrgency = tyreUrgencyScore(input.tyreAgeLaps);
+    // Enhanced tyre urgency with compound and track info
+    const tyreUrgency = tyreUrgencyScore(
+      input.tyreAgeLaps,
+      input.tyreCompound,
+      input.trackId ?? null
+    );
     const fuelRisk = fuelRiskScore(input);
     const stintRatio = stintProgress(input);
     const lapsRemaining = getLapsRemaining(input);
@@ -338,6 +462,7 @@ export class StrategyEngine {
       rejoinRiskHint: rejoinHint,
     });
 
+    // Enhanced Monte Carlo with track-specific data
     const mcResult = runMonteCarloSimulation({
       currentLap: input.currentLap,
       totalLaps: input.totalLaps,
@@ -345,7 +470,9 @@ export class StrategyEngine {
       tyreUrgencyScore: tyreUrgency,
       fuelRiskScore: fuelRisk,
       undercutScore: advanced.undercutScore,
-      iterations: 500,
+      trackId: input.trackId,
+      iterations: 800,
+      adaptiveIterations: true,
     });
 
     const reasons: string[] = [];

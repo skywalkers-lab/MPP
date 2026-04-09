@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'crypto';
+import { timingSafeEqual, randomBytes } from 'crypto';
 import express, { Request, Response } from 'express';
 import { RelayServer, SessionAccessRecord } from './RelayServer';
 import { serializeViewerSession } from './viewerStatus';
@@ -10,6 +10,18 @@ import {
   NOTE_ALLOWED_SEVERITIES,
   NOTE_MAX_TEXT_LENGTH,
 } from './notes';
+
+// Security: Track if we've warned about missing OPS token
+let _opsTokenWarningIssued = false;
+
+function isProductionEnvironment(): boolean {
+  const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
+  return nodeEnv === 'production' || nodeEnv === 'prod';
+}
+
+function logSecurityWarning(message: string): void {
+  console.warn(`[SECURITY WARNING] ${message}`);
+}
 
 export function createViewerApiRouter(relayServer: RelayServer) {
   const router = express.Router();
@@ -93,13 +105,18 @@ export function createViewerApiRouter(relayServer: RelayServer) {
 
   function allowLocalOpsBypass(): boolean {
     const raw = (process.env.MPP_TRUST_LOCAL_OPS || '').trim().toLowerCase();
+    // SECURITY FIX: In production, default to false (require explicit opt-in)
+    // In development, default to true for convenience
     if (!raw) {
+      if (isProductionEnvironment()) {
+        return false;
+      }
       return true;
     }
-    if (['0', 'false', 'off', 'no'].includes(raw)) {
-      return false;
+    if (['1', 'true', 'on', 'yes'].includes(raw)) {
+      return true;
     }
-    return true;
+    return false;
   }
 
   function requirePermissionForMutations(): boolean {
@@ -126,7 +143,32 @@ export function createViewerApiRouter(relayServer: RelayServer) {
 
   function requireOpsControlAccess(req: Request, res: Response): boolean {
     const requiredToken = readRequiredOpsToken();
+    
+    // SECURITY FIX: In production, require OPS token to be set
     if (!requiredToken) {
+      if (isProductionEnvironment()) {
+        if (!_opsTokenWarningIssued) {
+          logSecurityWarning(
+            'MPP_OPS_TOKEN is not set in production environment. ' +
+            'OPS endpoints are disabled for security. ' +
+            'Set MPP_OPS_TOKEN environment variable to enable OPS access.'
+          );
+          _opsTokenWarningIssued = true;
+        }
+        res.status(503).json({ 
+          error: 'ops_not_configured',
+          message: 'OPS access is not configured. Contact administrator.'
+        });
+        return false;
+      }
+      // Development mode: allow access without token but warn once
+      if (!_opsTokenWarningIssued) {
+        logSecurityWarning(
+          'MPP_OPS_TOKEN is not set. OPS endpoints are accessible without authentication. ' +
+          'This is acceptable for development but MUST be configured for production.'
+        );
+        _opsTokenWarningIssued = true;
+      }
       return true;
     }
 
@@ -140,6 +182,9 @@ export function createViewerApiRouter(relayServer: RelayServer) {
     res.status(401).json({ error: 'unauthorized' });
     return false;
   }
+
+  // Track if we've warned about query credentials
+  let _queryCredentialWarningIssued = false;
 
   function readViewerCredentials(req: Request): {
     roomPassword: string;
@@ -155,11 +200,23 @@ export function createViewerApiRouter(relayServer: RelayServer) {
     const queryPermission = readQueryString(req.query.permissionCode).toUpperCase();
     const permissionCode = headerPermission || queryPermission;
 
+    const usedQueryCredentials = 
+      (!headerPassword && !!queryPassword) || (!headerPermission && !!queryPermission);
+
+    // SECURITY WARNING: Query string credentials are deprecated
+    if (usedQueryCredentials && !_queryCredentialWarningIssued) {
+      logSecurityWarning(
+        'Credentials passed via query string (password/permissionCode). ' +
+        'This is DEPRECATED and insecure. Use X-Room-Password and X-Permission-Code headers instead. ' +
+        'Query string credentials may be logged in server logs and browser history.'
+      );
+      _queryCredentialWarningIssued = true;
+    }
+
     return {
       roomPassword,
       permissionCode,
-      usedQueryCredentials:
-        (!headerPassword && !!queryPassword) || (!headerPermission && !!queryPermission),
+      usedQueryCredentials,
       permissionProvided: permissionCode.length > 0,
     };
   }

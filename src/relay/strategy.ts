@@ -42,6 +42,12 @@ export interface StrategyEngineInput {
   ersPercent: number | null;
   recentLapTimesMs: number[];
   rivals: RivalCarSnapshot[];
+  // v4 track-specific strategy parameters
+  trackId?: number | null;
+  weatherCondition?: 'dry' | 'wet' | 'mixed' | null;
+  sessionType?: string | null;
+  incidentCountThisSession?: number;
+  isSafetyCarActive?: boolean;
   previousStrategy?: {
     recommendation: StrategyRecommendationLabel;
     secondaryRecommendation?: StrategyRecommendationLabel;

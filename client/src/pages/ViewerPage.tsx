@@ -4,7 +4,7 @@ import Layout from '../components/Layout';
 import HealthBadge from '../components/HealthBadge';
 import MetricCard from '../components/MetricCard';
 import { fetchJoinRoom, fetchSessionSnapshot, fetchSessionHealth, fetchStrategy } from '../lib/api';
-import { safe, fmtLapTime, fmtPct, fmtRelTime, compoundColor, compoundShort } from '../lib/formatters';
+import { safe, fmtLapTime, fmtPct, compoundColor, compoundShort } from '../lib/formatters';
 import type { SessionHealthData, StrategyData } from '../types';
 
 interface SnapshotData {
@@ -65,12 +65,10 @@ export default function ViewerPage() {
   }, [password, permissionCode]);
 
   useEffect(() => {
-    let sid = resolvedId;
     let timer: ReturnType<typeof setInterval>;
 
     resolveSession().then(id => {
       if (!id) return;
-      sid = id;
       load(id);
       timer = setInterval(() => load(id), 2000);
     });

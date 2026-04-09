@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, type FormEvent } from 'react';
+import { useEffect, useState, useCallback, type FormEvent } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import HealthBadge from '../components/HealthBadge';
 import MetricCard from '../components/MetricCard';
@@ -46,7 +46,8 @@ export default function HostPage() {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [health, setHealth] = useState<SessionHealthData | null>(null);
   const [access, setAccess] = useState<SessionAccessRecord | null>(null);
-  const [snapshot, setSnapshot] = useState<SnapshotData | null>(null);
+  const [snapshot, _setSnapshot] = useState<SnapshotData | null>(null);
+  void _setSnapshot; // Reserved for future use
 
   const [noteText, setNoteText] = useState('');
   const [noteAuthor, setNoteAuthor] = useState('Engineer');
@@ -352,7 +353,7 @@ export default function HostPage() {
                           {note.authorLabel && <span className="text-[9px] font-mono text-[#4a6478]">{note.authorLabel}</span>}
                           {note.lap != null && <span className="text-[9px] font-mono text-[#4a6478]">L{note.lap}</span>}
                         </div>
-                        <button onClick={() => handleDeleteNote(note.id)} className="text-[9px] text-[#3a5570] hover:text-red-400 transition-colors">✕</button>
+                        <button onClick={() => note.id && handleDeleteNote(note.id)} className="text-[9px] text-[#3a5570] hover:text-red-400 transition-colors">✕</button>
                       </div>
                       <div className="text-xs text-[#dce8f5] leading-relaxed">{note.text}</div>
                       <div className="text-[9px] font-mono text-[#3a5570] mt-1">{fmtRelTime(note.createdAt)}</div>

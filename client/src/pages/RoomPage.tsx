@@ -670,7 +670,7 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, hasPermiss
           <>
             <div className="w-px h-4 bg-[#243247]" />
             <span className={`text-sm font-bold font-mono tracking-widest ${callCls}`}>{primaryCall}</span>
-            {(strategy?.confidenceScore ?? strategy?.confidence) != null && (
+            {strategy && (strategy.confidenceScore ?? strategy.confidence) != null && (
               <span className="text-[9px] font-mono text-[#4a6478]">conf. {fmtPct((strategy.confidenceScore ?? strategy.confidence) as number)}</span>
             )}
           </>

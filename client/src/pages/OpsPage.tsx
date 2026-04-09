@@ -3,7 +3,7 @@ import Layout from '../components/Layout';
 import HealthBadge from '../components/HealthBadge';
 import type { OpsSession, TimelineEvent, DiagnosticsData } from '../types';
 import { fetchOpsSessions, fetchOpsEvents, fetchDiagnostics } from '../lib/api';
-import { safe, fmtRelTime, fmtDateTime } from '../lib/formatters';
+import { safe, fmtRelTime } from '../lib/formatters';
 
 export default function OpsPage() {
   const [sessions, setSessions] = useState<OpsSession[]>([]);

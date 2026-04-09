@@ -830,16 +830,15 @@
     }
 
     var payload = {
-      category: 'strategy',
+      action: String(cmdKey || '').toUpperCase(),
       authorLabel: 'Engineer',
-      severity: 'medium',
-      text: '[CONSOLE_CMD] ' + commandLabelFromKey(cmdKey),
+      severity: cmdKey === 'BOX_THIS_LAP' ? 'high' : (cmdKey === 'HARVEST_MODE' ? 'low' : 'medium'),
     };
     if (Number.isFinite(lap) && lap > 0) {
       payload.lap = Math.floor(lap);
     }
 
-    await apiJson('/api/viewer/notes/' + encodeURIComponent(state.sessionId), {
+    await apiJson('/api/viewer/actions/' + encodeURIComponent(state.sessionId), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

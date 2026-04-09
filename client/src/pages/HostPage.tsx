@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, type FormEvent } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import HealthBadge from '../components/HealthBadge';
 import MetricCard from '../components/MetricCard';
@@ -101,9 +101,9 @@ export default function HostPage() {
     fetchRelayInfo().then(setRelayInfo).catch(() => { });
     const t = setInterval(load, 2000);
     return () => clearInterval(t);
-  }, []);
+  }, [loadAccess, load]);
 
-  async function handleAddNote(e: React.FormEvent) {
+  async function handleAddNote(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!noteText.trim()) return;
     setSavingNote(true);
@@ -126,7 +126,7 @@ export default function HostPage() {
   async function handleDeleteNote(noteId: string) {
     try {
       await deleteNote(id, noteId, password, permissionCode);
-      setNotes(prev => prev.filter(n => n.id !== noteId));
+      setNotes(prev => prev.filter(n => (n.id ?? n.noteId) !== noteId));
     } catch { }
   }
 
@@ -158,7 +158,6 @@ export default function HostPage() {
 
   const base = relayInfo?.viewerBaseUrl || '';
   const joinUrl = access?.joinCode ? `${base}/join/${access.joinCode}` : '';
-  const overlayUrl = access?.joinCode ? `${base}/overlay/join/${access.joinCode}` : '';
 
   const s = snapshot || {};
   const compColor = compoundColor(s.compound);
@@ -275,10 +274,6 @@ export default function HostPage() {
                       className="px-2 py-1 rounded border border-[#1a2e42] text-[10px] text-[#5e7a94] hover:bg-white/5 transition-colors">
                       copy code
                     </button>
-                    <a href={overlayUrl} target="_blank" rel="noopener"
-                      className="px-2 py-1 rounded border border-purple-800 text-[10px] text-purple-400 hover:bg-purple-950/30 transition-colors">
-                      overlay
-                    </a>
                   </div>
                   {copyMsg && <div className="text-[10px] text-emerald-400 font-mono">{copyMsg}</div>}
                 </>

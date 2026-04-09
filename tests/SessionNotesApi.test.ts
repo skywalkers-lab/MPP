@@ -162,4 +162,58 @@ describe('Session Notes API', () => {
       }
     }
   });
+
+  it('action 실행은 note와 ops timeline에 함께 기록된다', async () => {
+    const prevFlag = process.env.MPP_REQUIRE_PERMISSION_FOR_MUTATIONS;
+    process.env.MPP_REQUIRE_PERMISSION_FOR_MUTATIONS = '1';
+
+    try {
+      await request(app)
+        .patch(`/api/viewer/session-access/${sessionId}`)
+        .send({
+          shareEnabled: true,
+          visibility: 'code',
+          roomPassword: 'pitwall',
+          permissionCode: 'STRAT99',
+        })
+        .expect(200);
+
+      let actionRes = await request(app)
+        .post(`/api/viewer/actions/${sessionId}`)
+        .set('x-room-password', 'pitwall')
+        .send({ action: 'BOX_THIS_LAP', lap: 12 });
+      expect(actionRes.status).toBe(403);
+      expect(actionRes.body.accessError.code).toBe('permission_required');
+
+      actionRes = await request(app)
+        .post(`/api/viewer/actions/${sessionId}`)
+        .set('x-room-password', 'pitwall')
+        .set('x-permission-code', 'STRAT99')
+        .send({ action: 'BOX_THIS_LAP', lap: 12, authorLabel: 'Strategist' });
+      expect(actionRes.status).toBe(201);
+      expect(actionRes.body.action.action).toBe('BOX_THIS_LAP');
+      expect(actionRes.body.action.note.text).toContain('BOX THIS LAP');
+
+      const notesRes = await request(app)
+        .get(`/api/viewer/notes/${sessionId}`)
+        .set('x-room-password', 'pitwall');
+      expect(notesRes.status).toBe(200);
+      expect(notesRes.body.count).toBe(1);
+      expect(notesRes.body.notes[0].text).toContain('BOX THIS LAP');
+
+      const timelineRes = await request(app)
+        .get(`/api/viewer/timeline/${sessionId}?limit=50`)
+        .set('x-room-password', 'pitwall');
+      expect(timelineRes.status).toBe(200);
+      expect(
+        timelineRes.body.timeline.some((item: any) => item.kind === 'ops_event' && item.event.type === 'strategy_action_logged')
+      ).toBe(true);
+    } finally {
+      if (prevFlag === undefined) {
+        delete process.env.MPP_REQUIRE_PERMISSION_FOR_MUTATIONS;
+      } else {
+        process.env.MPP_REQUIRE_PERMISSION_FOR_MUTATIONS = prevFlag;
+      }
+    }
+  });
 });

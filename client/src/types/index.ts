@@ -62,22 +62,70 @@ export interface StrategySimulationMeta {
   stdDevGainSeconds?: number;
 }
 
+export interface QualifyingTrafficBandData {
+  key: string;
+  label: string;
+  startPct: number;
+  endPct: number;
+  carCount: number;
+  density: number;
+}
+
+export interface TrackMapCarData {
+  carIndex: number;
+  position?: number | null;
+  lapDistance?: number | null;
+  progressPct?: number | null;
+  pitStatus?: string | null;
+  driverStatus?: string | null;
+  tyreCompound?: string | null;
+  isPlayer?: boolean;
+}
+
+export interface QualifyingStrategyData {
+  active: true;
+  sessionPhase: 'Q1' | 'Q2' | 'Q3' | 'QUALI';
+  releaseWindow: 'release_now' | 'wait_short' | 'wait_for_gap' | 'queue_reset';
+  releaseLabel: string;
+  trafficSummary: string;
+  outLapSummary: string;
+  trafficScore?: number | null;
+  clearLapProbability?: number | null;
+  recommendedReleaseInSec?: number | null;
+  predictedCarsOnOutLap: number;
+  predictedGapAheadMeters?: number | null;
+  predictedGapBehindMeters?: number | null;
+  rationale: string[];
+  trafficBands: QualifyingTrafficBandData[];
+  trackMapCars: TrackMapCarData[];
+}
+
 export interface StrategySignalsData {
+  sessionMode?: 'race' | 'qualifying';
+  sessionPhase?: 'Q1' | 'Q2' | 'Q3' | 'QUALI' | 'RACE';
   pitWindowHint?: 'open_now' | 'open_soon' | 'monitor' | 'too_early' | 'unknown';
   expectedRejoinBand?: string;
   undercutScore?: number;
   overcutScore?: number;
   cleanAirProbability?: number;
   trafficRiskScore?: number;
+  degradationTrend?: number;
   undercutProbability?: number;
   overcutProbability?: number;
   ersEndLapPct?: number | null;
   tyreUrgencyScore?: number;
   fuelRiskScore?: number;
+  outLapTrafficScore?: number | null;
+  optimalReleaseInSec?: number | null;
+  clearLapProbability?: number | null;
+  trackDensityScore?: number | null;
+  predictedGapAheadMeters?: number | null;
+  predictedGapBehindMeters?: number | null;
 }
 
 export interface StrategyData {
   strategyUnavailable?: boolean;
+  sessionMode?: 'race' | 'qualifying';
   reason?: string;
   recommendation?: string;
   primaryRecommendation?: string;
@@ -91,6 +139,7 @@ export interface StrategyData {
   pitWindowEta?: number | null;
   simulationMeta?: StrategySimulationMeta;
   signals?: StrategySignalsData;
+  qualifying?: QualifyingStrategyData;
   metrics?: {
     trafficExposure?: number;
     tyreFuelStress?: number;
@@ -111,7 +160,9 @@ export interface CarSnapshot {
   bestLapTime?: number | null;
   gapToLeader?: number | string | null;
   gapToFront?: number | string | null;
-  pitStatus?: string | null;
+  pitStatus?: string | number | null;
+  driverStatus?: string | number | null;
+  lapDistance?: number | null;
   tyreCompound?: string | null;
   tyreAgeLaps?: number | null;
   fuelRemaining?: number | null;
@@ -141,7 +192,8 @@ export interface DriverSnapshot {
 }
 
 export interface SessionNote {
-  id: string;
+  id?: string;
+  noteId?: string;
   text: string;
   category?: string;
   authorLabel?: string;
@@ -150,6 +202,24 @@ export interface SessionNote {
   timestamp?: number;
   tag?: string;
   createdAt: number;
+}
+
+export type StrategyActionName =
+  | 'BOX_THIS_LAP'
+  | 'PUSH_NOW'
+  | 'HARVEST_MODE'
+  | 'HOLD_POS'
+  | 'EXECUTE_SCENARIO_B';
+
+export interface SessionActionResult {
+  actionId: string;
+  sessionId: string;
+  action: StrategyActionName;
+  label: string;
+  lap?: number;
+  timestamp: number;
+  note: SessionNote;
+  eventId: string;
 }
 
 export interface TimelineEvent {
@@ -165,6 +235,13 @@ export interface SessionSnapshot {
   lap?: number;
   totalLaps?: number;
   position?: number;
+  sessionMeta?: {
+    currentLap?: number;
+    track?: string | null;
+    trackId?: number | null;
+    sessionTimeLeft?: number | null;
+    trackLength?: number | null;
+  };
   compound?: string;
   tyreAge?: number;
   fuelLaps?: number;

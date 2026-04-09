@@ -1,5 +1,8 @@
 export type StrategySeverity = 'info' | 'caution' | 'warning' | 'critical';
 export type StrategyScoreBand = 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+export type StrategySessionMode = 'race' | 'qualifying';
+export type QualifyingSessionPhase = 'Q1' | 'Q2' | 'Q3' | 'QUALI';
+export type QualifyingReleaseWindow = 'release_now' | 'wait_short' | 'wait_for_gap' | 'queue_reset';
 
 export type StrategyRecommendationLabel =
   | 'PIT NOW'
@@ -7,7 +10,11 @@ export type StrategyRecommendationLabel =
   | 'STAY OUT'
   | 'TRAFFIC RISK HIGH'
   | 'TYRE LIFE CRITICAL'
-  | 'FUEL RISK HIGH';
+  | 'FUEL RISK HIGH'
+  | 'RELEASE NOW'
+  | 'HOLD GAP'
+  | 'BUILD TYRES'
+  | 'TRAFFIC CLUSTER AHEAD';
 
 export type StrategyUnavailableReason =
   | 'session_not_found'
@@ -21,6 +28,48 @@ export interface RivalCarSnapshot {
   stintAge: number;
   tyreCompound: string;
   gapToLeader?: string | null;
+  lapDistance?: number | null;
+  pitStatus?: string | number | null;
+  driverStatus?: string | number | null;
+  isPlayer?: boolean;
+}
+
+export interface QualifyingTrafficBand {
+  key: string;
+  label: string;
+  startPct: number;
+  endPct: number;
+  carCount: number;
+  density: number;
+}
+
+export interface TrackMapCarSnapshot {
+  carIndex: number;
+  position: number | null;
+  lapDistance: number | null;
+  progressPct: number | null;
+  pitStatus: string | null;
+  driverStatus: string | null;
+  tyreCompound?: string | null;
+  isPlayer: boolean;
+}
+
+export interface QualifyingStrategyInsight {
+  active: true;
+  sessionPhase: QualifyingSessionPhase;
+  releaseWindow: QualifyingReleaseWindow;
+  releaseLabel: string;
+  trafficSummary: string;
+  outLapSummary: string;
+  trafficScore: number | null;
+  clearLapProbability: number | null;
+  recommendedReleaseInSec: number | null;
+  predictedCarsOnOutLap: number;
+  predictedGapAheadMeters: number | null;
+  predictedGapBehindMeters: number | null;
+  rationale: string[];
+  trafficBands: QualifyingTrafficBand[];
+  trackMapCars: TrackMapCarSnapshot[];
 }
 
 export interface StrategyEngineInput {
@@ -31,17 +80,22 @@ export interface StrategyEngineInput {
   syncingUntil?: number | null;
   hasSnapshot: boolean;
   latestSequence: number | null;
+  sessionType?: string | number | null;
+  sessionTimeLeft?: number | null;
+  trackLength?: number | null;
+  playerCarIndex?: number | null;
   currentLap: number | null;
   totalLaps: number | null;
   position: number | null;
   tyreAgeLaps: number | null;
   fuelRemaining: number | null;
   fuelLapsRemaining: number | null;
-  pitStatus: string | null;
+  pitStatus: string | number | null;
   tyreCompound: string | null;
   ersPercent: number | null;
   recentLapTimesMs: number[];
   rivals: RivalCarSnapshot[];
+  trafficCars?: RivalCarSnapshot[];
   previousStrategy?: {
     recommendation: StrategyRecommendationLabel;
     secondaryRecommendation?: StrategyRecommendationLabel;
@@ -55,6 +109,8 @@ export interface StrategyEngineInput {
 }
 
 export interface StrategySignals {
+  sessionMode: StrategySessionMode;
+  sessionPhase: QualifyingSessionPhase | 'RACE';
   currentLap: number | null;
   totalLaps: number | null;
   lapsRemaining: number | null;
@@ -68,6 +124,12 @@ export interface StrategySignals {
   stintProgress: number | null;
   pitWindowHint: 'open_now' | 'open_soon' | 'monitor' | 'too_early' | 'unknown';
   rejoinRiskHint: 'low' | 'medium' | 'high' | 'unknown';
+  outLapTrafficScore: number | null;
+  optimalReleaseInSec: number | null;
+  clearLapProbability: number | null;
+  trackDensityScore: number | null;
+  predictedGapAheadMeters: number | null;
+  predictedGapBehindMeters: number | null;
 
   // v2 comparative strategy layer
   undercutScore: number | null;
@@ -96,6 +158,7 @@ export interface StrategySimulationMeta {
 
 export interface StrategyRecommendationResult {
   strategyUnavailable: false;
+  sessionMode: StrategySessionMode;
 
   // v1 compatibility field
   recommendation: StrategyRecommendationLabel;
@@ -117,10 +180,12 @@ export interface StrategyRecommendationResult {
 
   // v3 Monte Carlo simulation metadata
   simulationMeta?: StrategySimulationMeta;
+  qualifying?: QualifyingStrategyInsight;
 }
 
 export interface StrategyUnavailableResult {
   strategyUnavailable: true;
+  sessionMode?: StrategySessionMode;
   reason: StrategyUnavailableReason;
   reasons: string[];
   signals: Partial<StrategySignals>;

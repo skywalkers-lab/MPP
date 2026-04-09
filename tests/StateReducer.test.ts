@@ -65,4 +65,36 @@ describe('StateReducer', () => {
     const state = reducer.getState();
     expect(state.sessionMeta?.sessionUID).toBe('def');
   });
+
+  it('should keep qualifying telemetry fields from map-shaped packet payloads', () => {
+    const reducer = new StateReducer();
+
+    reducer.handlePacket(
+      { packetId: 1, sessionUID: 'quali', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any,
+      { sessionType: 6, trackId: 10, totalLaps: 0, sessionTime: 25, sessionTimeLeft: 480, trackLength: 5412 }
+    );
+
+    reducer.handlePacket(
+      { packetId: 2, sessionUID: 'quali', playerCarIndex: 0, secondaryPlayerCarIndex: 255 } as any,
+      {
+        0: {
+          carIndex: 0,
+          position: 2,
+          currentLapNum: 3,
+          lastLapTime: 90123,
+          bestLapTime: 89456,
+          lapDistance: 0.27,
+          pitStatus: 'NONE',
+          driverStatus: 'OUT_LAP',
+        },
+      }
+    );
+
+    const state = reducer.getState();
+    expect(state.sessionMeta?.sessionTimeLeft).toBe(480);
+    expect(state.sessionMeta?.trackLength).toBe(5412);
+    expect(state.cars[0].lapDistance).toBe(0.27);
+    expect(state.cars[0].pitStatus).toBe('NONE');
+    expect(state.cars[0].driverStatus).toBe('OUT_LAP');
+  });
 });

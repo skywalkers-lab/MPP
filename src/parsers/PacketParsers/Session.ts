@@ -12,6 +12,7 @@ const SESSION_DURATION_OFFSET = 7; // uint16
 const PIT_SPEED_LIMIT_OFFSET = 9; // uint8
 const SAFETY_CAR_STATUS_OFFSET = 10; // uint8
 const NETWORK_GAME_OFFSET = 11; // uint8
+const TRACK_LENGTH_OFFSET = 164; // uint16 (optional extended payload)
 // ... (필요시 추가)
 
 export function parseSessionPacket(buf: Buffer): any | null {
@@ -30,6 +31,10 @@ export function parseSessionPacket(buf: Buffer): any | null {
       pitSpeedLimit: buf.readUInt8(base + PIT_SPEED_LIMIT_OFFSET),
       safetyCarStatus: buf.readUInt8(base + SAFETY_CAR_STATUS_OFFSET),
       networkGame: buf.readUInt8(base + NETWORK_GAME_OFFSET),
+      trackLength:
+        buf.length >= base + TRACK_LENGTH_OFFSET + 2
+          ? buf.readUInt16LE(base + TRACK_LENGTH_OFFSET)
+          : null,
       // ... (marshal zones, forecast samples 등 필요시 추가)
     };
   } catch (e) {

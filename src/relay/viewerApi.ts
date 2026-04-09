@@ -1,6 +1,11 @@
 import { timingSafeEqual } from 'crypto';
 import express, { Request, Response } from 'express';
-import { RelayServer, SessionAccessRecord } from './RelayServer';
+import {
+  RelayServer,
+  SessionAccessRecord,
+  STRATEGY_ACTIONS,
+  StrategyActionName,
+} from './RelayServer';
 import { serializeViewerSession } from './viewerStatus';
 import { serializeSessionAccess } from './RelayServer';
 import {
@@ -402,6 +407,66 @@ export function createViewerApiRouter(relayServer: RelayServer) {
     };
   }
 
+  function parseActionPayload(body: any): {
+    payload?: {
+      action: StrategyActionName;
+      lap?: number;
+      timestamp?: number;
+      authorLabel?: AddSessionNoteInput['authorLabel'];
+      severity?: AddSessionNoteInput['severity'];
+    };
+    error?: string;
+  } {
+    const rawAction = typeof body?.action === 'string' ? body.action.trim().toUpperCase() : '';
+    if (!rawAction || !STRATEGY_ACTIONS.includes(rawAction as StrategyActionName)) {
+      return { error: 'invalid_action' };
+    }
+
+    let lap: number | undefined;
+    if (body?.lap !== undefined) {
+      const lapNum = Number(body.lap);
+      if (!Number.isFinite(lapNum) || lapNum < 0) {
+        return { error: 'invalid_lap' };
+      }
+      lap = Math.floor(lapNum);
+    }
+
+    let timestamp: number | undefined;
+    if (body?.timestamp !== undefined) {
+      const ts = Number(body.timestamp);
+      if (!Number.isFinite(ts) || ts <= 0) {
+        return { error: 'invalid_timestamp' };
+      }
+      timestamp = Math.floor(ts);
+    }
+
+    let authorLabel: AddSessionNoteInput['authorLabel'];
+    if (body?.authorLabel !== undefined) {
+      if (!NOTE_ALLOWED_AUTHOR_LABELS.includes(body.authorLabel)) {
+        return { error: 'invalid_author_label' };
+      }
+      authorLabel = body.authorLabel;
+    }
+
+    let severity: AddSessionNoteInput['severity'];
+    if (body?.severity !== undefined) {
+      if (!NOTE_ALLOWED_SEVERITIES.includes(body.severity)) {
+        return { error: 'invalid_severity' };
+      }
+      severity = body.severity;
+    }
+
+    return {
+      payload: {
+        action: rawAction as StrategyActionName,
+        lap,
+        timestamp,
+        authorLabel,
+        severity,
+      },
+    };
+  }
+
   // GET /api/viewer/ops/sessions
   router.get('/ops/sessions', (req, res) => {
     if (!requireOpsControlAccess(req, res)) {
@@ -573,6 +638,38 @@ export function createViewerApiRouter(relayServer: RelayServer) {
       rebound: auth.rebound,
       noteId,
       deleted: true,
+    });
+  });
+
+  // POST /api/viewer/actions/:sessionId
+  router.post('/actions/:sessionId', (req, res) => {
+    const auth = ensureViewerRole(req, res, req.params.sessionId, (access) => {
+      if (!access || !access.shareEnabled || access.visibility !== 'code') {
+        return 'viewer';
+      }
+      if (requirePermissionForMutations() && access.permissionCode) {
+        return 'strategist';
+      }
+      if (access.roomPassword) {
+        return 'engineer';
+      }
+      return 'viewer';
+    });
+    if (!auth) {
+      return;
+    }
+
+    const parsed = parseActionPayload(req.body);
+    if (parsed.error || !parsed.payload) {
+      return res.status(400).json({ error: parsed.error ?? 'invalid_action_payload' });
+    }
+
+    const action = relayServer.logStrategyAction(auth.canonicalSessionId, parsed.payload);
+    res.status(201).json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId: req.params.sessionId,
+      rebound: auth.rebound,
+      action,
     });
   });
 

@@ -68,20 +68,27 @@ export class StateReducer {
           totalLaps: packet.totalLaps,
           currentLap: packet.currentLap,
           sessionTime: packet.sessionTime,
+          sessionTimeLeft: packet.sessionTimeLeft,
+          trackLength: packet.trackLength,
         };
         break;
       case 2: // Lap Data
-        this.updateCarState(packet.carIndex, {
-          position: packet.position,
-          currentLapNum: packet.currentLapNum,
-          lastLapTime: packet.lastLapTime,
-          bestLapTime: packet.bestLapTime,
-          gapToLeader: packet.gapToLeader,
-          gapToFront: packet.gapToFront,
-        });
+        for (const car of this.asPacketItems(packet)) {
+          this.updateCarState(car.carIndex, {
+            position: car.position,
+            currentLapNum: car.currentLapNum,
+            lastLapTime: car.lastLapTime ?? car.lastLapTimeMs,
+            bestLapTime: car.bestLapTime ?? car.bestLapTimeMs,
+            gapToLeader: car.gapToLeader,
+            gapToFront: car.gapToFront,
+            pitStatus: car.pitStatus,
+            driverStatus: car.driverStatus,
+            lapDistance: car.lapDistance,
+          });
+        }
         break;
       case 4: // Participants
-        for (const p of packet) {
+        for (const p of this.asPacketItems(packet)) {
           this.state.drivers[p.carIndex] = {
             carIndex: p.carIndex,
             driverName: p.driverName,
@@ -94,32 +101,39 @@ export class StateReducer {
         }
         break;
       case 6: // Car Telemetry
-        this.updateCarState(packet.carIndex, {
-          ersLevel: packet.ersLevel,
-          tyreTemp: packet.tyreTemp,
-        });
+        for (const car of this.asPacketItems(packet)) {
+          this.updateCarState(car.carIndex, {
+            ersLevel: car.ersLevel,
+            tyreTemp: car.tyreTemp,
+          });
+        }
         break;
       case 7: // Car Status
-        this.updateCarState(packet.carIndex, {
-          fuelRemaining: packet.fuelRemaining,
-          fuelLapsRemaining: packet.fuelLapsRemaining,
-          tyreCompound: packet.tyreCompound,
-          tyreAgeLaps: packet.tyreAgeLaps,
-          ersDeployMode: packet.ersDeployMode,
-        });
+        for (const car of this.asPacketItems(packet)) {
+          this.updateCarState(car.carIndex, {
+            fuelRemaining: car.fuelRemaining,
+            fuelLapsRemaining: car.fuelLapsRemaining,
+            pitStatus: car.pitStatus,
+            tyreCompound: car.tyreCompound,
+            tyreAgeLaps: car.tyreAgeLaps,
+            ersDeployMode: car.ersDeployMode,
+          });
+        }
         break;
       case 8: // Car Damage
-        this.updateCarState(packet.carIndex, {
-          damage: {
-            frontWingLeft: packet.frontWingLeft,
-            frontWingRight: packet.frontWingRight,
-            rearWing: packet.rearWing,
-            floor: packet.floor,
-            sidepod: packet.sidepod,
-            engine: packet.engine,
-            gearbox: packet.gearbox,
-          },
-        });
+        for (const car of this.asPacketItems(packet)) {
+          this.updateCarState(car.carIndex, {
+            damage: {
+              frontWingLeft: car.frontWingLeft,
+              frontWingRight: car.frontWingRight,
+              rearWing: car.rearWing,
+              floor: car.floor,
+              sidepod: car.sidepod,
+              engine: car.engine,
+              gearbox: car.gearbox,
+            },
+          });
+        }
         break;
       case 3: // Event
         this.pushEvent({
@@ -146,6 +160,22 @@ export class StateReducer {
     }
   }
 
+  private asPacketItems(packet: any): any[] {
+    if (!packet) {
+      return [];
+    }
+    if (Array.isArray(packet)) {
+      return packet.filter(Boolean);
+    }
+    if (typeof packet === 'object') {
+      if ('carIndex' in packet || 'driverName' in packet || 'type' in packet) {
+        return [packet];
+      }
+      return Object.values(packet).filter((value) => value != null);
+    }
+    return [];
+  }
+
   private updateCarState(carIndex: number, partial: Partial<CarState>) {
     if (!this.state.cars[carIndex]) {
       this.state.cars[carIndex] = {
@@ -157,6 +187,8 @@ export class StateReducer {
         gapToLeader: null,
         gapToFront: null,
         pitStatus: null,
+        driverStatus: null,
+        lapDistance: null,
         tyreCompound: null,
         tyreAgeLaps: null,
         fuelRemaining: null,

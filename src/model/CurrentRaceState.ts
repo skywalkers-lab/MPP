@@ -5,13 +5,15 @@ export type Nullable<T> = T | null | undefined;
 
 export interface SessionMeta {
   sessionUID: string;
-  sessionType: string; // Race, Qualifying, Practice 등
+  sessionType: string | number; // Race, Qualifying, Practice 등
   trackId: number;
   weather: string;
   safetyCarStatus: string;
   totalLaps: number;
   currentLap: number;
   sessionTime: number;
+  sessionTimeLeft?: Nullable<number>;
+  trackLength?: Nullable<number>;
 }
 
 export interface DriverInfo {
@@ -32,7 +34,9 @@ export interface CarState {
   bestLapTime: Nullable<number>;
   gapToLeader: Nullable<number>;
   gapToFront: Nullable<number>;
-  pitStatus: Nullable<string>;
+  pitStatus: Nullable<string | number>;
+  driverStatus: Nullable<string | number>;
+  lapDistance: Nullable<number>;
   tyreCompound: Nullable<string>;
   tyreAgeLaps: Nullable<number>;
   fuelRemaining: Nullable<number>;

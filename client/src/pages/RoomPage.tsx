@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo, type FormEvent } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import HealthBadge from '../components/HealthBadge';
 import type {
   CarSnapshot,
   DriverSnapshot,
+  StrategyActionName,
   StrategyData,
   StrategySimulationMeta,
   SessionNote,
@@ -15,18 +16,19 @@ import type {
 import {
   fetchStrategy, fetchNotes, addNote, deleteNote, fetchTimeline,
   fetchSessionAccess, fetchSessionHealth, fetchRelayInfo,
-  fetchSessionSnapshot, patchSessionAccess,
+  fetchSessionSnapshot, patchSessionAccess, executeSessionAction,
 } from '../lib/api';
 import { fmtPct, fmtRelTime } from '../lib/formatters';
 
-type ConsoleTab = 'live' | 'strategy' | 'notes' | 'timeline' | 'settings';
+type ConsoleTab = 'live' | 'strategy' | 'replay' | 'notes' | 'timeline' | 'settings';
 
 const CONSOLE_TABS: { id: ConsoleTab; label: string }[] = [
-  { id: 'live', label: 'LIVE TELEMETRY' },
-  { id: 'strategy', label: 'STRATEGY' },
-  { id: 'notes', label: 'NOTES' },
-  { id: 'timeline', label: 'TIMELINE' },
-  { id: 'settings', label: 'SETTINGS' },
+  { id: 'live', label: '실시간 현황' },
+  { id: 'strategy', label: '전략' },
+  { id: 'replay', label: '리플레이' },
+  { id: 'notes', label: '무전내역' },
+  { id: 'timeline', label: '타임라인' },
+  { id: 'settings', label: '설정' },
 ];
 
 const categoryColors: Record<string, string> = {
@@ -73,72 +75,173 @@ function TyreGauge({ label, temp, wear }: { label: string; temp?: number | null;
   );
 }
 
-function TyreDegradationChart({ tyreAge, urgency }: {
+type TrackPoint = readonly [number, number];
+
+interface TrackPathData {
+  id: string;
+  label: string;
+  source: 'preset' | 'external';
+  points: TrackPoint[];
+}
+
+interface TyreChartSeriesData {
+  baselineSeries: TrackPoint[];
+  modelSeries: TrackPoint[];
+  pitMarkerX: number;
+  baselineLabel?: string;
+  modelLabel?: string;
+}
+
+const TRACK_PATH_PRESETS: Record<string, TrackPathData> = {
+  monza: { id: 'monza', label: 'Monza', source: 'preset', points: [[42, 168], [58, 84], [120, 54], [196, 70], [250, 52], [264, 102], [230, 128], [264, 182], [228, 230], [148, 246], [88, 216], [56, 182], [42, 168]] },
+  silverstone: { id: 'silverstone', label: 'Silverstone', source: 'preset', points: [[38, 188], [54, 122], [88, 78], [138, 52], [198, 64], [248, 100], [264, 146], [232, 174], [258, 214], [214, 246], [150, 228], [110, 248], [64, 226], [38, 188]] },
+  spa: { id: 'spa', label: 'Spa', source: 'preset', points: [[36, 220], [52, 144], [84, 88], [138, 44], [212, 58], [260, 98], [240, 144], [262, 196], [216, 244], [138, 256], [82, 222], [52, 246], [36, 220]] },
+  suzuka: { id: 'suzuka', label: 'Suzuka', source: 'preset', points: [[54, 202], [88, 128], [64, 86], [120, 52], [182, 76], [144, 126], [198, 156], [248, 116], [262, 176], [210, 222], [148, 248], [96, 224], [54, 202]] },
+  monaco: { id: 'monaco', label: 'Monaco', source: 'preset', points: [[70, 226], [56, 164], [82, 116], [74, 66], [130, 52], [178, 88], [222, 74], [248, 124], [214, 154], [238, 206], [184, 236], [130, 214], [96, 244], [70, 226]] },
+  generic: { id: 'generic', label: 'Generic Circuit', source: 'preset', points: [[40, 184], [58, 112], [96, 64], [154, 48], [216, 70], [258, 110], [246, 154], [264, 212], [212, 248], [150, 232], [104, 248], [68, 220], [40, 184]] },
+};
+
+function buildTrackPathData(trackId?: number | null, trackName?: string | null): TrackPathData {
+  const name = String(trackName || '').toLowerCase();
+  if (name.includes('monza') || name.includes('italy')) return TRACK_PATH_PRESETS.monza;
+  if (name.includes('silverstone') || name.includes('brit')) return TRACK_PATH_PRESETS.silverstone;
+  if (name.includes('spa') || name.includes('belg')) return TRACK_PATH_PRESETS.spa;
+  if (name.includes('suzuka') || name.includes('japan')) return TRACK_PATH_PRESETS.suzuka;
+  if (name.includes('monaco')) return TRACK_PATH_PRESETS.monaco;
+
+  switch (trackId) {
+    case 7:
+    case 11:
+      return TRACK_PATH_PRESETS.monza;
+    case 8:
+    case 9:
+      return TRACK_PATH_PRESETS.silverstone;
+    case 10:
+      return TRACK_PATH_PRESETS.spa;
+    case 14:
+      return TRACK_PATH_PRESETS.suzuka;
+    case 5:
+      return TRACK_PATH_PRESETS.monaco;
+    default:
+      return TRACK_PATH_PRESETS.generic;
+  }
+}
+
+function buildTyreChartSeriesData({
+  tyreAge,
+  urgency,
+  degradationTrend,
+}: {
   tyreAge?: number | null;
   urgency?: number | null;
-}) {
+  degradationTrend?: number | null;
+}): TyreChartSeriesData {
   const age = tyreAge ?? 0;
   const urg = urgency ?? 35;
-  const pitOffset = Math.max(2, Math.round((100 - urg) / 10));
+  const trend = Math.max(0, Math.min(100, degradationTrend ?? urg));
+  const pitMarkerX = 20 + Math.max(0, Math.min(8, Math.max(1, Math.round((100 - ((urg * 0.55) + (trend * 0.45))) / 11)))) * 32;
 
-  const pointsA: string[] = [];
-  const pointsB: string[] = [];
+  const baselineSeries: TrackPoint[] = [];
+  const modelSeries: TrackPoint[] = [];
   for (let i = 0; i <= 8; i++) {
     const x = 20 + i * 32;
-    const ya = 32 + i * (5 + urg / 90) + age * 0.35;
-    const yb = 48 + i * 3.4;
-    pointsA.push(`${x},${Math.min(130, ya).toFixed(1)}`);
-    pointsB.push(`${x},${Math.min(130, yb).toFixed(1)}`);
+    const modelY = 28 + i * (4.4 + trend / 60) + age * 0.42;
+    const baselineY = 36 + i * 3.8 + age * 0.18;
+    modelSeries.push([x, Number(Math.min(130, modelY).toFixed(1))]);
+    baselineSeries.push([x, Number(Math.min(130, baselineY).toFixed(1))]);
   }
-  const pitX = 20 + Math.max(0, Math.min(8, pitOffset)) * 32;
+
+  return {
+    baselineSeries,
+    modelSeries,
+    pitMarkerX,
+    baselineLabel: 'BASELINE',
+    modelLabel: 'MODEL',
+  };
+}
+
+function pointOnPolyline(points: TrackPoint[], progress: number) {
+  const normalized = ((progress % 1) + 1) % 1;
+  const segments: Array<{ start: TrackPoint; end: TrackPoint; length: number }> = [];
+  let totalLength = 0;
+
+  for (let i = 0; i < points.length - 1; i++) {
+    const start = points[i];
+    const end = points[i + 1];
+    const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+    segments.push({ start, end, length });
+    totalLength += length;
+  }
+
+  const target = normalized * totalLength;
+  let cursor = 0;
+  for (const segment of segments) {
+    if (cursor + segment.length >= target) {
+      const local = segment.length === 0 ? 0 : (target - cursor) / segment.length;
+      const x = segment.start[0] + (segment.end[0] - segment.start[0]) * local;
+      const y = segment.start[1] + (segment.end[1] - segment.start[1]) * local;
+      const angle = Math.atan2(segment.end[1] - segment.start[1], segment.end[0] - segment.start[0]);
+      return { x, y, angle };
+    }
+    cursor += segment.length;
+  }
+
+  const last = segments[segments.length - 1] ?? { start: [150, 150] as TrackPoint, end: [150, 150] as TrackPoint, length: 0 };
+  return { x: last.end[0], y: last.end[1], angle: Math.atan2(last.end[1] - last.start[1], last.end[0] - last.start[0]) };
+}
+
+function TyreDegradationChart({ baselineSeries, modelSeries, pitMarkerX, baselineLabel = 'BASELINE', modelLabel = 'MODEL' }: TyreChartSeriesData) {
+  const baselinePoints = baselineSeries.map(([x, y]) => `${x},${y}`).join(' ');
+  const modelPoints = modelSeries.map(([x, y]) => `${x},${y}`).join(' ');
 
   return (
     <svg viewBox="0 0 300 140" className="w-full" style={{ height: 110 }} role="img" aria-label="degradation chart">
       <rect x="0" y="0" width="300" height="140" fill="rgba(6,11,18,0.92)" />
-      <polyline points={pointsB.join(' ')} fill="none" stroke="#b8bec8" strokeWidth="2" strokeDasharray="5 3" opacity="0.85" />
-      <polyline points={pointsA.join(' ')} fill="none" stroke="#61d6df" strokeWidth="2" />
-      <line x1={pitX.toFixed(1)} y1="8" x2={pitX.toFixed(1)} y2="132" stroke="#f3bf52" strokeWidth="1" strokeDasharray="4 4" />
-      <text x="8" y="18" fill="#8d9db2" fontSize="8" fontFamily="monospace">SOFT</text>
-      <text x="8" y="138" fill="#8d9db2" fontSize="8" fontFamily="monospace">0%</text>
-      <text x={pitX - 4} y="6" fill="#f3bf52" fontSize="7" fontFamily="monospace">PIT</text>
+      <polyline points={baselinePoints} fill="none" stroke="#8d9db2" strokeWidth="2" strokeDasharray="5 3" opacity="0.85" />
+      <polyline points={modelPoints} fill="none" stroke="#61d6df" strokeWidth="2.2" />
+      <line x1={pitMarkerX.toFixed(1)} y1="8" x2={pitMarkerX.toFixed(1)} y2="132" stroke="#f3bf52" strokeWidth="1" strokeDasharray="4 4" />
+      <text x="8" y="18" fill="#8d9db2" fontSize="8" fontFamily="monospace">{baselineLabel}</text>
+      <text x="8" y="138" fill="#8d9db2" fontSize="8" fontFamily="monospace">{modelLabel}</text>
+      <text x={pitMarkerX - 4} y="6" fill="#f3bf52" fontSize="7" fontFamily="monospace">PIT</text>
     </svg>
   );
 }
 
-function TrackMapSvg({ rows, playerPos }: { rows: CarSnapshot[]; playerPos?: number | null }) {
+function TrackMapSvg({ rows, playerPos, trackPath }: { rows: CarSnapshot[]; playerPos?: number | null; trackPath: TrackPoint[] }) {
   const maxPos = Math.max(1, rows.length || 20);
+  const points = trackPath.length > 1 ? trackPath : TRACK_PATH_PRESETS.generic.points;
+  const trackLine = points.map((point) => `${point[0]},${point[1]}`).join(' ');
+  const start = points[0] ?? ([40, 184] as TrackPoint);
+
   const markers = rows.slice(0, 15).map((row) => {
-    const pos = Number.isFinite(row.position) && row.position != null ? row.position : 20;
-    const angle = ((pos - 1) / maxPos) * Math.PI * 2 - Math.PI / 2;
-    const x = 150 + Math.cos(angle) * 96;
-    const y = 150 + Math.sin(angle) * 74;
+    const pos = Number.isFinite(row.position) && row.position != null ? row.position : maxPos;
+    const progress = maxPos <= 1 ? 0 : (pos - 1) / Math.max(1, maxPos - 1);
+    const { x, y, angle } = pointOnPolyline(points, progress);
     const isPlayer = pos === playerPos;
-    if (isPlayer) {
-      return (
-        <polygon
-          key={row.carIndex}
-          points={`${x},${y - 6} ${x + 5},${y + 4} ${x - 5},${y + 4}`}
-          fill="#61d6df"
-        />
-      );
-    }
+    const rotation = (angle * 180) / Math.PI + 90;
+    const markerPoints = isPlayer
+      ? `${x},${y - 6} ${x + 5},${y + 4} ${x - 5},${y + 4}`
+      : `${x},${y - 4} ${x + 3.5},${y + 3} ${x - 3.5},${y + 3}`;
+
     return (
       <polygon
         key={row.carIndex}
-        points={`${x},${y - 4} ${x + 3.5},${y + 3} ${x - 3.5},${y + 3}`}
-        fill="#8d9db2"
-        opacity="0.7"
+        points={markerPoints}
+        fill={isPlayer ? '#61d6df' : '#8d9db2'}
+        opacity={isPlayer ? 1 : 0.78}
+        transform={`rotate(${rotation.toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})`}
       />
     );
   });
 
   return (
     <svg viewBox="0 0 300 300" className="w-full" style={{ maxHeight: 260 }} role="img" aria-label="circuit map">
-      <ellipse cx="150" cy="150" rx="110" ry="84" fill="rgba(14,22,33,0.55)" stroke="rgba(97,214,223,0.25)" strokeWidth="2" />
-      <ellipse cx="150" cy="150" rx="96" ry="72" fill="rgba(6,11,18,0.95)" stroke="rgba(49,71,96,0.52)" strokeWidth="1" />
-      <line x1="150" y1="30" x2="150" y2="270" stroke="rgba(243,191,82,0.28)" strokeWidth="1" strokeDasharray="4 4" />
-      <line x1="40" y1="150" x2="260" y2="150" stroke="rgba(243,191,82,0.28)" strokeWidth="1" strokeDasharray="4 4" />
-      <circle cx="150" cy="150" r="3" fill="rgba(97,214,223,0.7)" />
+      <rect x="0" y="0" width="300" height="300" fill="rgba(6,11,18,0.95)" />
+      <polyline points={trackLine} fill="none" stroke="rgba(97,214,223,0.18)" strokeWidth="18" strokeLinejoin="round" strokeLinecap="round" />
+      <polyline points={trackLine} fill="none" stroke="rgba(49,71,96,0.95)" strokeWidth="10" strokeLinejoin="round" strokeLinecap="round" />
+      <polyline points={trackLine} fill="none" stroke="#61d6df" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <line x1={String(start[0] - 8)} y1={String(start[1] - 10)} x2={String(start[0] + 8)} y2={String(start[1] + 10)} stroke="#f3bf52" strokeWidth="2" />
+      <circle cx={String(start[0])} cy={String(start[1])} r="3" fill="rgba(97,214,223,0.7)" />
       {markers}
     </svg>
   );
@@ -169,6 +272,8 @@ export default function RoomPage() {
   const [noteLap, setNoteLap] = useState('');
   const [noteMsg, setNoteMsg] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+  const [actionMsg, setActionMsg] = useState('');
+  const [pendingAction, setPendingAction] = useState<StrategyActionName | null>(null);
 
   const [roomTitle, setRoomTitle] = useState('');
   const [roomPassword, setRoomPassword] = useState('');
@@ -221,9 +326,9 @@ export default function RoomPage() {
     fetchRelayInfo().then(setRelayInfo).catch(() => { });
     intervalRef.current = setInterval(loadAll, 2000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, []);
+  }, [loadAll, loadAccess]);
 
-  async function handleAddNote(e: React.FormEvent) {
+  async function handleAddNote(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!noteText.trim()) return;
     setSavingNote(true); setNoteMsg('');
@@ -244,8 +349,35 @@ export default function RoomPage() {
   async function handleDeleteNote(noteId: string) {
     try {
       await deleteNote(id, noteId, password, permissionCode);
-      setNotes(prev => prev.filter(n => n.id !== noteId));
+      setNotes((prev: SessionNote[]) => prev.filter((n: SessionNote) => (n.id ?? n.noteId) !== noteId));
     } catch { }
+  }
+
+  async function handleExecuteAction(action: StrategyActionName) {
+    if (!id || pendingAction) return;
+    setPendingAction(action);
+    setActionMsg('');
+    try {
+      const currentLapRaw = snapshot?.sessionMeta?.currentLap ?? snapshot?.lap;
+      const currentLap = Number.isFinite(currentLapRaw) ? Number(currentLapRaw) : undefined;
+      const response = await executeSessionAction(
+        id,
+        {
+          action,
+          lap: currentLap,
+          authorLabel: hasPermission ? 'Strategist' : 'Engineer',
+        },
+        password,
+        permissionCode
+      );
+      setActionMsg(`✓ ${response.action.label} logged`);
+      await loadAll();
+    } catch (e) {
+      setActionMsg(`✗ ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setPendingAction(null);
+      setTimeout(() => setActionMsg(''), 3500);
+    }
   }
 
   async function handleSaveSettings() {
@@ -278,7 +410,6 @@ export default function RoomPage() {
   const s = snapshot || ({} as SessionSnapshot);
   const base = relayInfo?.viewerBaseUrl || '';
   const joinUrl = access?.joinCode ? `${base}/join/${access.joinCode}` : '';
-  const overlayUrl = access?.joinCode ? `${base}/overlay/join/${access.joinCode}` : '';
   const title = access?.roomTitle || id;
 
   return (
@@ -336,8 +467,34 @@ export default function RoomPage() {
           <div className="m-3 rounded border border-red-800/60 bg-red-950/30 px-4 py-3 text-sm text-red-400">{error}</div>
         )}
 
-        {tab === 'live' && <StrategicConsoleTab s={s} strategy={strategy} health={health} timeline={timeline} access={access} sessionId={id} password={password} permissionCode={permissionCode} />}
+        {tab === 'live' && (
+          <StrategicConsoleTab
+            s={s}
+            strategy={strategy}
+            health={health}
+            timeline={timeline}
+            access={access}
+            hasPermission={hasPermission}
+            pendingAction={pendingAction}
+            actionMsg={actionMsg}
+            onExecuteAction={handleExecuteAction}
+          />
+        )}
         {tab === 'strategy' && <StrategyTab strategy={strategy} />}
+        {tab === 'replay' && (
+          <div className="flex flex-col items-center justify-center py-24 text-[#4a6478] gap-3">
+            <div className="text-4xl opacity-20">⏮</div>
+            <div className="text-sm font-mono uppercase tracking-widest">REPLAY MODE</div>
+            {access?.joinCode && (
+              <a
+                href={`/console/replay?sessionId=${encodeURIComponent(id)}`}
+                className="mt-2 px-4 py-2 border border-[#61d6df] text-[#61d6df] text-xs font-mono tracking-widest uppercase hover:bg-[rgba(97,214,223,0.08)] transition-colors"
+              >
+                OPEN KINETIC INSTRUMENT V1 →
+              </a>
+            )}
+          </div>
+        )}
         {tab === 'notes' && (
           <div className="p-3">
             <NotesTab
@@ -363,7 +520,7 @@ export default function RoomPage() {
               hasPermission={hasPermission}
               access={access}
               relayInfo={relayInfo}
-              joinUrl={joinUrl} overlayUrl={overlayUrl}
+              joinUrl={joinUrl}
               copyMsg={copyMsg} onCopy={copy}
               roomTitle={roomTitle} setRoomTitle={setRoomTitle}
               roomPassword={roomPassword} setRoomPassword={setRoomPassword}
@@ -380,15 +537,16 @@ export default function RoomPage() {
   );
 }
 
-function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId, password, permissionCode }: {
+function StrategicConsoleTab({ s, strategy, health, timeline, access, hasPermission, pendingAction, actionMsg, onExecuteAction }: {
   s: SessionSnapshot;
   strategy: StrategyData | null;
   health: SessionHealthData | null;
   timeline: TimelineEvent[];
   access: SessionAccessRecord | null;
-  sessionId: string;
-  password: string;
-  permissionCode: string;
+  hasPermission: boolean;
+  pendingAction: StrategyActionName | null;
+  actionMsg: string;
+  onExecuteAction: (action: StrategyActionName) => void;
 }) {
   const m = strategy?.metrics;
   const sig = strategy?.signals;
@@ -401,19 +559,6 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
   const playerIdx = s.playerCarIndex;
 
   const [selectedCarIndex, setSelectedCarIndex] = useState<number | null>(null);
-  const [actionMsg, setActionMsg] = useState<string | null>(null);
-
-  async function dispatchAction(label: string, category: string) {
-    const lap = s.lap ?? undefined;
-    try {
-      await addNote(sessionId, { text: `[ACTION] ${label}`, authorLabel: 'Engineer', category, lap }, password, permissionCode);
-      setActionMsg(`✓ ${label}`);
-    } catch {
-      setActionMsg(`✗ ${label} failed`);
-    } finally {
-      setTimeout(() => setActionMsg(null), 3000);
-    }
-  }
 
   const rows = useMemo(() =>
     allCars
@@ -426,6 +571,9 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
   const activeCar = activeCarIndex != null ? (s.cars?.[activeCarIndex] ?? null) : null;
   const playerCar = playerIdx != null ? (s.cars?.[playerIdx] ?? null) : null;
   const playerPos = playerCar?.position ?? s.position;
+  const trackId = s.sessionMeta?.trackId ?? null;
+  const trackName = s.track ?? s.sessionMeta?.track ?? null;
+  const trackPathData = useMemo(() => buildTrackPathData(trackId, trackName), [trackId, trackName]);
 
   const temps = activeCar?.tyreTemp ?? s.tyreTemps ?? s.tyreSurfaceTemp;
   const wears = activeCar?.tyreWear ?? s.tyreWear ?? s.tyreCarcassDamage;
@@ -482,11 +630,11 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
         if (cat === 'strategy') strategyLogs.push({ time, text: String(data['text']) });
         else radio.push({ time, text: String(data['text']) });
       } else {
-        const t = (item.type ?? '').toLowerCase();
+        const t = item.type.toLowerCase();
         if (t.includes('flag') || t.includes('incident') || t.includes('vsc') || t.includes('sc')) {
-          raceControl.push({ time, text: item.type ?? t });
+          raceControl.push({ time, text: item.type });
         } else {
-          strategyLogs.push({ time, text: item.type ?? t });
+          strategyLogs.push({ time, text: item.type });
         }
       }
     });
@@ -504,6 +652,14 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
   const undercutScore = sig?.undercutScore ?? m?.undercutScore;
   const cleanAirProb = sig?.cleanAirProbability ?? m?.cleanAirProbability;
   const trafficExp = sig?.trafficRiskScore ?? m?.trafficExposure;
+  const tyreChartData = useMemo(
+    () => buildTyreChartSeriesData({
+      tyreAge,
+      urgency: m?.tyreUrgency,
+      degradationTrend: sig?.degradationTrend,
+    }),
+    [tyreAge, m?.tyreUrgency, sig?.degradationTrend]
+  );
 
   return (
     <div className="flex flex-col min-h-0">
@@ -526,8 +682,8 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
         )}
       </div>
 
-      <div className="flex flex-1 overflow-hidden" style={{ height: 'calc(100vh - 180px)', minHeight: 600 }}>
-        <aside className="w-72 flex-shrink-0 border-r border-[#243247] overflow-y-auto bg-[#080d15]">
+      <div className="flex flex-1 min-h-0 flex-col xl:flex-row overflow-hidden xl:min-h-[640px]">
+        <aside className="w-full xl:w-64 2xl:w-72 xl:flex-shrink-0 border-b xl:border-b-0 xl:border-r border-[#243247] overflow-y-visible xl:overflow-y-auto bg-[#080d15]">
           <div className="p-2 border-b border-[#243247]">
             <div className="text-[9px] font-mono text-[#4a6478] uppercase mb-1">Driver Focus</div>
             <select
@@ -614,7 +770,7 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
           </div>
         </aside>
 
-        <main className="flex-1 flex flex-col overflow-hidden">
+        <main className="order-1 xl:order-none min-w-0 flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 p-2 overflow-auto">
             <div className="text-[9px] font-mono text-[#4a6478] uppercase mb-2 flex items-center justify-between">
               <span>LIVE TRACK SIMULATION</span>
@@ -625,9 +781,12 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
               </span>
             </div>
 
-            <div className="border border-[#243247] bg-[#060b12] relative" style={{ minHeight: 280 }}>
-              <TrackMapSvg rows={rows} playerPos={playerPos} />
-              <div className="absolute right-2 bottom-2 flex flex-col gap-1.5 w-44">
+            <div className="border border-[#243247] bg-[#060b12] relative overflow-hidden" style={{ minHeight: 280 }}>
+              <TrackMapSvg rows={rows} playerPos={playerPos} trackPath={trackPathData.points} />
+              <div className="absolute left-2 top-2 border border-[#314760] bg-[rgba(7,12,18,0.88)] px-2 py-1 text-[9px] font-mono text-[#61d6df] tracking-widest uppercase">
+                {trackPathData.label}
+              </div>
+              <div className="absolute right-2 bottom-2 flex flex-col gap-1.5 w-40 sm:w-44">
                 <div className="border border-[#314760] bg-[rgba(7,12,18,0.9)] p-2">
                   <div className="text-[9px] font-mono text-[#61d6df] tracking-widest uppercase mb-1">CLEAN AIR WINDOW</div>
                   <div className="flex justify-between text-[10px] font-mono text-[#8d9db2]">
@@ -654,7 +813,7 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
             </div>
 
             <div className="mt-2 overflow-x-auto">
-              <table className="w-full" style={{ fontFamily: 'monospace', fontSize: 11, borderCollapse: 'collapse' }}>
+              <table className="w-full min-w-[860px]" style={{ fontFamily: 'monospace', fontSize: 11, borderCollapse: 'collapse' }}>
                 <thead>
                   <tr className="border-b border-[#243247]">
                     {['POS', 'DRIVER', 'GAP', 'INTERVAL', 'REJOIN RISK', 'THREAT', 'STINT', 'TYRE', 'ERS', 'TARGET LAP', 'PIT'].map(h => (
@@ -728,7 +887,7 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
             </div>
           </div>
 
-          <div className="border-t border-[#243247] grid grid-cols-3 divide-x divide-[#243247]" style={{ maxHeight: 140 }}>
+          <div className="border-t border-[#243247] grid grid-cols-1 md:grid-cols-3 md:divide-x divide-[#243247]" style={{ maxHeight: 220 }}>
             {(['TEAM RADIO', 'RACE CONTROL', 'STRATEGY ENGINE'] as const).map((head, ci) => {
               const items = ci === 0 ? classified.radio : ci === 1 ? classified.raceControl : classified.strategy;
               return (
@@ -750,16 +909,13 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
           </div>
         </main>
 
-        <aside className="w-72 flex-shrink-0 border-l border-[#243247] flex flex-col overflow-y-auto bg-[#080d15]">
+        <aside className="w-full xl:w-64 2xl:w-72 xl:flex-shrink-0 border-t xl:border-t-0 xl:border-l border-[#243247] flex flex-col overflow-y-visible xl:overflow-y-auto bg-[#080d15]">
           <div className="p-2 border-b border-[#243247]">
-            <div className="text-[9px] font-mono text-[#4a6478] uppercase mb-2">TYRE DEGRADATION PROJECTION</div>
-            <TyreDegradationChart
-              tyreAge={tyreAge}
-              urgency={m?.tyreUrgency}
-            />
+            <div className="text-[9px] font-mono text-[#4a6478] uppercase mb-2">TYRE TREND MODEL</div>
+            <TyreDegradationChart {...tyreChartData} />
             <div className="flex gap-3 mt-2 text-[9px] font-mono">
-              <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-[#61d6df] inline-block" />SOFT</span>
-              <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-[#b8bec8] inline-block" />HARD</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-[#61d6df] inline-block" />MODEL</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-[#8d9db2] inline-block" />BASELINE</span>
             </div>
           </div>
 
@@ -773,17 +929,17 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
               <div className="text-[#61d6df] font-mono font-bold text-lg">{rejoin !== '-' ? String(rejoin).toUpperCase() : '--'}</div>
             </div>
             <div>
-              <div className="text-[9px] font-mono text-[#4a6478] uppercase">PIT LOSS HEURISTIC</div>
+              <div className="text-[9px] font-mono text-[#4a6478] uppercase">MODEL CONFIDENCE</div>
               <div className="flex items-center gap-2">
                 <span className="text-[#61d6df] font-mono font-bold text-xl">
-                  {sig?.pitLossHeuristic != null ? `${Math.round(sig.pitLossHeuristic)}/100` : '--'}
+                  {(strategy?.confidenceScore ?? strategy?.confidence) != null ? fmtPct((strategy?.confidenceScore ?? strategy?.confidence) as number) : '--'}
                 </span>
                 <span className={`text-[9px] border px-1.5 py-0.5 ${
-                  sig?.pitLossHeuristic != null && sig.pitLossHeuristic >= 82
-                    ? 'text-[#f27979] border-[#7a3838]'
-                    : 'text-[#7fd7a2] border-[#2d6c45]'
+                  (strategy?.stabilityScore ?? 0) >= 70
+                    ? 'text-[#7fd7a2] border-[#2d6c45]'
+                    : 'text-[#f3bf52] border-[#7d6227]'
                 }`}>
-                  {sig?.pitLossHeuristic != null && sig.pitLossHeuristic >= 82 ? 'HIGH' : 'NOMINAL'}
+                  {(strategy?.stabilityScore ?? 0) >= 70 ? 'STABLE' : 'WATCH'}
                 </span>
               </div>
             </div>
@@ -809,47 +965,42 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId,
           </div>
 
           <div className="p-2 border-b border-[#243247]">
-            <div className="text-[9px] font-mono text-[#4a6478] uppercase mb-2 flex items-center justify-between">
-              <span>ACTIONS</span>
-              {!permissionCode && <span className="text-[8px] text-[#3a5570]">PERMISSION REQUIRED</span>}
-            </div>
-            {actionMsg && (
-              <div className="mb-1.5 text-[10px] font-mono text-[#61d6df] text-center">{actionMsg}</div>
-            )}
+            <div className="text-[9px] font-mono text-[#4a6478] uppercase mb-2">ACTIONS</div>
             <div className="grid grid-cols-2 gap-1.5">
               {[
-                { label: 'BOX THIS LAP', tone: 'danger', category: 'pit' },
-                { label: 'PUSH NOW', tone: 'primary', category: 'strategy' },
-                { label: 'HARVEST MODE', tone: 'warn', category: 'strategy' },
-                { label: 'HOLD POS', tone: 'secondary', category: 'strategy' },
-              ].map(({ label, tone, category }) => (
-                <button key={label}
-                  disabled={!permissionCode}
-                  onClick={() => dispatchAction(label, category)}
+                { action: 'BOX_THIS_LAP' as const, label: 'BOX THIS LAP', tone: 'danger' },
+                { action: 'PUSH_NOW' as const, label: 'PUSH NOW', tone: 'primary' },
+                { action: 'HARVEST_MODE' as const, label: 'HARVEST MODE', tone: 'warn' },
+                { action: 'HOLD_POS' as const, label: 'HOLD POS', tone: 'secondary' },
+              ].map(({ action, label, tone }) => (
+                <button
+                  key={action}
+                  onClick={() => onExecuteAction(action)}
+                  disabled={pendingAction === action}
                   className={`min-h-10 text-[10px] font-mono tracking-widest uppercase border transition-colors ${
-                    !permissionCode
-                      ? 'border-[#1a2e42] bg-transparent text-[#3a5570] cursor-not-allowed opacity-50'
-                      : tone === 'danger' ? 'border-[#9a4f46] bg-[rgba(118,51,43,0.5)] text-[#ffd1ca] hover:bg-[rgba(118,51,43,0.7)] cursor-pointer' :
-                      tone === 'primary' ? 'border-[#2f9ea7] bg-[rgba(28,95,102,0.5)] text-[#bffeff] hover:bg-[rgba(28,95,102,0.7)] cursor-pointer' :
-                      tone === 'warn' ? 'border-[#917130] bg-[rgba(98,76,26,0.5)] text-[#ffe5a4] hover:bg-[rgba(98,76,26,0.7)] cursor-pointer' :
-                      'border-[#314760] bg-[rgba(16,26,39,0.82)] text-[#e6edf6] hover:border-[#61d6df] cursor-pointer'
-                  }`}
+                    tone === 'danger' ? 'border-[#9a4f46] bg-[rgba(118,51,43,0.5)] text-[#ffd1ca] hover:bg-[rgba(118,51,43,0.7)]' :
+                    tone === 'primary' ? 'border-[#2f9ea7] bg-[rgba(28,95,102,0.5)] text-[#bffeff] hover:bg-[rgba(28,95,102,0.7)]' :
+                    tone === 'warn' ? 'border-[#917130] bg-[rgba(98,76,26,0.5)] text-[#ffe5a4] hover:bg-[rgba(98,76,26,0.7)]' :
+                    'border-[#314760] bg-[rgba(16,26,39,0.82)] text-[#e6edf6] hover:border-[#61d6df]'
+                  } ${pendingAction === action ? 'cursor-wait opacity-70' : 'cursor-pointer'}`}
                 >
-                  {label}
+                  {pendingAction === action ? 'SENDING…' : label}
                 </button>
               ))}
               <button
-                disabled={!permissionCode}
-                onClick={() => dispatchAction('EXECUTE SCENARIO B', 'strategy')}
-                className={`col-span-2 min-h-9 text-[10px] font-mono tracking-widest uppercase border transition-colors ${
-                  !permissionCode
-                    ? 'border-[#1a2e42] text-[#3a5570] cursor-not-allowed opacity-50'
-                    : 'border-[#314760] bg-[rgba(16,26,39,0.82)] text-[#e6edf6] hover:border-[#61d6df] cursor-pointer'
-                }`}
+                onClick={() => onExecuteAction('EXECUTE_SCENARIO_B')}
+                disabled={pendingAction === 'EXECUTE_SCENARIO_B'}
+                className={`col-span-2 min-h-9 text-[10px] font-mono tracking-widest uppercase border border-[#314760] bg-[rgba(16,26,39,0.82)] text-[#e6edf6] hover:border-[#61d6df] transition-colors ${pendingAction === 'EXECUTE_SCENARIO_B' ? 'cursor-wait opacity-70' : 'cursor-pointer'}`}
               >
-                EXECUTE SCENARIO B
+                {pendingAction === 'EXECUTE_SCENARIO_B' ? 'SENDING…' : 'EXECUTE SCENARIO B'}
               </button>
             </div>
+            {actionMsg && (
+              <div className={`mt-2 text-[10px] font-mono ${actionMsg.startsWith('✓') ? 'text-emerald-400' : 'text-red-400'}`}>{actionMsg}</div>
+            )}
+            {!hasPermission && access?.visibility === 'code' && (
+              <div className="mt-1 text-[10px] font-mono text-[#4a6478]">Protected rooms may require a Permission Code to send actions.</div>
+            )}
           </div>
         </aside>
       </div>
@@ -975,7 +1126,7 @@ interface NotesTabProps {
   noteLap: string; setNoteLap: (v: string) => void;
   noteMsg: string;
   savingNote: boolean;
-  onAdd: (e: React.FormEvent) => void;
+  onAdd: (e: FormEvent<HTMLFormElement>) => void;
   onDelete: (id: string) => void;
 }
 
@@ -988,24 +1139,28 @@ function NotesTab({ notes, hasPermission, noteText, setNoteText, noteAuthor, set
           {notes.length === 0 && (
             <div className="text-center py-16 text-[#3a5570] text-sm font-mono">No notes yet.</div>
           )}
-          {notes.slice().reverse().map(note => (
-            <div key={note.id} className={`rounded-lg border p-3 ${categoryColors[note.category || 'general'] || categoryColors.general}`}>
-              <div className="flex items-start justify-between gap-2 mb-1.5">
-                <div className="flex gap-1.5 flex-wrap">
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded border font-mono uppercase tracking-wider ${categoryColors[note.category || 'general']}`}>
-                    {note.category || 'general'}
-                  </span>
-                  {note.authorLabel && <span className="text-[9px] font-mono text-[#4a6478]">{note.authorLabel}</span>}
-                  {note.lap != null && <span className="text-[9px] font-mono text-[#4a6478]">L{note.lap}</span>}
+          {notes.slice().reverse().map((note, index) => {
+            const noteKey = note.id ?? note.noteId ?? `${note.createdAt}-${index}`;
+            const noteId = note.id ?? note.noteId ?? '';
+            return (
+              <div key={noteKey} className={`rounded-lg border p-3 ${categoryColors[note.category || 'general'] || categoryColors.general}`}>
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <div className="flex gap-1.5 flex-wrap">
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded border font-mono uppercase tracking-wider ${categoryColors[note.category || 'general']}`}>
+                      {note.category || 'general'}
+                    </span>
+                    {note.authorLabel && <span className="text-[9px] font-mono text-[#4a6478]">{note.authorLabel}</span>}
+                    {note.lap != null && <span className="text-[9px] font-mono text-[#4a6478]">L{note.lap}</span>}
+                  </div>
+                  {hasPermission && (
+                    <button onClick={() => noteId && onDelete(noteId)} className="text-[9px] text-[#3a5570] hover:text-red-400 transition-colors flex-shrink-0">✕</button>
+                  )}
                 </div>
-                {hasPermission && (
-                  <button onClick={() => onDelete(note.id)} className="text-[9px] text-[#3a5570] hover:text-red-400 transition-colors flex-shrink-0">✕</button>
-                )}
+                <div className="text-sm text-[#dce8f5] leading-relaxed">{note.text}</div>
+                <div className="text-[9px] font-mono text-[#3a5570] mt-1.5">{fmtRelTime(note.createdAt)}</div>
               </div>
-              <div className="text-sm text-[#dce8f5] leading-relaxed">{note.text}</div>
-              <div className="text-[9px] font-mono text-[#3a5570] mt-1.5">{fmtRelTime(note.createdAt)}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -1099,7 +1254,7 @@ interface SettingsTabProps {
   hasPermission: boolean;
   access: SessionAccessRecord | null;
   relayInfo: { viewerBaseUrl?: string; relayLabel?: string } | null;
-  joinUrl: string; overlayUrl: string;
+  joinUrl: string;
   copyMsg: string; onCopy: (text: string, label: string) => void;
   roomTitle: string; setRoomTitle: (v: string) => void;
   roomPassword: string; setRoomPassword: (v: string) => void;
@@ -1110,7 +1265,7 @@ interface SettingsTabProps {
   onReload: () => void;
 }
 
-function SettingsTab({ hasPermission, access, relayInfo, joinUrl, overlayUrl, copyMsg, onCopy, roomTitle, setRoomTitle, roomPassword, setRoomPassword, newPermCode, setNewPermCode, shareEnabled, setShareEnabled, visibility, setVisibility, saveMsg, onSave, onReload }: SettingsTabProps) {
+function SettingsTab({ hasPermission, access, relayInfo, joinUrl, copyMsg, onCopy, roomTitle, setRoomTitle, roomPassword, setRoomPassword, newPermCode, setNewPermCode, shareEnabled, setShareEnabled, visibility, setVisibility, saveMsg, onSave, onReload }: SettingsTabProps) {
   const inp = "w-full bg-[#070e18] border border-[#1a2e42] rounded px-3 py-2 text-sm text-[#dce8f5] placeholder:text-[#2a4560] focus:outline-none focus:border-cyan-700 transition-colors";
 
   return (
@@ -1137,23 +1292,15 @@ function SettingsTab({ hasPermission, access, relayInfo, joinUrl, overlayUrl, co
         <div className="rounded-xl border border-[#1a2e42] bg-[#0c1520] p-4">
           <div className="text-[9px] font-mono tracking-widest text-[#4a6478] uppercase mb-3">Share Links</div>
           <div className="space-y-2">
-            {[
-              { label: 'Viewer Join URL', value: joinUrl, accent: 'text-cyan-400/80' },
-              { label: 'OBS Overlay URL', value: overlayUrl, accent: 'text-purple-400/80' },
-            ].map(({ label, value, accent }) => (
-              <div key={label}>
-                <div className="text-[10px] font-mono text-[#4a6478] mb-1">{label}</div>
-                <div className="flex gap-2">
-                  <input readOnly value={value} className={`${inp} text-[11px] ${accent} cursor-text`} />
-                  <button onClick={() => onCopy(value, label)} className="px-3 rounded border border-[#1a2e42] text-xs text-[#5e7a94] hover:bg-white/5 whitespace-nowrap transition-colors">Copy</button>
-                </div>
+            <div>
+              <div className="text-[10px] font-mono text-[#4a6478] mb-1">Viewer Join URL</div>
+              <div className="flex gap-2">
+                <input readOnly value={joinUrl} className={`${inp} text-[11px] text-cyan-400/80 cursor-text`} />
+                <button onClick={() => onCopy(joinUrl, 'Viewer Join URL')} className="px-3 rounded border border-[#1a2e42] text-xs text-[#5e7a94] hover:bg-white/5 whitespace-nowrap transition-colors">Copy</button>
               </div>
-            ))}
+            </div>
             <div className="flex gap-2">
               <button onClick={() => onCopy(access?.joinCode || '', 'Join Code')} className="px-3 py-1.5 rounded border border-[#1a2e42] text-xs text-[#5e7a94] hover:bg-white/5 transition-colors">Copy Code</button>
-              {overlayUrl && (
-                <a href={overlayUrl} target="_blank" rel="noopener" className="px-3 py-1.5 rounded border border-purple-800 text-xs text-purple-400 hover:bg-purple-950/30 transition-colors">Open Overlay ↗</a>
-              )}
             </div>
             {copyMsg && <div className="text-[10px] font-mono text-emerald-400">{copyMsg}</div>}
           </div>

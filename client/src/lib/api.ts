@@ -1,4 +1,4 @@
-import type { DiagnosticsData, RelayInfo, Room, StrategyData, SessionNote, TimelineEvent, SessionAccessRecord, SessionHealthData, OpsSession, ArchiveSummary } from '../types';
+import type { DiagnosticsData, RelayInfo, Room, StrategyData, SessionNote, TimelineEvent, SessionAccessRecord, SessionHealthData, OpsSession, ArchiveSummary, SessionActionResult, StrategyActionName } from '../types';
 
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -116,6 +116,35 @@ export async function patchSessionAccess(sessionId: string, patch: Partial<Sessi
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function executeSessionAction(
+  sessionId: string,
+  payload: {
+    action: StrategyActionName;
+    lap?: number;
+    timestamp?: number;
+    authorLabel?: string;
+    severity?: string;
+  },
+  password?: string,
+  permissionCode?: string
+): Promise<{ action: SessionActionResult }> {
+  const params = new URLSearchParams();
+  if (password) params.set('password', password);
+  if (permissionCode) params.set('permissionCode', permissionCode);
+  const q = params.toString();
+  const res = await fetch(`/api/viewer/actions/${encodeURIComponent(sessionId)}${q ? `?${q}` : ''}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const accessError = (data as { accessError?: { message?: string } }).accessError;
+    throw new Error(accessError?.message || (data as { error?: string }).error || `HTTP ${res.status}`);
   }
   return res.json();
 }

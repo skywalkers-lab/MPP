@@ -8,7 +8,8 @@ export type OpsEventType =
   | 'session_rebound'
   | 'session_closed'
   | 'share_enabled_changed'
-  | 'visibility_changed';
+  | 'visibility_changed'
+  | 'strategy_action_logged';
 
 export interface OpsEvent {
   eventId: string;

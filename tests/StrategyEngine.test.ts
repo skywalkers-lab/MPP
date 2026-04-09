@@ -186,6 +186,59 @@ describe('StrategyEngine v1', () => {
   });
 });
 
+describe('StrategyEngine qualifying mode', () => {
+  const engine = new StrategyEngine();
+
+  it('produces out-lap traffic guidance and track map data in qualifying', () => {
+    const result = engine.evaluate(baseInput({
+      sessionType: 6,
+      sessionTimeLeft: 420,
+      trackLength: 5400,
+      playerCarIndex: 3,
+      trafficCars: [
+        { carIndex: 3, position: 8, stintAge: 2, tyreCompound: 'S', lapDistance: 0.01, pitStatus: 'PIT_EXIT', driverStatus: 'OUT_LAP', isPlayer: true },
+        { carIndex: 1, position: 1, stintAge: 4, tyreCompound: 'S', lapDistance: 0.18, pitStatus: 'NONE', driverStatus: 'FLYING_LAP' },
+        { carIndex: 8, position: 11, stintAge: 5, tyreCompound: 'S', lapDistance: 0.62, pitStatus: 'NONE', driverStatus: 'FLYING_LAP' },
+      ],
+    }));
+
+    expect(result.strategyUnavailable).toBe(false);
+    if (!result.strategyUnavailable) {
+      expect(result.sessionMode).toBe('qualifying');
+      expect(result.qualifying?.sessionPhase).toBe('Q2');
+      expect(result.qualifying?.trackMapCars.length).toBeGreaterThanOrEqual(3);
+      expect(result.qualifying?.recommendedReleaseInSec).not.toBeNull();
+      expect(result.qualifying?.clearLapProbability == null ? -1 : result.qualifying.clearLapProbability).toBeGreaterThanOrEqual(0);
+      expect(result.qualifying?.clearLapProbability == null ? 101 : result.qualifying.clearLapProbability).toBeLessThanOrEqual(100);
+      expect(['RELEASE NOW', 'HOLD GAP', 'BUILD TYRES', 'TRAFFIC CLUSTER AHEAD']).toContain(result.primaryRecommendation);
+    }
+  });
+
+  it('recommends waiting when a sector-one queue is forming in qualifying', () => {
+    const result = engine.evaluate(baseInput({
+      sessionType: 5,
+      sessionTimeLeft: 180,
+      trackLength: 5200,
+      playerCarIndex: 2,
+      trafficCars: [
+        { carIndex: 2, position: 10, stintAge: 1, tyreCompound: 'S', lapDistance: 0.0, pitStatus: 'PIT_LANE', driverStatus: 'OUT_LAP', isPlayer: true },
+        { carIndex: 4, position: 3, stintAge: 3, tyreCompound: 'S', lapDistance: 0.03, pitStatus: 'NONE', driverStatus: 'OUT_LAP' },
+        { carIndex: 5, position: 4, stintAge: 4, tyreCompound: 'S', lapDistance: 0.07, pitStatus: 'NONE', driverStatus: 'OUT_LAP' },
+        { carIndex: 6, position: 5, stintAge: 5, tyreCompound: 'S', lapDistance: 0.12, pitStatus: 'NONE', driverStatus: 'FLYING_LAP' },
+        { carIndex: 7, position: 6, stintAge: 6, tyreCompound: 'S', lapDistance: 0.16, pitStatus: 'NONE', driverStatus: 'FLYING_LAP' },
+      ],
+    }));
+
+    expect(result.strategyUnavailable).toBe(false);
+    if (!result.strategyUnavailable) {
+      expect(result.qualifying?.releaseWindow).toBe('wait_for_gap');
+      expect(result.qualifying?.recommendedReleaseInSec == null ? 0 : result.qualifying.recommendedReleaseInSec).toBeGreaterThanOrEqual(10);
+      expect(result.qualifying?.clearLapProbability == null ? 100 : result.qualifying.clearLapProbability).toBeLessThan(60);
+      expect(result.reasons.some((reason) => reason.toLowerCase().includes('out-lap') || reason.toLowerCase().includes('sector 1'))).toBe(true);
+    }
+  });
+});
+
 describe('StrategyEngine Monte Carlo late-race edge cases', () => {
   const engine = new StrategyEngine();
 

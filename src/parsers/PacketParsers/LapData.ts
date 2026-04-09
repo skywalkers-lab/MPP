@@ -8,6 +8,9 @@ const POSITION_OFFSET = 0; // uint8
 const CURRENT_LAP_NUM_OFFSET = 1; // uint8
 const LAST_LAP_TIME_MS_OFFSET = 2; // uint32
 const BEST_LAP_TIME_MS_OFFSET = 6; // uint32
+const PIT_STATUS_OFFSET = 10; // uint8 (placeholder spec offset)
+const DRIVER_STATUS_OFFSET = 11; // uint8 (placeholder spec offset)
+const LAP_DISTANCE_OFFSET = 12; // float (placeholder spec offset)
 // ... (필요시 추가)
 
 export function parseLapDataPacket(buf: Buffer): any[] | null {
@@ -23,6 +26,9 @@ export function parseLapDataPacket(buf: Buffer): any[] | null {
         currentLapNum: buf.readUInt8(off + CURRENT_LAP_NUM_OFFSET),
         lastLapTimeMs: buf.readUInt32LE(off + LAST_LAP_TIME_MS_OFFSET),
         bestLapTimeMs: buf.readUInt32LE(off + BEST_LAP_TIME_MS_OFFSET),
+        pitStatus: buf.readUInt8(off + PIT_STATUS_OFFSET),
+        driverStatus: buf.readUInt8(off + DRIVER_STATUS_OFFSET),
+        lapDistance: buf.readFloatLE(off + LAP_DISTANCE_OFFSET),
         // ... (sector times, pit status 등 필요시 추가)
       });
     }

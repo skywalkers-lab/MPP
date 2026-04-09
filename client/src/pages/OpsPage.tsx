@@ -167,7 +167,6 @@ export default function OpsPage() {
                   <div className="flex gap-2 text-xs">
                     <a href={`/host/${s.sessionId}`} className="text-cyan-500 hover:text-cyan-300">Host →</a>
                     <a href={`/viewer/${s.sessionId}`} className="text-sky-500 hover:text-sky-300">Viewer →</a>
-                    <a href={`/overlay/${s.sessionId}`} className="text-purple-500 hover:text-purple-300">Overlay →</a>
                   </div>
                 </div>
               ))}

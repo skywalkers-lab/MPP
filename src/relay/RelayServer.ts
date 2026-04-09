@@ -68,6 +68,43 @@ export interface SessionAccessSummary {
   updatedAt: number;
 }
 
+export const STRATEGY_ACTIONS = [
+  'BOX_THIS_LAP',
+  'PUSH_NOW',
+  'HARVEST_MODE',
+  'HOLD_POS',
+  'EXECUTE_SCENARIO_B',
+] as const;
+
+export type StrategyActionName = (typeof STRATEGY_ACTIONS)[number];
+
+export interface LogStrategyActionInput {
+  action: StrategyActionName;
+  lap?: number;
+  timestamp?: number;
+  authorLabel?: AddSessionNoteInput['authorLabel'];
+  severity?: AddSessionNoteInput['severity'];
+}
+
+export interface LoggedStrategyAction {
+  actionId: string;
+  sessionId: string;
+  action: StrategyActionName;
+  label: string;
+  lap?: number;
+  timestamp: number;
+  note: SessionNote;
+  eventId: string;
+}
+
+const STRATEGY_ACTION_LABELS: Record<StrategyActionName, string> = {
+  BOX_THIS_LAP: 'BOX THIS LAP',
+  PUSH_NOW: 'PUSH NOW',
+  HARVEST_MODE: 'HARVEST MODE',
+  HOLD_POS: 'HOLD POS',
+  EXECUTE_SCENARIO_B: 'EXECUTE SCENARIO B',
+};
+
 export function serializeSessionAccess(
   access: SessionAccessRecord | undefined,
   options?: { includeSecrets?: boolean }
@@ -419,6 +456,58 @@ export class RelayServer {
     return note;
   }
 
+  public logStrategyAction(
+    sessionId: string,
+    input: LogStrategyActionInput
+  ): LoggedStrategyAction {
+    const resolved = this.resolveCanonicalSessionId(sessionId);
+    const canonicalSessionId = resolved.canonicalSessionId;
+    const timestamp = input.timestamp ?? Date.now();
+    const normalizedLap =
+      input.lap != null && Number.isFinite(input.lap)
+        ? Math.max(0, Math.floor(input.lap))
+        : undefined;
+    const label = STRATEGY_ACTION_LABELS[input.action];
+    const severity =
+      input.severity ??
+      (input.action === 'BOX_THIS_LAP'
+        ? 'high'
+        : input.action === 'HARVEST_MODE'
+          ? 'low'
+          : 'medium');
+
+    const note = this.addSessionNote(canonicalSessionId, {
+      text: `[ACTION] ${label}${normalizedLap != null ? ` — LAP ${normalizedLap}` : ''}`,
+      category: 'strategy',
+      authorLabel: input.authorLabel ?? 'Strategist',
+      severity,
+      lap: normalizedLap,
+      timestamp,
+      tag: 'action',
+    });
+
+    const event = this.emitOpsEvent('strategy_action_logged', canonicalSessionId, {
+      action: input.action,
+      label,
+      lap: normalizedLap,
+      noteId: note.noteId,
+      authorLabel: note.authorLabel,
+      severity: note.severity ?? null,
+      timestamp,
+    });
+
+    return {
+      actionId: `action-${uuidv4()}`,
+      sessionId: canonicalSessionId,
+      action: input.action,
+      label,
+      lap: normalizedLap,
+      timestamp,
+      note,
+      eventId: event.eventId,
+    };
+  }
+
   public deleteSessionNote(sessionId: string, noteId: string): boolean {
     const resolved = this.resolveCanonicalSessionId(sessionId);
     return this.notesStore.deleteNote(resolved.canonicalSessionId, noteId);
@@ -732,6 +821,10 @@ export class RelayServer {
         syncingUntil: syncing.syncingUntil,
         hasSnapshot: false,
         latestSequence: session.latestSequence ?? null,
+        sessionType: null,
+        sessionTimeLeft: null,
+        trackLength: null,
+        playerCarIndex: null,
         currentLap: null,
         totalLaps: null,
         position: null,
@@ -743,6 +836,7 @@ export class RelayServer {
         ersPercent: null,
         recentLapTimesMs: [],
         rivals: [],
+        trafficCars: [],
         previousStrategy: previousStrategy
           ? {
               recommendation: previousStrategy.recommendation,
@@ -780,7 +874,22 @@ export class RelayServer {
         stintAge: car.tyreAgeLaps ?? 0,
         tyreCompound: car.tyreCompound ?? 'unknown',
         gapToLeader: car.gapToLeader != null ? String(car.gapToLeader) : null,
+        lapDistance: car.lapDistance ?? null,
+        pitStatus: car.pitStatus ?? null,
+        driverStatus: car.driverStatus ?? null,
       }));
+
+    const trafficCars = Object.values(state.cars).map((car) => ({
+      carIndex: car.carIndex,
+      position: car.position ?? null,
+      stintAge: car.tyreAgeLaps ?? 0,
+      tyreCompound: car.tyreCompound ?? 'unknown',
+      gapToLeader: car.gapToLeader != null ? String(car.gapToLeader) : null,
+      lapDistance: car.lapDistance ?? null,
+      pitStatus: car.pitStatus ?? null,
+      driverStatus: car.driverStatus ?? null,
+      isPlayer: playerCarIndex != null && car.carIndex === playerCarIndex,
+    }));
 
     return {
       sessionId: session.sessionId,
@@ -790,6 +899,10 @@ export class RelayServer {
       syncingUntil: syncing.syncingUntil,
       hasSnapshot,
       latestSequence: session.latestSequence ?? null,
+      sessionType: state.sessionMeta?.sessionType ?? null,
+      sessionTimeLeft: state.sessionMeta?.sessionTimeLeft ?? null,
+      trackLength: state.sessionMeta?.trackLength ?? null,
+      playerCarIndex: playerCarIndex ?? null,
       currentLap:
         playerCar.currentLapNum ?? state.sessionMeta?.currentLap ?? null,
       totalLaps: state.sessionMeta?.totalLaps ?? null,
@@ -802,6 +915,7 @@ export class RelayServer {
       ersPercent: playerCar.ersLevel ?? null,
       recentLapTimesMs,
       rivals,
+      trafficCars,
       previousStrategy: previousStrategy
         ? {
             recommendation: previousStrategy.recommendation,

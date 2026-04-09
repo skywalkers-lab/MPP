@@ -71,7 +71,7 @@ export class DriverAgentRuntime {
     this.udpPort = config.udpPort ?? 20777;
     this.udpAddr = config.udpAddr ?? '0.0.0.0';
     this.sessionId = config.sessionId;
-    this.agentVersion = config.agentVersion ?? '0.1.16';
+    this.agentVersion = config.agentVersion ?? '0.1.17';
     this.logger = new ConsoleLogger(config.loggerLevel ?? 'warn');
   }
 

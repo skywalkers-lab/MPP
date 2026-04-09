@@ -11,7 +11,7 @@ import {
   validateDesktopConfig,
 } from './config';
 
-const VERSION = '0.1.16';
+const VERSION = '0.1.17';
 const PANEL_HOST = '127.0.0.1';
 
 type LauncherFlags = {
@@ -514,6 +514,11 @@ function renderPage(): string {
       panelUrl: document.getElementById('panelUrl'),
     };
 
+    let formDirty = false;
+    let suppressDirtyTracking = false;
+    let relayManuallyEdited = false;
+    let lastAutoRelayValue = '';
+
     function showMessage(text, kind) {
       els.message.textContent = text || '';
       els.message.className = 'message' + (kind ? ' ' + kind : '');
@@ -527,16 +532,43 @@ function renderPage(): string {
       return Math.floor(diff / 60000) + '분 전';
     }
 
-    function maybeFillRelayFromViewer() {
-      const viewer = String(els.viewerBaseUrl.value || '').trim();
-      if (!viewer || String(els.relayWsUrl.value || '').trim()) return;
+    function markFormDirty() {
+      if (!suppressDirtyTracking) {
+        formDirty = true;
+      }
+    }
+
+    function deriveRelayFromViewer(viewer) {
+      if (!viewer) return '';
       try {
         const normalized = viewer.includes('://') ? viewer : 'https://' + viewer;
         const url = new URL(normalized);
-        els.relayWsUrl.value = (url.protocol === 'https:' ? 'wss://' : 'ws://') + url.host;
+        return (url.protocol === 'https:' ? 'wss://' : 'ws://') + url.host;
       } catch (_) {
-        // Ignore invalid intermediate edits.
+        return '';
       }
+    }
+
+    function maybeFillRelayFromViewer() {
+      const viewer = String(els.viewerBaseUrl.value || '').trim();
+      const derivedRelay = deriveRelayFromViewer(viewer);
+      if (!derivedRelay) return;
+
+      const currentRelay = String(els.relayWsUrl.value || '').trim();
+      const canReplaceCurrentRelay =
+        !currentRelay ||
+        currentRelay === lastAutoRelayValue ||
+        relayManuallyEdited === false;
+
+      if (!canReplaceCurrentRelay) {
+        return;
+      }
+
+      suppressDirtyTracking = true;
+      els.relayWsUrl.value = derivedRelay;
+      suppressDirtyTracking = false;
+      relayManuallyEdited = false;
+      lastAutoRelayValue = derivedRelay;
     }
 
     function readForm() {
@@ -550,13 +582,23 @@ function renderPage(): string {
       };
     }
 
-    function writeForm(config) {
+    function writeForm(config, options) {
+      const force = options && options.force === true;
+      if (!force && formDirty) {
+        return;
+      }
+
+      suppressDirtyTracking = true;
       els.viewerBaseUrl.value = config.viewerBaseUrl || '';
       els.relayWsUrl.value = config.relayWsUrl || '';
       els.launchMode.value = config.launchMode || 'manual';
       els.autoLaunch.checked = config.autoLaunch === true;
       els.udpPort.value = String(config.udpPort || 20777);
       els.udpAddr.value = config.udpAddr || '0.0.0.0';
+      suppressDirtyTracking = false;
+      formDirty = false;
+      relayManuallyEdited = false;
+      lastAutoRelayValue = String(config.relayWsUrl || '').trim();
     }
 
     function renderStatus(data) {
@@ -589,12 +631,24 @@ function renderPage(): string {
       if (!res.ok) {
         throw new Error(data.error || '요청 실패');
       }
-      if (data.config) writeForm(data.config);
+      if (data.config) writeForm(data.config, { force: true });
       if (data.driver) renderStatus(data);
       return data;
     }
 
+    els.viewerBaseUrl.addEventListener('input', () => {
+      markFormDirty();
+      maybeFillRelayFromViewer();
+    });
     els.viewerBaseUrl.addEventListener('blur', maybeFillRelayFromViewer);
+    els.relayWsUrl.addEventListener('input', () => {
+      markFormDirty();
+      relayManuallyEdited = true;
+    });
+    els.launchMode.addEventListener('change', markFormDirty);
+    els.udpPort.addEventListener('input', markFormDirty);
+    els.udpAddr.addEventListener('input', markFormDirty);
+    els.autoLaunch.addEventListener('change', markFormDirty);
     els.saveBtn.addEventListener('click', async () => {
       try {
         maybeFillRelayFromViewer();

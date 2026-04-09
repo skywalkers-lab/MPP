@@ -6,7 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { DriverAgentRuntime, DriverAgentRuntimeSnapshot } from './agent/DriverAgentRuntime';
 
-const VERSION = '0.1.16';
+const VERSION = '0.1.17';
 
 const C = {
   reset:   '\x1b[0m',

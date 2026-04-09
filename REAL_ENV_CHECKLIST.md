@@ -1,5 +1,55 @@
 # F1 25 UDP 실환경 검증 체크리스트
 
+## 0. 프로덕션 환경 변수 설정 (필수)
+
+### 보안 필수 설정
+```bash
+# OPS 엔드포인트 인증 토큰 (필수 - 미설정 시 프로덕션에서 OPS 비활성화)
+MPP_OPS_TOKEN=<강력한-32자-이상-랜덤-토큰>
+
+# 로컬 인증 바이패스 비활성화 (프로덕션 필수)
+MPP_TRUST_LOCAL_OPS=false
+
+# 뮤테이션 작업 시 Permission Code 필수화
+MPP_REQUIRE_PERMISSION_FOR_MUTATIONS=true
+
+# 프로덕션 모드 설정
+NODE_ENV=production
+```
+
+### Public Relay 설정
+```bash
+# 외부 접근 URL (HTTPS 권장)
+RELAY_PUBLIC_URL=https://your-relay.example.com
+RELAY_PUBLIC_WS_URL=wss://your-relay.example.com
+RELAY_LABEL=production-relay
+
+# 디버그 비활성화
+RELAY_ENABLE_DEBUG_HTTP=false
+
+# CORS 설정
+RELAY_ENABLE_CORS=true
+RELAY_ALLOWED_ORIGINS=https://your-frontend.com
+```
+
+### 데이터 영속화 설정 (선택)
+```bash
+# 영속화 활성화 (기본: true)
+MPP_PERSISTENCE_ENABLED=true
+
+# 데이터 저장 디렉토리
+MPP_DATA_DIR=./data
+
+# 메모리 제한 (MB)
+MPP_MEMORY_LIMIT_MB=512
+```
+
+### 인증 토큰 생성 방법
+```bash
+# Node.js로 안전한 토큰 생성
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
 ## 1. 준비
 - F1 25 게임에서 UDP Telemetry를 활성화 (설정 > Telemetry > UDP On, 포트 확인)
 - 로컬 에이전트 실행: `npm start`

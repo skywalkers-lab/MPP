@@ -1,4 +1,4 @@
-import dgram from 'dgram';
+import * as dgram from 'node:dgram';
 import { ConsoleLogger } from '../debug/ConsoleLogger';
 import { parsePacketHeader } from '../parsers/PacketHeaderParser';
 import { parsePacketById } from '../parsers/PacketParsers';

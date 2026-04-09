@@ -4,7 +4,7 @@
   var RELEASE_CONFIG = {
     owner: 'skywalkers-lab',
     repo: 'MPP',
-    version: 'v0.1.17',
+    version: 'v0.1.18',
     desktopAsset: 'MPP-Desktop.exe',
     portableAsset: 'MPP-portable.exe',
   };

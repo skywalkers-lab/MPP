@@ -4,7 +4,7 @@
 # 출력: release/MPP-Agent.exe, release/mpp-agent.config.json, release/README-MPP-Agent.txt
 set -euo pipefail
 
-AGENT_VERSION="0.1.17"
+AGENT_VERSION="0.1.18"
 OUTDIR="release"
 BUILDDIR=".agentbuild"
 
@@ -34,7 +34,7 @@ echo "      완료: ${BUILDDIR}/agent-entry.cjs"
 cat > "${BUILDDIR}/package.json" <<'PKGJSON'
 {
   "name": "mpp-agent",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "type": "commonjs",
   "bin": "agent-entry.cjs",
   "pkg": {

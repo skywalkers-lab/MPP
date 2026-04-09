@@ -1,5 +1,5 @@
 ══════════════════════════════════════════════════
-  MPP Agent v0.1.17  —  Mission Pitwall Platform
+  MPP Agent v0.1.18  —  Mission Pitwall Platform
   드라이버용 Windows 로컬 에이전트
 ══════════════════════════════════════════════════
 

@@ -11,7 +11,7 @@ import {
   validateDesktopConfig,
 } from './config';
 
-const VERSION = '0.1.17';
+const VERSION = '0.1.18';
 const PANEL_HOST = '127.0.0.1';
 
 type LauncherFlags = {

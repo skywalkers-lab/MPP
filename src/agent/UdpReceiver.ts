@@ -1,8 +1,8 @@
 import dgram from 'dgram';
-import { ConsoleLogger } from '../debug/ConsoleLogger';
-import { parsePacketHeader } from '../parsers/PacketHeaderParser';
-import { parsePacketById } from '../parsers/PacketParsers';
-import { StateReducer } from './StateReducer';
+import { ConsoleLogger } from '../debug/ConsoleLogger.js';
+import { parsePacketHeader } from '../parsers/PacketHeaderParser.js';
+import { parsePacketById } from '../parsers/PacketParsers/index.js';
+import { StateReducer } from './StateReducer.js';
 
 export interface UdpReceiverOptions {
   port: number;

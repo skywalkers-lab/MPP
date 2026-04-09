@@ -1,13 +1,13 @@
 
 import { Buffer } from 'buffer';
 // 각 패킷별 파서 import (구현은 별도 파일)
-import { parseSessionPacket } from './Session';
-import { parseLapDataPacket } from './LapData';
-import { parseParticipantsPacket } from './Participants';
-import { parseCarTelemetryPacket } from './CarTelemetry';
-import { parseCarStatusPacket } from './CarStatus';
-import { parseCarDamagePacket } from './CarDamage';
-import { parseEventPacket } from './Event';
+import { parseSessionPacket } from './Session.js';
+import { parseLapDataPacket } from './LapData.js';
+import { parseParticipantsPacket } from './Participants.js';
+import { parseCarTelemetryPacket } from './CarTelemetry.js';
+import { parseCarStatusPacket } from './CarStatus.js';
+import { parseCarDamagePacket } from './CarDamage.js';
+import { parseEventPacket } from './Event.js';
 
 export function parsePacketById(packetId: number, buf: Buffer) {
   switch (packetId) {

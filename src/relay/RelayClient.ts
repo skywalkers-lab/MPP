@@ -2,8 +2,8 @@
 // F1 25 Realtime Relay Client - agent에서 relay 서버로 CurrentRaceState를 전송
 
 import WebSocket from 'ws';
-import { CurrentRaceState } from '../model/CurrentRaceState';
-import { ConsoleLogger } from '../debug/ConsoleLogger';
+import { CurrentRaceState } from '../model/CurrentRaceState.js';
+import { ConsoleLogger } from '../debug/ConsoleLogger.js';
 
 export interface RelayClientOptions {
   url: string;

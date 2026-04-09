@@ -1,4 +1,4 @@
-import { StrategyEngineInput } from './strategy';
+import { StrategyEngineInput } from './strategy.js';
 
 export function getLapsRemaining(input: StrategyEngineInput): number | null {
   if (input.totalLaps == null || input.currentLap == null) return null;

@@ -5,16 +5,16 @@ import {
   SessionAccessRecord,
   STRATEGY_ACTIONS,
   StrategyActionName,
-} from './RelayServer';
-import { serializeViewerSession } from './viewerStatus';
-import { serializeSessionAccess } from './RelayServer';
+} from './RelayServer.js';
+import { serializeViewerSession } from './viewerStatus.js';
+import { serializeSessionAccess } from './RelayServer.js';
 import {
   AddSessionNoteInput,
   NOTE_ALLOWED_AUTHOR_LABELS,
   NOTE_ALLOWED_CATEGORIES,
   NOTE_ALLOWED_SEVERITIES,
   NOTE_MAX_TEXT_LENGTH,
-} from './notes';
+} from './notes.js';
 
 export function createViewerApiRouter(relayServer: RelayServer) {
   const router = express.Router();

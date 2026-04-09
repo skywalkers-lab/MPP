@@ -1,5 +1,5 @@
-import { PacketHeader } from '../parsers/PacketHeaderParser';
-import { CurrentRaceState, EVENT_LOG_RING_SIZE, EventLogEntry, CarState } from '../model/CurrentRaceState';
+import { PacketHeader } from '../parsers/PacketHeaderParser.js';
+import { CurrentRaceState, EVENT_LOG_RING_SIZE, EventLogEntry, CarState } from '../model/CurrentRaceState.js';
 
 export class StateReducer {
   private state: CurrentRaceState;

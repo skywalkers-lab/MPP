@@ -4,11 +4,11 @@
 
 import path from 'path';
 import fs from 'fs';
-import { UdpReceiver } from './agent/UdpReceiver';
-import { StateReducer } from './agent/StateReducer';
-import { ConsoleLogger } from './debug/ConsoleLogger';
-import { RelayClient } from './relay/RelayClient';
-import { RelayAgentAdapter } from './agent/RelayAgentAdapter';
+import { UdpReceiver } from './agent/UdpReceiver.js';
+import { StateReducer } from './agent/StateReducer.js';
+import { ConsoleLogger } from './debug/ConsoleLogger.js';
+import { RelayClient } from './relay/RelayClient.js';
+import { RelayAgentAdapter } from './agent/RelayAgentAdapter.js';
 
 const VERSION = '0.1.15';
 

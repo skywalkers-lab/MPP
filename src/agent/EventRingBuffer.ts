@@ -1,4 +1,4 @@
-import { EventLogEntry } from '../model/CurrentRaceState';
+import { EventLogEntry } from '../model/CurrentRaceState.js';
 
 export class EventRingBuffer {
   private buffer: EventLogEntry[];

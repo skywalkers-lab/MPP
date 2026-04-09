@@ -1,5 +1,5 @@
 import express from 'express';
-import { StateReducer } from '../agent/StateReducer';
+import { StateReducer } from '../agent/StateReducer.js';
 
 import path from 'path';
 

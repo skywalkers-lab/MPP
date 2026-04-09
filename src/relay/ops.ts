@@ -1,5 +1,5 @@
-import { RelaySession, SessionAccessRecord } from './RelayServer';
-import { getViewerStatus, ViewerStatus } from './viewerStatus';
+import { RelaySession, SessionAccessRecord } from './RelayServer.js';
+import { getViewerStatus, ViewerStatus } from './viewerStatus.js';
 
 export type OpsEventType =
   | 'session_started'

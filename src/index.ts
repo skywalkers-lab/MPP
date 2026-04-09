@@ -1,10 +1,10 @@
 
-import { UdpReceiver } from './agent/UdpReceiver';
-import { StateReducer } from './agent/StateReducer';
-import { ConsoleLogger } from './debug/ConsoleLogger';
-import { startDebugHttpServer } from './debug/DebugHttpServer';
-import { RelayClient } from './relay/RelayClient';
-import { RelayAgentAdapter } from './agent/RelayAgentAdapter';
+import { UdpReceiver } from './agent/UdpReceiver.js';
+import { StateReducer } from './agent/StateReducer.js';
+import { ConsoleLogger } from './debug/ConsoleLogger.js';
+import { startDebugHttpServer } from './debug/DebugHttpServer.js';
+import { RelayClient } from './relay/RelayClient.js';
+import { RelayAgentAdapter } from './agent/RelayAgentAdapter.js';
 
 const UDP_PORT = process.env.F1_UDP_PORT ? parseInt(process.env.F1_UDP_PORT) : 20777;
 const UDP_ADDR = process.env.F1_UDP_ADDR || '0.0.0.0';

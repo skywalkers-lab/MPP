@@ -1,7 +1,7 @@
-import { CurrentRaceState } from '../model/CurrentRaceState';
-import { SessionNote } from './notes';
-import { OpsEvent } from './ops';
-import { StrategyEvaluationResult } from './strategy';
+import { CurrentRaceState } from '../model/CurrentRaceState.js';
+import { SessionNote } from './notes.js';
+import { OpsEvent } from './ops.js';
+import { StrategyEvaluationResult } from './strategy.js';
 
 type ArchiveVisibility = 'private' | 'code';
 

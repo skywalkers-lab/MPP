@@ -12,7 +12,7 @@ import {
   StrategySeverity,
   StrategySimulationMeta,
   TrackMapCarSnapshot,
-} from './strategy';
+} from './strategy.js';
 import {
   fitPolynomialTyreDegradation,
   fuelRiskScore,
@@ -22,8 +22,8 @@ import {
   rejoinRiskHint,
   stintProgress,
   tyreUrgencyScore,
-} from './strategyMetrics';
-import { computeAdvancedStrategyScores } from './strategyAdvancedMetrics';
+} from './strategyMetrics.js';
+import { computeAdvancedStrategyScores } from './strategyAdvancedMetrics.js';
 
 function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));

@@ -1,4 +1,4 @@
-import { RivalCarSnapshot, StrategyEngineInput, StrategyScoreBand } from './strategy';
+import { RivalCarSnapshot, StrategyEngineInput, StrategyScoreBand } from './strategy.js';
 
 export interface StrategyAdvancedScores {
   undercutScore: number | null;

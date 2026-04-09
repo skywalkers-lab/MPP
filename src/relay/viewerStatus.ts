@@ -1,7 +1,7 @@
 // Viewer status 및 세션 직렬화 유틸
 
-import { RelaySession } from './RelayServer';
-import { CurrentRaceState } from '../model/CurrentRaceState';
+import { RelaySession } from './RelayServer.js';
+import { CurrentRaceState } from '../model/CurrentRaceState.js';
 
 export type ViewerStatus = 'not_found' | 'waiting' | 'live' | 'stale' | 'ended';
 

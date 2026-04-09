@@ -4,8 +4,8 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { Server as HttpServer } from 'http';
 import { v4 as uuidv4 } from 'uuid';
-import { CurrentRaceState } from '../model/CurrentRaceState';
-import { ConsoleLogger } from '../debug/ConsoleLogger';
+import { CurrentRaceState } from '../model/CurrentRaceState.js';
+import { ConsoleLogger } from '../debug/ConsoleLogger.js';
 import express from 'express';
 import {
   CompositeOpsNotifier,
@@ -16,26 +16,26 @@ import {
   OpsEventType,
   serializeSessionOpsSummary,
   SessionOpsSummary,
-} from './ops';
+} from './ops.js';
 import {
   AddSessionNoteInput,
   InMemorySessionNotesStore,
   SessionNote,
-} from './notes';
-import { StrategyEngine } from './strategyEngine';
+} from './notes.js';
+import { StrategyEngine } from './strategyEngine.js';
 import {
   StrategyEngineInput,
   StrategyEvaluationResult,
   StrategyRecommendationResult,
   StrategyUnavailableResult,
-} from './strategy';
+} from './strategy.js';
 import {
   ArchiveSummary,
   ArchiveTimelineItem,
   InMemorySessionArchiveStore,
   SessionArchive,
   toArchiveRecommendationSnapshot,
-} from './archive';
+} from './archive.js';
 
 export type SessionVisibility = 'private' | 'code'; // public은 추후 확장
 

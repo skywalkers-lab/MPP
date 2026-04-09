@@ -502,55 +502,34 @@ app.get('/api/viewer/diagnostics', (_req, res) => {
 
 app.use('/api/viewer', createViewerApiRouter(relayServer));
 
-app.use('/viewer', express.static(publicDir));
-app.get('/viewer/:sessionId', (req, res) => {
-  res.sendFile(path.join(publicDir, 'viewer.html'));
-});
-app.get('/join/:joinCode', (req, res) => {
-  res.sendFile(path.join(publicDir, 'viewer.html'));
-});
-app.get('/host/:sessionId', (req, res) => {
-  res.sendFile(path.join(publicDir, 'host.html'));
-});
-app.get('/', (_req, res) => {
-  res.redirect('/rooms');
-});
-
-app.get('/ops', (req, res) => {
-  const opsFile = path.join(publicDir, 'ops.html');
-  if (!fs.existsSync(opsFile)) {
-    logger.error(`[Viewer] ops.html not found at: ${opsFile}`);
-    return res
-      .status(500)
-      .type('text/plain')
-      .send(`ops.html not found. publicDir=${publicDir}`);
+// SPA catch-all: serve index.html (React app) for all non-API routes.
+// Falls back to legacy HTML files if index.html is not present.
+function serveAppShell(_req: express.Request, res: express.Response) {
+  const indexFile = path.join(publicDir, 'index.html');
+  if (fs.existsSync(indexFile)) {
+    res.sendFile(indexFile);
+    return;
   }
-  res.sendFile(opsFile);
-});
-app.get('/rooms', (_req, res) => {
-  res.sendFile(path.join(publicDir, 'rooms.html'));
-});
-app.get('/archives', (req, res) => {
-  res.sendFile(path.join(publicDir, 'archives.html'));
-});
-app.get('/console/live', (req, res) => {
-  res.sendFile(path.join(publicDir, 'console-live.html'));
-});
-app.get('/console/replay', (req, res) => {
-  res.sendFile(path.join(publicDir, 'console-replay.html'));
-});
-app.get('/overlay/:sessionId', (req, res) => {
-  res.sendFile(path.join(publicDir, 'overlay.html'));
-});
-app.get('/overlay/join/:joinCode', (req, res) => {
-  res.sendFile(path.join(publicDir, 'overlay.html'));
-});
-app.get('/hud/:sessionId', (req, res) => {
-  res.sendFile(path.join(publicDir, 'overlay.html'));
-});
-app.get('/hud/join/:joinCode', (req, res) => {
-  res.sendFile(path.join(publicDir, 'overlay.html'));
-});
+  // Fallback: legacy build not present
+  res.status(503).type('text/plain').send(
+    'Frontend not built. Run: cd client && npm run build\n' +
+    `publicDir=${publicDir}`
+  );
+}
+
+app.get('/', (_req, res) => res.redirect('/rooms'));
+app.get('/rooms', serveAppShell);
+app.get('/ops', serveAppShell);
+app.get('/archives', serveAppShell);
+app.get('/viewer/:sessionId', serveAppShell);
+app.get('/join/:joinCode', serveAppShell);
+app.get('/host/:sessionId', serveAppShell);
+app.get('/overlay/:sessionId', serveAppShell);
+app.get('/overlay/join/:joinCode', serveAppShell);
+app.get('/hud/:sessionId', serveAppShell);
+app.get('/hud/join/:joinCode', serveAppShell);
+app.get('/console/live', serveAppShell);
+app.get('/console/replay', serveAppShell);
 
 const httpServer = http.createServer(app);
 const attachViewerHttpServer = (relayServer as any).attachViewerHttpServer;

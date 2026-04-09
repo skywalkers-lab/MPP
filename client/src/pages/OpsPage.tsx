@@ -3,7 +3,7 @@ import Layout from '../components/Layout';
 import HealthBadge from '../components/HealthBadge';
 import type { OpsSession, TimelineEvent, DiagnosticsData } from '../types';
 import { fetchOpsSessions, fetchOpsEvents, fetchDiagnostics } from '../lib/api';
-import { safe, fmtRelTime, fmtDateTime } from '../lib/formatters';
+import { safe, fmtRelTime } from '../lib/formatters';
 
 export default function OpsPage() {
   const [sessions, setSessions] = useState<OpsSession[]>([]);
@@ -182,17 +182,19 @@ export default function OpsPage() {
             {events.length === 0 ? (
               <div className="text-center py-8 text-[#5e7a94] text-sm">No events.</div>
             ) : (
-              events.slice().reverse().map((ev, i) => (
+              events.slice().reverse().map((ev, i) => {
+                const eventType = typeof ev.type === 'string' && ev.type ? ev.type : 'unknown';
+                return (
                 <div key={`${ev.eventId || i}`} className="rounded border border-[#1a2e42] bg-[#0a1724] px-3 py-2">
                   <div className="flex justify-between items-center mb-0.5">
-                    <span className="text-xs font-mono font-bold text-cyan-400">{ev.type}</span>
+                    <span className="text-xs font-mono font-bold text-cyan-400">{eventType}</span>
                     <span className="text-[10px] font-mono text-[#4a6478]">{fmtRelTime(ev.timestamp)}</span>
                   </div>
                   {ev.sessionId && (
                     <div className="text-[10px] font-mono text-[#4a6478]">{ev.sessionId}</div>
                   )}
                 </div>
-              ))
+              )})
             )}
           </div>
         </section>

@@ -1,5 +1,95 @@
 import type { DiagnosticsData, RelayInfo, Room, StrategyData, SessionNote, TimelineEvent, SessionAccessRecord, SessionHealthData, OpsSession, ArchiveSummary, SessionActionResult, StrategyActionName } from '../types';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeTimelineEvent(raw: unknown): TimelineEvent {
+  const now = Date.now();
+
+  if (!isRecord(raw)) {
+    return {
+      eventId: `timeline-${now}-unknown`,
+      type: 'unknown',
+      timestamp: now,
+    };
+  }
+
+  const eventId = typeof raw.eventId === 'string' && raw.eventId ? raw.eventId : undefined;
+  const type = typeof raw.type === 'string' && raw.type ? raw.type : undefined;
+  const sessionId = typeof raw.sessionId === 'string' && raw.sessionId ? raw.sessionId : undefined;
+  const timestamp = readFiniteNumber(raw.timestamp) ?? now;
+  const lap = readFiniteNumber(raw.lap);
+  const data = isRecord(raw.data) ? raw.data : undefined;
+
+  if (type) {
+    return {
+      eventId: eventId ?? `timeline-${timestamp}-${type}`,
+      type,
+      sessionId,
+      lap,
+      timestamp,
+      data,
+    };
+  }
+
+  const kind = typeof raw.kind === 'string' ? raw.kind : '';
+  if (kind === 'note' && isRecord(raw.note)) {
+    const note = raw.note;
+    const noteTimestamp = readFiniteNumber(note.timestamp) ?? timestamp;
+    return {
+      eventId:
+        (typeof note.noteId === 'string' && note.noteId) ||
+        eventId ||
+        `timeline-${noteTimestamp}-note`,
+      type: 'note',
+      sessionId:
+        (typeof note.sessionId === 'string' && note.sessionId) ||
+        sessionId,
+      lap: readFiniteNumber(note.lap),
+      timestamp: noteTimestamp,
+      data: {
+        text: typeof note.text === 'string' ? note.text : '',
+        category: typeof note.category === 'string' ? note.category : 'general',
+        authorLabel: typeof note.authorLabel === 'string' ? note.authorLabel : 'Engineer',
+        tag: typeof note.tag === 'string' ? note.tag : undefined,
+        severity: typeof note.severity === 'string' ? note.severity : undefined,
+      },
+    };
+  }
+
+  if (kind === 'ops_event' && isRecord(raw.event)) {
+    const event = raw.event;
+    const eventType = typeof event.type === 'string' && event.type ? event.type : 'ops_event';
+    const eventTimestamp = readFiniteNumber(event.timestamp) ?? timestamp;
+    return {
+      eventId:
+        (typeof event.eventId === 'string' && event.eventId) ||
+        eventId ||
+        `timeline-${eventTimestamp}-${eventType}`,
+      type: eventType,
+      sessionId:
+        (typeof event.sessionId === 'string' && event.sessionId) ||
+        sessionId,
+      timestamp: eventTimestamp,
+      data: isRecord(event.payload) ? event.payload : undefined,
+    };
+  }
+
+  return {
+    eventId: eventId ?? `timeline-${timestamp}-unknown`,
+    type: 'unknown',
+    sessionId,
+    lap,
+    timestamp,
+    data,
+  };
+}
+
 async function get<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -62,7 +152,13 @@ export async function deleteNote(sessionId: string, noteId: string, password?: s
 }
 
 export async function fetchTimeline(sessionId: string, limit = 120): Promise<{ timeline: TimelineEvent[]; count: number }> {
-  return get(`/api/viewer/timeline/${encodeURIComponent(sessionId)}?limit=${limit}`);
+  const result = await get<{ timeline?: unknown[]; count?: number }>(`/api/viewer/timeline/${encodeURIComponent(sessionId)}?limit=${limit}`);
+  const timeline = Array.isArray(result.timeline) ? result.timeline.map(normalizeTimelineEvent) : [];
+  return {
+    ...result,
+    timeline,
+    count: timeline.length,
+  };
 }
 
 export async function fetchSessionAccess(sessionId: string, password?: string, permissionCode?: string): Promise<SessionAccessRecord> {

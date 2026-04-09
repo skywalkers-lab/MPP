@@ -14,10 +14,16 @@ import {
   NOTE_ALLOWED_CATEGORIES,
   NOTE_ALLOWED_SEVERITIES,
   NOTE_MAX_TEXT_LENGTH,
+  SessionNote,
 } from './notes';
+import { OpsEvent } from './ops';
 
 export function createViewerApiRouter(relayServer: RelayServer) {
   const router = express.Router();
+
+  type LiveTimelineItem =
+    | { kind: 'note'; timestamp: number; note: SessionNote }
+    | { kind: 'ops_event'; timestamp: number; event: OpsEvent };
 
   type ViewerRole = 'viewer' | 'engineer' | 'strategist' | 'ops';
   type RequestedViewerRole = 'viewer' | 'engineer' | 'strategist';
@@ -38,6 +44,34 @@ export function createViewerApiRouter(relayServer: RelayServer) {
       return typeof v[0] === 'string' ? v[0].trim() : '';
     }
     return typeof v === 'string' ? v.trim() : '';
+  }
+
+  function serializeLiveTimelineItem(item: LiveTimelineItem) {
+    if (item.kind === 'note') {
+      const note = item.note;
+      return {
+        eventId: note.noteId,
+        type: 'note',
+        sessionId: note.sessionId,
+        lap: note.lap,
+        timestamp: note.timestamp,
+        data: {
+          text: note.text,
+          category: note.category,
+          authorLabel: note.authorLabel,
+          tag: note.tag,
+          severity: note.severity,
+        },
+      };
+    }
+
+    return {
+      eventId: item.event.eventId,
+      type: item.event.type,
+      sessionId: item.event.sessionId,
+      timestamp: item.event.timestamp,
+      data: item.event.payload,
+    };
   }
 
   function secureCompareSecret(expected: string, provided: string): boolean {
@@ -682,7 +716,8 @@ export function createViewerApiRouter(relayServer: RelayServer) {
 
     const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 100;
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, limitRaw)) : 100;
-    const timeline = relayServer.getSessionTimeline(auth.canonicalSessionId, limit);
+    const rawTimeline = relayServer.getSessionTimeline(auth.canonicalSessionId, limit) as LiveTimelineItem[];
+    const timeline = rawTimeline.map(serializeLiveTimelineItem);
     res.json({
       sessionId: auth.canonicalSessionId,
       requestedSessionId: req.params.sessionId,

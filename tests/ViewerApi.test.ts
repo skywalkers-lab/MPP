@@ -12,6 +12,7 @@ describe('Viewer API', () => {
     sessionMap = new Map();
     relayServer = {
       getSession: (id: string) => sessionMap.get(id),
+      getSessionTimeline: () => [],
       getSessionAccess: () => undefined,
       resolveJoinCode: () => ({}),
       updateSessionAccess: () => undefined,
@@ -106,6 +107,62 @@ describe('Viewer API', () => {
     expect(res.status).toBe(200);
     expect(res.body.viewerStatus).toBe('live');
     expect(res.body.snapshot).not.toBeNull();
+  });
+
+  it('timeline endpoint가 note/ops event를 공통 timeline shape로 직렬화한다', async () => {
+    relayServer.getSessionTimeline = () => [
+      {
+        kind: 'note',
+        timestamp: 1000,
+        note: {
+          noteId: 'note-1',
+          sessionId: 'S-TL',
+          timestamp: 1000,
+          createdAt: 1000,
+          category: 'strategy',
+          text: 'Box this lap',
+          authorLabel: 'Strategist',
+          lap: 12,
+          severity: 'high',
+        },
+      },
+      {
+        kind: 'ops_event',
+        timestamp: 1100,
+        event: {
+          eventId: 'evt-1',
+          type: 'visibility_changed',
+          sessionId: 'S-TL',
+          timestamp: 1100,
+          payload: { nextVisibility: 'code' },
+        },
+      },
+    ];
+
+    const res = await request(app).get('/api/viewer/timeline/S-TL');
+    expect(res.status).toBe(200);
+    expect(res.body.timeline).toEqual([
+      expect.objectContaining({
+        eventId: 'note-1',
+        type: 'note',
+        sessionId: 'S-TL',
+        lap: 12,
+        timestamp: 1000,
+        data: expect.objectContaining({
+          text: 'Box this lap',
+          category: 'strategy',
+          authorLabel: 'Strategist',
+          severity: 'high',
+        }),
+      }),
+      expect.objectContaining({
+        eventId: 'evt-1',
+        type: 'visibility_changed',
+        sessionId: 'S-TL',
+        timestamp: 1100,
+        data: { nextVisibility: 'code' },
+      }),
+    ]);
   });
 
   it('alias session 조회 시 rebound metadata를 포함한다', async () => {

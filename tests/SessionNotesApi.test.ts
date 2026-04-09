@@ -106,10 +106,10 @@ describe('Session Notes API', () => {
     expect(timeline.status).toBe(200);
     expect(timeline.body.timeline.length).toBeGreaterThan(0);
     expect(
-      timeline.body.timeline.some((i: any) => i.kind === 'note' && i.note.text === 'S1 note')
+      timeline.body.timeline.some((i: any) => i.type === 'note' && i.data?.text === 'S1 note')
     ).toBe(true);
     expect(
-      timeline.body.timeline.some((i: any) => i.kind === 'ops_event')
+      timeline.body.timeline.some((i: any) => typeof i.type === 'string' && i.type !== 'note')
     ).toBe(true);
   });
 
@@ -206,7 +206,7 @@ describe('Session Notes API', () => {
         .set('x-room-password', 'pitwall');
       expect(timelineRes.status).toBe(200);
       expect(
-        timelineRes.body.timeline.some((item: any) => item.kind === 'ops_event' && item.event.type === 'strategy_action_logged')
+        timelineRes.body.timeline.some((item: any) => item.type === 'strategy_action_logged')
       ).toBe(true);
     } finally {
       if (prevFlag === undefined) {

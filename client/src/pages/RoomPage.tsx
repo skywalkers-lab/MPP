@@ -625,16 +625,17 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, hasPermiss
     items.forEach((item: TimelineEvent) => {
       const time = new Date(item.timestamp || Date.now()).toLocaleTimeString();
       const data = item.data ?? {};
-      if (item.type === 'note' && data['text']) {
+      const itemType = typeof item.type === 'string' && item.type ? item.type : 'unknown';
+      if (itemType === 'note' && data['text']) {
         const cat = String(data['category'] || '').toLowerCase();
         if (cat === 'strategy') strategyLogs.push({ time, text: String(data['text']) });
         else radio.push({ time, text: String(data['text']) });
       } else {
-        const t = item.type.toLowerCase();
+        const t = itemType.toLowerCase();
         if (t.includes('flag') || t.includes('incident') || t.includes('vsc') || t.includes('sc')) {
-          raceControl.push({ time, text: item.type });
+          raceControl.push({ time, text: itemType });
         } else {
-          strategyLogs.push({ time, text: item.type });
+          strategyLogs.push({ time, text: itemType });
         }
       }
     });
@@ -652,6 +653,7 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, hasPermiss
   const undercutScore = sig?.undercutScore ?? m?.undercutScore;
   const cleanAirProb = sig?.cleanAirProbability ?? m?.cleanAirProbability;
   const trafficExp = sig?.trafficRiskScore ?? m?.trafficExposure;
+  const confidenceScore = strategy?.confidenceScore ?? strategy?.confidence ?? null;
   const tyreChartData = useMemo(
     () => buildTyreChartSeriesData({
       tyreAge,
@@ -670,8 +672,8 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, hasPermiss
           <>
             <div className="w-px h-4 bg-[#243247]" />
             <span className={`text-sm font-bold font-mono tracking-widest ${callCls}`}>{primaryCall}</span>
-            {(strategy?.confidenceScore ?? strategy?.confidence) != null && (
-              <span className="text-[9px] font-mono text-[#4a6478]">conf. {fmtPct((strategy.confidenceScore ?? strategy.confidence) as number)}</span>
+            {confidenceScore != null && (
+              <span className="text-[9px] font-mono text-[#4a6478]">conf. {fmtPct(confidenceScore)}</span>
             )}
           </>
         )}
@@ -1228,11 +1230,13 @@ function TimelineTab({ events }: { events: TimelineEvent[] }) {
         <div className="text-center py-20 text-[#3a5570] text-sm font-mono">No events yet.</div>
       ) : (
         <div className="space-y-1.5 max-h-[70vh] overflow-y-auto scrollbar-thin pr-1">
-          {events.slice().reverse().map((ev, i) => (
+          {events.slice().reverse().map((ev, i) => {
+            const eventType = typeof ev.type === 'string' && ev.type ? ev.type : 'unknown';
+            return (
             <div key={ev.eventId || i} className="rounded border border-[#1a2e42] bg-[#0a1520] px-3 py-2.5 flex items-start gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-[10px] font-mono font-bold ${typeColor[ev.type] || 'text-sky-400'}`}>{ev.type}</span>
+                  <span className={`text-[10px] font-mono font-bold ${typeColor[eventType] || 'text-sky-400'}`}>{eventType}</span>
                   {ev.lap != null && <span className="text-[9px] font-mono text-[#4a6478]">Lap {ev.lap}</span>}
                 </div>
                 {ev.data && Object.keys(ev.data).length > 0 && (
@@ -1243,7 +1247,7 @@ function TimelineTab({ events }: { events: TimelineEvent[] }) {
               </div>
               <span className="text-[9px] font-mono text-[#3a5570] flex-shrink-0">{fmtRelTime(ev.timestamp)}</span>
             </div>
-          ))}
+          )})}
         </div>
       )}
     </div>

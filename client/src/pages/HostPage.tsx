@@ -1,11 +1,12 @@
-import { useEffect, useState, useCallback, useRef, type FormEvent } from 'react';
+import { useEffect, useState, useCallback, type FormEvent } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import HealthBadge from '../components/HealthBadge';
 import MetricCard from '../components/MetricCard';
 import type { StrategyData, SessionNote, TimelineEvent, SessionHealthData, SessionAccessRecord } from '../types';
 import {
   fetchStrategy, fetchNotes, addNote, deleteNote, fetchTimeline,
-  fetchSessionAccess, fetchSessionHealth, fetchRelayInfo, patchSessionAccess
+  fetchSessionAccess, fetchSessionHealth, fetchRelayInfo, patchSessionAccess,
+  fetchSessionSnapshot,
 } from '../lib/api';
 import { safe, fmtLapTime, fmtPct, fmtRelTime, compoundColor, compoundShort } from '../lib/formatters';
 
@@ -47,7 +48,6 @@ export default function HostPage() {
   const [health, setHealth] = useState<SessionHealthData | null>(null);
   const [access, setAccess] = useState<SessionAccessRecord | null>(null);
   const [snapshot, setSnapshot] = useState<SnapshotData | null>(null);
-
   const [noteText, setNoteText] = useState('');
   const [noteAuthor, setNoteAuthor] = useState('Engineer');
   const [noteCategory, setNoteCategory] = useState('general');
@@ -82,12 +82,14 @@ export default function HostPage() {
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [strat, notesData, timelineData, healthData] = await Promise.all([
+      const [snap, strat, notesData, timelineData, healthData] = await Promise.all([
+        fetchSessionSnapshot(id, password, permissionCode).catch(() => null),
         fetchStrategy(id).catch(() => null),
         fetchNotes(id, password, permissionCode).catch(() => null),
         fetchTimeline(id, 80).catch(() => null),
         fetchSessionHealth(id).catch(() => null),
       ]);
+      if (snap) setSnapshot(snap as SnapshotData);
       if (strat) setStrategy(strat);
       if (notesData) setNotes(notesData.notes);
       if (timelineData) setTimeline(timelineData.timeline);
@@ -342,8 +344,10 @@ export default function HostPage() {
                       </div>
                     </div>
                   )}
-                  {notes.slice().reverse().map(note => (
-                    <div key={note.id} className={`rounded border bg-[#0a1520] p-2.5 ${categoryColors[note.category || 'general'] || categoryColors.general}`}>
+                  {notes.slice().reverse().map(note => {
+                    const noteId = note.id || note.noteId || `${note.createdAt}-${note.text}`;
+                    return (
+                    <div key={noteId} className={`rounded border bg-[#0a1520] p-2.5 ${categoryColors[note.category || 'general'] || categoryColors.general}`}>
                       <div className="flex justify-between items-start gap-2 mb-1">
                         <div className="flex gap-1.5 flex-wrap">
                           <span className={`text-[9px] px-1.5 py-0.5 rounded border font-mono uppercase tracking-wider ${categoryColors[note.category || 'general']}`}>
@@ -352,12 +356,12 @@ export default function HostPage() {
                           {note.authorLabel && <span className="text-[9px] font-mono text-[#4a6478]">{note.authorLabel}</span>}
                           {note.lap != null && <span className="text-[9px] font-mono text-[#4a6478]">L{note.lap}</span>}
                         </div>
-                        <button onClick={() => handleDeleteNote(note.id)} className="text-[9px] text-[#3a5570] hover:text-red-400 transition-colors">✕</button>
+                        <button onClick={() => handleDeleteNote(noteId)} className="text-[9px] text-[#3a5570] hover:text-red-400 transition-colors">✕</button>
                       </div>
                       <div className="text-xs text-[#dce8f5] leading-relaxed">{note.text}</div>
                       <div className="text-[9px] font-mono text-[#3a5570] mt-1">{fmtRelTime(note.createdAt)}</div>
                     </div>
-                  ))}
+                  )})}
                   {notes.length === 0 && <div className="text-center py-6 text-[#3a5570] text-xs">No notes yet.</div>}
                 </div>
               </div>
@@ -365,15 +369,17 @@ export default function HostPage() {
               <div className="rounded border border-[#1a2e42] bg-[#0a1724] p-3">
                 <div className="text-[10px] font-mono tracking-widest text-[#4a6478] uppercase mb-2">Timeline / Ops Events</div>
                 <div className="space-y-1.5 max-h-[360px] overflow-y-auto scrollbar-thin pr-1">
-                  {timeline.slice().reverse().map((ev, i) => (
+                  {timeline.slice().reverse().map((ev, i) => {
+                    const eventType = typeof ev.type === 'string' && ev.type ? ev.type : 'unknown';
+                    return (
                     <div key={ev.eventId || i} className="rounded border border-[#1a2e42] bg-[#0a1520] px-2.5 py-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-mono font-bold text-sky-400">{ev.type}</span>
+                        <span className="text-[10px] font-mono font-bold text-sky-400">{eventType}</span>
                         <span className="text-[9px] font-mono text-[#3a5570]">{fmtRelTime(ev.timestamp)}</span>
                       </div>
                       {ev.lap != null && <div className="text-[9px] font-mono text-[#4a6478] mt-0.5">lap {ev.lap}</div>}
                     </div>
-                  ))}
+                  )})}
                   {timeline.length === 0 && <div className="text-center py-6 text-[#3a5570] text-xs">No events yet.</div>}
                 </div>
               </div>

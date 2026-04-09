@@ -519,10 +519,11 @@ function serveAppShell(_req: express.Request, res: express.Response) {
 
 app.get('/', (_req, res) => res.redirect('/rooms'));
 app.get('/rooms', serveAppShell);
+app.get('/room/:sessionId', serveAppShell);
+app.get('/join/:joinCode', serveAppShell);
 app.get('/ops', serveAppShell);
 app.get('/archives', serveAppShell);
 app.get('/viewer/:sessionId', serveAppShell);
-app.get('/join/:joinCode', serveAppShell);
 app.get('/host/:sessionId', serveAppShell);
 app.get('/overlay/:sessionId', serveAppShell);
 app.get('/overlay/join/:joinCode', serveAppShell);

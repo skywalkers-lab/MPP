@@ -35,12 +35,17 @@ Real-time telemetry and strategy tool for the F1 25 racing game. Captures UDP te
 ### Web Routes (React Router SPA)
 
 - `/` → redirects to `/rooms`
-- `/rooms` - Room Lobby (main dashboard)
-- `/ops` - Ops Control Plane
-- `/viewer/:sessionId` - Viewer surface
-- `/host/:sessionId` - Host/Engineer surface
-- `/overlay/:sessionId` - Broadcast overlay (for OBS)
+- `/rooms` - Room Lobby (list rooms, join)
+- `/room/:sessionId` - Unified Room Dashboard with tabs:
+  - **Live** — real-time telemetry (lap, position, tyre, fuel, ERS, speed, throttle, brake)
+  - **Strategy** — strategy call, metrics bars (undercut/overcut/tyre urgency/fuel risk), pit window
+  - **Notes** — note feed + add note form (write requires permissionCode)
+  - **Timeline** — event log feed
+  - **Settings** — share links, OBS overlay URL, room config (write requires permissionCode)
+- `/join/:joinCode` - Join redirect (resolves joinCode → sessionId, then → `/room/:sessionId`)
+- `/ops` - Ops Control Plane (system admin)
 - `/archives` - Post-race archive replay
+- `/overlay/:sessionId` - Broadcast overlay (for OBS)
 - `/healthz` - Health check endpoint
 - `/diagnostics` - Runtime diagnostics JSON
 - `/api/...` - REST API (proxied to relay in dev)

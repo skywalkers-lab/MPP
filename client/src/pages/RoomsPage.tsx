@@ -56,7 +56,7 @@ export default function RoomsPage() {
     if (password) params.set('password', password);
     if (permCode) params.set('permissionCode', permCode);
     const q = params.toString();
-    navigate(`/join/${selected.joinCode}${q ? '?' + q : ''}`);
+    navigate(`/room/${selected.sessionId}${q ? '?' + q : ''}`);
   }
 
   return (
@@ -242,10 +242,6 @@ export default function RoomsPage() {
             </button>
           </form>
 
-          <div className="mt-4 pt-4 border-t border-[#1a2e42] flex flex-wrap gap-3">
-            <a href="/console/live" className="text-xs text-cyan-500 hover:text-cyan-300 transition-colors">Live Strategic Console →</a>
-            <a href="/console/replay" className="text-xs text-cyan-500 hover:text-cyan-300 transition-colors">Replay Console →</a>
-          </div>
         </section>
       </div>
     </Layout>

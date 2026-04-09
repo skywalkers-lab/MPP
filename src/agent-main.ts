@@ -4,13 +4,9 @@
 
 import path from 'path';
 import fs from 'fs';
-import { UdpReceiver } from './agent/UdpReceiver';
-import { StateReducer } from './agent/StateReducer';
-import { ConsoleLogger } from './debug/ConsoleLogger';
-import { RelayClient } from './relay/RelayClient';
-import { RelayAgentAdapter } from './agent/RelayAgentAdapter';
+import { DriverAgentRuntime, DriverAgentRuntimeSnapshot } from './agent/DriverAgentRuntime';
 
-const VERSION = '0.1.15';
+const VERSION = '0.1.16';
 
 const C = {
   reset:   '\x1b[0m',
@@ -129,19 +125,7 @@ function formatTime(ms: number | null): string {
   return `${Math.floor(ago / 60000)}분 전`;
 }
 
-function drawStatus(opts: {
-  relayUrl: string;
-  udpPort: number;
-  udpAddr: string;
-  relayConnected: boolean;
-  sessionId: string | null;
-  udpPackets10s: number;
-  lastPacketAt: number | null;
-  sessionType: string | null;
-  trackId: number | null;
-  playerCarIndex: number | null;
-  uptime: number;
-}) {
+function drawStatus(opts: DriverAgentRuntimeSnapshot) {
   const {
     relayUrl, udpPort, udpAddr,
     relayConnected, sessionId,
@@ -208,70 +192,25 @@ async function main() {
   const relayUrl = config.relayUrl;
   const sessionId = config.sessionId;
 
-  const logger = new ConsoleLogger('warn');
-  const reducer = new StateReducer();
-  const udp = new UdpReceiver(reducer, logger, {
-    port: udpPort,
-    address: udpAddr,
-    logLevel: 'warn',
-    verbose: false,
-  });
-
-  const relay = new RelayClient({
-    url: relayUrl,
-    protocolVersion: 1,
-    agentVersion: config.agentVersion ?? VERSION,
-    requestedSessionId: sessionId,
-    logger,
-    snapshotIntervalMs: 1000,
-    heartbeatIntervalMs: 2000,
-  });
-
-  relay.connect();
-  new RelayAgentAdapter(reducer, relay, logger);
-  udp.start();
-
-  const startTime = Date.now();
-
-  const statusTimer = setInterval(() => {
-    const relayStatus = relay.getStatus();
-    const diag = udp.getDiagnosticsSnapshot();
-    const state = reducer.getState();
-    const sessionMeta = state.sessionMeta;
-
-    drawStatus({
-      relayUrl,
-      udpPort,
-      udpAddr,
-      relayConnected: relayStatus.connected,
-      sessionId: relayStatus.sessionId,
-      udpPackets10s: diag.recentPackets10s,
-      lastPacketAt: diag.lastPacketAt,
-      sessionType: sessionMeta?.sessionType != null ? String(sessionMeta.sessionType) : null,
-      trackId: sessionMeta?.trackId ?? null,
-      playerCarIndex: state.playerCarIndex ?? null,
-      uptime: Date.now() - startTime,
-    });
-  }, 1000);
-
-  drawStatus({
+  const runtime = new DriverAgentRuntime({
     relayUrl,
     udpPort,
     udpAddr,
-    relayConnected: false,
-    sessionId: null,
-    udpPackets10s: 0,
-    lastPacketAt: null,
-    sessionType: null,
-    trackId: null,
-    playerCarIndex: null,
-    uptime: 0,
+    sessionId,
+    agentVersion: config.agentVersion ?? VERSION,
+    loggerLevel: 'warn',
   });
+  runtime.start();
+
+  const statusTimer = setInterval(() => {
+    drawStatus(runtime.getStatusSnapshot());
+  }, 1000);
+
+  drawStatus(runtime.getStatusSnapshot());
 
   function shutdown() {
     clearInterval(statusTimer);
-    relay.close();
-    udp.stop();
+    runtime.stop();
     process.stdout.write('\n' + clr(C.yellow, '  MPP Agent 종료됨.') + '\n\n');
     process.exit(0);
   }

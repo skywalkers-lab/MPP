@@ -1,12 +1,12 @@
 ══════════════════════════════════════════════════
-  MPP Agent v0.1.15  —  Mission Pitwall Platform
+  MPP Agent v0.1.16  —  Mission Pitwall Platform
   드라이버용 Windows 로컬 에이전트
 ══════════════════════════════════════════════════
 
 [ 시작하기 ]
 
 1. mpp-agent.config.json 파일을 편집합니다:
-   - relayUrl: 팀에서 제공한 릴레이 서버 주소 (예: wss://your-app.replit.app/relay)
+  - relayUrl: 팀에서 제공한 릴레이 서버 주소 (예: wss://your-mpp.onrender.com)
    - udpPort: F1 25 게임에서 설정한 UDP 포트 (기본값: 20777)
 
 2. F1 25 게임 설정:

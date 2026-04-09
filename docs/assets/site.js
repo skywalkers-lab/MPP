@@ -4,8 +4,8 @@
   var RELEASE_CONFIG = {
     owner: 'skywalkers-lab',
     repo: 'MPP',
-    version: 'v0.1.14',
-    installerAsset: 'MPP-Setup.exe',
+    version: 'v0.1.16',
+    desktopAsset: 'MPP-Desktop.exe',
     portableAsset: 'MPP-portable.exe',
   };
 
@@ -35,7 +35,7 @@
 
     setText('current-version', RELEASE_CONFIG.version);
 
-    setHref('download-installer', latestAssetUrl(RELEASE_CONFIG.installerAsset));
+    setHref('download-installer', latestAssetUrl(RELEASE_CONFIG.desktopAsset));
     setHref('download-portable', latestAssetUrl(RELEASE_CONFIG.portableAsset));
 
     setHref('latest-release-link', releaseUrl);

@@ -4,7 +4,7 @@
 # 출력: release/MPP-Agent.exe, release/mpp-agent.config.json, release/README-MPP-Agent.txt
 set -euo pipefail
 
-AGENT_VERSION="0.1.15"
+AGENT_VERSION="0.1.16"
 OUTDIR="release"
 BUILDDIR=".agentbuild"
 
@@ -34,7 +34,7 @@ echo "      완료: ${BUILDDIR}/agent-entry.cjs"
 cat > "${BUILDDIR}/package.json" <<'PKGJSON'
 {
   "name": "mpp-agent",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "type": "commonjs",
   "bin": "agent-entry.cjs",
   "pkg": {
@@ -58,7 +58,7 @@ if [ ! -f "${CONFIG_PATH}" ]; then
   cat > "${CONFIG_PATH}" <<'CONFIGEOF'
 {
   "_주석": "이 파일을 편집하고 MPP-Agent.exe와 같은 폴더에 두세요.",
-  "relayUrl": "wss://your-app.replit.app/relay",
+  "relayUrl": "wss://your-mpp.onrender.com",
   "udpPort": 20777,
   "udpAddr": "0.0.0.0",
   "_sessionId_주석": "sessionId는 선택 사항입니다. 비우면 자동 생성됩니다.",
@@ -80,7 +80,7 @@ cat > "${OUTDIR}/README-MPP-Agent.txt" <<READMEEOF
 [ 시작하기 ]
 
 1. mpp-agent.config.json 파일을 편집합니다:
-   - relayUrl: 팀에서 제공한 릴레이 서버 주소 (예: wss://your-app.replit.app/relay)
+  - relayUrl: 팀에서 제공한 릴레이 서버 주소 (예: wss://your-mpp.onrender.com)
    - udpPort: F1 25 게임에서 설정한 UDP 포트 (기본값: 20777)
 
 2. F1 25 게임 설정:

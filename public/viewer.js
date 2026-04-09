@@ -161,6 +161,14 @@ function renderSnapshotSummary(data, options = {}) {
     $snapshotSummary.innerHTML = `${headerHtml}<em>플레이어 차량 정보가 아직 없습니다.</em>`;
     return;
   }
+  const branding = window.MPPBranding || null;
+  const tyreMarkup = branding
+    ? branding.tyreBadgeHtml(playerCar.tyreCompound, { compact: true })
+    : safe(playerCar.tyreCompound);
+  const weatherMarkup = branding
+    ? branding.weatherBadgeHtml(s.sessionMeta && s.sessionMeta.weather, { compact: true })
+    : safe(s.sessionMeta && s.sessionMeta.weather);
+
   $snapshotSummary.innerHTML = `
     ${headerHtml}
     <div><span class="label">Player Car Index:</span> ${safe(playerIdx)}</div>
@@ -172,7 +180,8 @@ function renderSnapshotSummary(data, options = {}) {
     <div><span class="label">Fuel Laps Remaining:</span> ${safe(playerCar.fuelLapsRemaining)}</div>
     <div><span class="label">Tyre Age (Laps):</span> ${safe(playerCar.tyreAgeLaps)}</div>
     <div><span class="label">ERS Level:</span> ${safe(playerCar.ersLevel)}</div>
-    <div><span class="label">Tyre Compound:</span> ${safe(playerCar.tyreCompound)}</div>
+    <div><span class="label">Weather:</span> ${weatherMarkup}</div>
+    <div><span class="label">Tyre Compound:</span> ${tyreMarkup}</div>
   `;
 }
 

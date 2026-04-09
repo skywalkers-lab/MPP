@@ -685,6 +685,10 @@ export class StrategyEngine {
         pitLossHeuristic: advanced.pitLossHeuristic,
         compoundStintBias: advanced.compoundStintBias,
       }),
+      'RELEASE NOW': 0,
+      'HOLD GAP': 0,
+      'BUILD TYRES': 0,
+      'TRAFFIC CLUSTER AHEAD': 0,
     };
 
     const confidenceScore = computeConfidenceScore(scoreByRecommendation, mcResult);

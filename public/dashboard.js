@@ -82,6 +82,9 @@ function renderTimingBoard(state) {
 
 function renderTyreCompound(tyre) {
   if (!tyre) return '<span class="muted">-</span>';
+  if (window.MPPBranding) {
+    return window.MPPBranding.tyreBadgeHtml(tyre, { compact: true });
+  }
   const map = {
     'Soft': 'tyre-soft',
     'Medium': 'tyre-medium',

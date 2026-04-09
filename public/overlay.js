@@ -169,8 +169,13 @@
 
       var tyreRaw = player.tyreCompound ? String(player.tyreCompound).toLowerCase() : null;
       var tyre = tyreRaw && TYRE_MAP[tyreRaw] ? TYRE_MAP[tyreRaw] : null;
-      $statTyre.className = 'stat-value ' + (tyre ? tyre.cls : 'compound');
-      $statTyre.textContent = tyre ? tyre.label : safe(player.tyreCompound);
+      var branding = window.MPPBranding || null;
+      $statTyre.className = 'stat-value compound';
+      if (branding && player.tyreCompound) {
+        $statTyre.innerHTML = branding.tyreBadgeHtml(player.tyreCompound, { compact: true });
+      } else {
+        $statTyre.textContent = tyre ? tyre.label : safe(player.tyreCompound);
+      }
       $statTyreAge.textContent = player.tyreAgeLaps != null ? player.tyreAgeLaps + ' laps' : '';
 
       $statFuel.textContent = fmtFuel(player.fuelRemaining);

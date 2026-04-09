@@ -1,0 +1,152 @@
+.mpp-brand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(74, 98, 126, 0.8);
+  background: rgba(12, 22, 34, 0.86);
+  color: inherit;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.mpp-brand-badge.is-compact {
+  gap: 4px;
+  padding: 2px 6px;
+}
+
+.mpp-brand-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.mpp-brand-icon,
+.mpp-team-logo-sprite,
+.mpp-brand-fallback {
+  flex: 0 0 auto;
+}
+
+.mpp-brand-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.mpp-brand-icon.is-compact {
+  width: 14px;
+  height: 14px;
+}
+
+.mpp-brand-fallback {
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(98, 169, 255, 0.16);
+  color: #d9ebff;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.mpp-team-logo-sprite {
+  display: inline-block;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+.tyre-badge-soft {
+  color: #ff8c8c;
+  border-color: rgba(255, 112, 112, 0.45);
+}
+
+.tyre-badge-medium {
+  color: #ffd670;
+  border-color: rgba(243, 191, 82, 0.4);
+}
+
+.tyre-badge-hard {
+  color: #eff4fb;
+  border-color: rgba(214, 224, 237, 0.45);
+}
+
+.tyre-badge-inter {
+  color: #92e4ad;
+  border-color: rgba(125, 220, 154, 0.4);
+}
+
+.tyre-badge-wet {
+  color: #8fd1ff;
+  border-color: rgba(124, 200, 255, 0.4);
+}
+
+.weather-badge-clear {
+  color: #ffe082;
+  border-color: rgba(255, 224, 130, 0.42);
+}
+
+.weather-badge-light-cloud,
+.weather-badge-overcast {
+  color: #d4deec;
+  border-color: rgba(173, 187, 204, 0.42);
+}
+
+.weather-badge-light-rain,
+.weather-badge-heavy-rain {
+  color: #9cd6ff;
+  border-color: rgba(124, 200, 255, 0.42);
+}
+
+.team-badge .mpp-brand-label {
+  font-size: 9px;
+}
+
+.ki-team-inline {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.ki-weather-inline {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+}
+
+.icon-rail-glyph img,
+.ki-nav-glyph img,
+.top-icons-row .mpp-brand-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  display: block;
+}
+
+.top-icons-row .mpp-brand-badge {
+  min-height: 22px;
+}
+
+.driver-selector-team .mpp-brand-badge,
+.ki-team-inline .mpp-brand-badge,
+#stat-tyre .mpp-brand-badge,
+#driver-compound .mpp-brand-badge,
+.snapshot-summary .mpp-brand-badge,
+.chip .mpp-brand-badge {
+  max-width: 100%;
+}
+
+.mpp-driver-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mpp-driver-name {
+  display: inline-block;
+}

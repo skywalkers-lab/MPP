@@ -46,6 +46,7 @@ describe('F1 25 UDP Packet Parsers', () => {
     const parsed = parseSessionPacket(buf);
     expect(parsed?.sessionType).toBe(3);
     expect(parsed?.trackId).toBe(5);
+    expect(parsed?.weather).toBe('light_cloud');
     expect(parsed?.totalLaps).toBe(57);
     expect(parsed?.pitSpeedLimit).toBe(80);
   });

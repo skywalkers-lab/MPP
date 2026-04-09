@@ -247,7 +247,7 @@ async function main() {
       sessionId: relayStatus.sessionId,
       udpPackets10s: diag.recentPackets10s,
       lastPacketAt: diag.lastPacketAt,
-      sessionType: sessionMeta?.sessionType ?? null,
+      sessionType: sessionMeta?.sessionType != null ? String(sessionMeta.sessionType) : null,
       trackId: sessionMeta?.trackId ?? null,
       playerCarIndex: state.playerCarIndex ?? null,
       uptime: Date.now() - startTime,

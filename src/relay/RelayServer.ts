@@ -777,12 +777,12 @@ export class RelayServer {
 
     const lapMs = lastLapTime * 1000;
 
-    const pitStatus = (playerCar.pitStatus ?? '').toLowerCase();
+    const pitStatus = String(playerCar.pitStatus ?? '').toLowerCase();
     const isPitLap =
       pitStatus.includes('pit') ||
       pitStatus.includes('in') ||
       pitStatus.includes('out') ||
-      (playerCar as Record<string, unknown>)['inGarage'] === true;
+      (playerCar as unknown as Record<string, unknown>)['inGarage'] === true;
 
     if (isPitLap) return;
 
@@ -1250,7 +1250,7 @@ export class RelayServer {
     type: OpsEventType,
     sessionId: string,
     payload?: Record<string, unknown>
-  ) {
+  ): OpsEvent {
     const event: OpsEvent = {
       eventId: `${type}-${sessionId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       type,
@@ -1260,6 +1260,7 @@ export class RelayServer {
     };
     this.opsNotifier.notify(event);
     this.archiveStore.recordOpsEvent(event);
+    return event;
   }
 
   private finalizeArchiveForSession(

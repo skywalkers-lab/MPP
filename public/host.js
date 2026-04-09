@@ -321,10 +321,16 @@ function renderDriverState(sessionData) {
   var player = snapshot.cars && idx !== null && idx !== undefined ? snapshot.cars[idx] : null;
   var meta = snapshot.sessionMeta || {};
 
+  var branding = window.MPPBranding || null;
+
   $driverLap.textContent = safe(player && player.currentLapNum !== undefined ? player.currentLapNum : meta.currentLap);
   $driverLapTotal.textContent = meta.totalLaps ? '/ ' + meta.totalLaps : '-';
   $driverPos.textContent = safe(player && player.position);
-  $driverCompound.textContent = safe(player && player.tyreCompound);
+  if (branding && player && player.tyreCompound) {
+    $driverCompound.innerHTML = branding.tyreBadgeHtml(player.tyreCompound, { compact: true });
+  } else {
+    $driverCompound.textContent = safe(player && player.tyreCompound);
+  }
   $driverTyreAge.textContent = player && player.tyreAgeLaps !== undefined ? 'age ' + player.tyreAgeLaps : 'age -';
   $driverFuelLaps.textContent = player && player.fuelLapsRemaining !== undefined ? safe(Number(player.fuelLapsRemaining).toFixed(1)) : '-';
   $driverFuelKg.textContent = player && player.fuelRemaining !== undefined ? 'fuel ' + Number(player.fuelRemaining).toFixed(1) : 'fuel -';

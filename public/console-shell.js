@@ -2,6 +2,7 @@
   'use strict';
 
   var P = window.ConsolePrimitives;
+  var Branding = window.MPPBranding || null;
 
   function esc(v) {
     return String(v === null || v === undefined ? '-' : v)
@@ -243,9 +244,15 @@
   function teamFromRow(row) {
     var name = String(row.driverName || '').toUpperCase();
     if (name.indexOf('VER') >= 0 || name.indexOf('PERE') >= 0) return 'RED BULL';
-    if (name.indexOf('LEC') >= 0 || name.indexOf('SAI') >= 0) return 'FERRARI';
+    if (name.indexOf('LEC') >= 0 || name.indexOf('SAI') >= 0 || name.indexOf('HAM') >= 0) return 'FERRARI';
     if (name.indexOf('NOR') >= 0 || name.indexOf('PIA') >= 0) return 'MCLAREN';
-    if (name.indexOf('HAM') >= 0 || name.indexOf('RUS') >= 0) return 'MERCEDES';
+    if (name.indexOf('RUS') >= 0 || name.indexOf('ANT') >= 0) return 'MERCEDES';
+    if (name.indexOf('ALO') >= 0 || name.indexOf('STR') >= 0) return 'ASTON MARTIN';
+    if (name.indexOf('GAS') >= 0 || name.indexOf('DOO') >= 0) return 'ALPINE';
+    if (name.indexOf('ALB') >= 0 || name.indexOf('COL') >= 0) return 'WILLIAMS';
+    if (name.indexOf('OCO') >= 0 || name.indexOf('BEA') >= 0) return 'HAAS';
+    if (name.indexOf('HUL') >= 0 || name.indexOf('BOR') >= 0) return 'SAUBER';
+    if (name.indexOf('TSU') >= 0 || name.indexOf('LAW') >= 0 || name.indexOf('HAD') >= 0) return 'RACING BULLS';
     return row.teamName || 'TEAM';
   }
 
@@ -253,8 +260,14 @@
     var session = state.session || {};
     var snapshot = session.snapshot || null;
     var meta = snapshot && snapshot.sessionMeta ? snapshot.sessionMeta : null;
+    var player = getPlayer(snapshot);
+    var rows = toSessionRows(snapshot);
+    var playerRow = rows.find(function (row) {
+      return snapshot && player && row.carIndex === snapshot.playerCarIndex;
+    }) || rows[0] || {};
     var lap = safe(meta && meta.currentLap, '-');
     var total = safe(meta && meta.totalLaps, '-');
+    var weatherLabel = meta && meta.weather ? String(meta.weather).replace(/_/g, ' ').toUpperCase() : 'UNKNOWN';
     var title = mode === 'replay' ? 'KINETIC_INSTRUMENT_V1' : 'MPP STRATEGIC CONSOLE';
     var tabs = mode === 'replay'
       ? [
@@ -270,15 +283,21 @@
           { key: 'replay', label: 'REPLAY' },
         ];
 
+    var weatherBadge = Branding && meta && meta.weather
+      ? Branding.weatherBadgeHtml(meta.weather, { compact: true, iconOnly: true })
+      : '<span class="top-icon">WX</span>';
+    var tyreBadge = Branding && player && player.tyreCompound
+      ? Branding.tyreBadgeHtml(player.tyreCompound, { compact: true, iconOnly: true })
+      : '<span class="top-icon">T</span>';
+    var teamBadge = Branding
+      ? Branding.teamBadgeHtml(teamFromRow(playerRow), { compact: true, iconOnly: true, scale: 0.08 })
+      : '<span class="top-avatar"></span>';
+
     return '<header class="top-nav">' +
       '<div class="brand-title">' + esc(title) + '</div>' +
       P.navTabs(tabs, activeTab || (mode === 'replay' ? 'replay' : 'live')) +
-      '<div class="top-meta">SESSION ' + esc(safe(state.access && state.access.roomTitle, 'GP: MONZA')) + ' | LAPS ' + esc(lap) + '/' + esc(total) + '</div>' +
-      '<div class="top-icons-row">' +
-        '<span class="top-icon">S</span>' +
-        '<span class="top-icon">?</span>' +
-        '<span class="top-avatar"></span>' +
-      '</div>' +
+      '<div class="top-meta">SESSION ' + esc(safe(state.access && state.access.roomTitle, 'GP: MONZA')) + ' | LAPS ' + esc(lap) + '/' + esc(total) + ' | WX ' + esc(weatherLabel) + '</div>' +
+      '<div class="top-icons-row">' + weatherBadge + tyreBadge + teamBadge + '</div>' +
     '</header>';
   }
 
@@ -431,9 +450,21 @@
       ? '<tr class="race-table-row"><td colspan="9">classification unavailable</td></tr>'
       : rows.slice(0, 20).map(function (row) {
           var threat = deriveThreat(row, playerPos, signals);
+          var team = teamFromRow(row);
+          var driverHtml = Branding
+            ? '<span class="mpp-driver-cell">' +
+                Branding.teamBadgeHtml(team, { compact: true, iconOnly: true, scale: 0.075 }) +
+                '<span class="mpp-driver-name">' + esc(row.driverName) + '</span>' +
+              '</span>'
+            : null;
+          var tyreHtml = Branding
+            ? Branding.tyreBadgeHtml(row.tyreCompound, { compact: true }) +
+              '<span style="margin-left:6px;color:var(--console-muted)">' + esc(safe(row.tyreAgeLaps, '-')) + 'L</span>'
+            : null;
           return P.raceRow({
             pos: safe(row.position, '-'),
             driver: row.driverName,
+            driverHtml: driverHtml,
             gap: safe(row.gapToLeader, '-'),
             interval: safe(row.gapToFront, '-'),
             risk: risk.label,
@@ -442,6 +473,7 @@
             threatTone: threat.tone,
             stint: deriveStintPhase({ tyreAgeLaps: row.tyreAgeLaps }, signals),
             tyre: safe(row.tyreCompound, '-') + ' / ' + safe(row.tyreAgeLaps, '-') + 'L',
+            tyreHtml: tyreHtml,
             pit: safe(row.pitStatus, '-'),
           }, row.position === playerPos);
         }).join('');
@@ -640,11 +672,14 @@
   }
 
   function buildKiClassItem(pos, driver, team, teamColor, interval, lap, selected) {
+    var teamBadge = Branding
+      ? '<span class="ki-team-inline">' + Branding.teamBadgeHtml(team, { compact: true, iconOnly: true, scale: 0.075 }) + '</span>'
+      : '';
     return '<div class="ki-classification-item' + (selected ? ' selected' : '') + '">' +
       '<span class="ki-cls-pos">' + esc(pos) + '</span>' +
       '<div class="ki-cls-bar" style="background:' + esc(teamColor) + '"></div>' +
       '<div>' +
-        '<div class="ki-cls-driver">' + esc(driver) + '</div>' +
+        '<div class="ki-cls-driver">' + teamBadge + esc(driver) + '</div>' +
         '<div style="font:600 8px var(--console-font-mono);color:var(--console-muted);text-transform:uppercase">' + esc(team) + '</div>' +
       '</div>' +
       '<span class="ki-cls-interval">' + esc(interval) + '</span>' +
@@ -682,18 +717,20 @@
     var session = state.session || {};
     var snapshot = session.snapshot || {};
     var meta = snapshot.sessionMeta || {};
+    var player = getPlayer(snapshot);
     var track = safe(meta.track || (state.access && state.access.roomTitle), 'CIRCUIT');
     var trackLength = '5.793 km';
     var trackTemp = safe(meta.trackTemp, '38') + '°C';
     var sessionTitle = safe(state.access && state.access.roomTitle, 'GP: MONZA');
     var lap = safe(meta.currentLap, '-');
     var totalLaps = safe(meta.totalLaps, '-');
+    var weatherBadge = Branding && meta.weather ? Branding.weatherBadgeHtml(meta.weather, { compact: true }) : '';
 
     var navItems = [
       { key: 'telem', icon: '📈', label: 'TELEMETRY' },
       { key: 'map', icon: '🗺', label: 'SECTOR_MAP' },
       { key: 'sync', icon: '⇌', label: 'DRIVER_SYNC' },
-      { key: 'tires', icon: '○', label: 'TIRES' },
+      { key: 'tires', icon: '○', iconHtml: Branding ? Branding.tyreIconHtml(player && player.tyreCompound || 'soft') : '', label: 'TIRES' },
       { key: 'strat', icon: '▶', label: 'STRATEGY' },
     ];
     var activeNav = state.activeReplayRail || 'map';
@@ -702,8 +739,9 @@
       '<div class="icon-rail-avatar">MP</div>' +
       navItems.map(function (item) {
         var active = item.key === activeNav ? ' active' : '';
+        var glyphHtml = item.iconHtml ? String(item.iconHtml) : esc(item.icon);
         return '<button class="ki-nav-item' + active + '" type="button" data-rail-key="' + esc(item.key) + '">' +
-          '<span class="ki-nav-glyph">' + esc(item.icon) + '</span>' +
+          '<span class="ki-nav-glyph">' + glyphHtml + '</span>' +
           '<span class="ki-nav-label">' + esc(item.label) + '</span>' +
         '</button>';
       }).join('') +
@@ -731,6 +769,7 @@
       '<div class="ki-track-area">' +
         buildKineticCircuitSvg(playback) +
         '<div class="ki-circuit-meta">' + esc(track.toUpperCase()) + ' · ' + esc(trackLength) + ' · ' + esc(trackTemp) + '</div>' +
+        (weatherBadge ? '<div class="ki-weather-inline">' + weatherBadge + '</div>' : '') +
         '<div class="ki-sector-badges">' +
           '<span class="ki-sector-badge">S1_DELTA −0.043s</span>' +
           '<span class="ki-sector-badge">S2_DELTA +0.118s</span>' +

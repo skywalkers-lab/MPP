@@ -10,6 +10,8 @@
       .replace(/'/g, '&#39;');
   }
 
+  var Branding = window.MPPBranding || null;
+
   function topNavBar(config) {
     return '<header class="top-nav">' +
       '<div class="brand-title">' + esc(config && config.title || 'MPP Strategic Console') + '</div>' +
@@ -116,8 +118,13 @@
       var label = item && item.label ? item.label : '';
       var active = item && item.active ? ' active' : '';
       var key = item && item.key ? item.key : (label || icon || 'item');
+      var glyphHtml = item && item.iconHtml ? String(item.iconHtml) : '';
+      if (!glyphHtml && item && item.imgSrc) {
+        glyphHtml = '<img class="icon-rail-img" src="' + esc(item.imgSrc) + '" alt="' + esc(item.imgAlt || label || key) + '" loading="lazy" decoding="async" />';
+      }
+      if (!glyphHtml) glyphHtml = esc(icon);
       return '<button class="icon-rail-item ' + (extraClass || '') + active + '" type="button" data-rail-key="' + esc(String(key).toLowerCase()) + '">' +
-        '<span class="icon-rail-glyph">' + esc(icon) + '</span>' +
+        '<span class="icon-rail-glyph">' + glyphHtml + '</span>' +
         '<span class="icon-rail-label">' + esc(label) + '</span>' +
       '</button>';
     }
@@ -131,9 +138,12 @@
   }
 
   function driverSelector(label, teamLabel) {
+    var teamHtml = Branding && teamLabel
+      ? Branding.teamBadgeHtml(teamLabel, { compact: true })
+      : esc(teamLabel || '-');
     return '<div class="driver-selector-bar">' +
       '<div class="driver-selector-label">' + esc(label || '-') + '</div>' +
-      '<div class="driver-selector-team">' + esc(teamLabel || '-') + '</div>' +
+      '<div class="driver-selector-team">' + teamHtml + '</div>' +
     '</div>';
   }
 
@@ -146,6 +156,9 @@
   }
 
   function compoundTag(compound) {
+    if (Branding) {
+      return Branding.tyreBadgeHtml(compound, { compact: true });
+    }
     var value = String(compound || '-').toUpperCase();
     var key = value.charAt(0);
     var cls = 'compound-tag compound-tag-' + (key || 'X');
@@ -245,13 +258,13 @@
     var cls = 'race-table-row' + (isPlayer ? ' player-row' : '');
     return '<tr class="' + cls + '">' +
       '<td>' + esc(data.pos || '-') + '</td>' +
-      '<td>' + esc(data.driver || '-') + '</td>' +
+      '<td>' + (data.driverHtml || esc(data.driver || '-')) + '</td>' +
       '<td>' + esc(data.gap || '-') + '</td>' +
       '<td>' + esc(data.interval || '-') + '</td>' +
       '<td><span class="risk-' + esc(data.riskTone || 'med') + '">' + esc(data.risk || '-') + '</span></td>' +
       '<td><span class="threat-' + esc(data.threatTone || 'ignore') + '">' + esc(data.threat || '-') + '</span></td>' +
       '<td>' + esc(data.stint || '-') + '</td>' +
-      '<td>' + esc(data.tyre || '-') + '</td>' +
+      '<td>' + (data.tyreHtml || esc(data.tyre || '-')) + '</td>' +
       '<td>' + esc(data.pit || '-') + '</td>' +
     '</tr>';
   }

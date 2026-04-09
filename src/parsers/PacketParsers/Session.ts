@@ -15,16 +15,32 @@ const NETWORK_GAME_OFFSET = 11; // uint8
 const TRACK_LENGTH_OFFSET = 164; // uint16 (optional extended payload)
 // ... (필요시 추가)
 
+function mapWeatherCode(code: number): string {
+  switch (code) {
+    case 0: return 'clear';
+    case 1: return 'light_cloud';
+    case 2: return 'overcast';
+    case 3: return 'light_rain';
+    case 4:
+    case 5:
+      return 'heavy_rain';
+    default:
+      return 'unknown';
+  }
+}
+
 export function parseSessionPacket(buf: Buffer): any | null {
   // 헤더(29바이트) 이후부터 세션 패킷 시작
   const base = 29;
   if (buf.length < base + 12) return null;
   try {
+    const weatherCode = buf.readUInt8(base + WEATHER_OFFSET);
     return {
       sessionType: buf.readUInt8(base + SESSION_TYPE_OFFSET),
       trackId: buf.readInt8(base + TRACK_ID_OFFSET),
       formula: buf.readUInt8(base + FORMULA_OFFSET),
-      weather: buf.readUInt8(base + WEATHER_OFFSET),
+      weather: mapWeatherCode(weatherCode),
+      weatherCode,
       totalLaps: buf.readUInt8(base + TOTAL_LAPS_OFFSET),
       sessionTimeLeft: buf.readUInt16LE(base + SESSION_TIME_LEFT_OFFSET),
       sessionDuration: buf.readUInt16LE(base + SESSION_DURATION_OFFSET),

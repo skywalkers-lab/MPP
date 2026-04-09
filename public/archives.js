@@ -100,10 +100,13 @@ function renderSnapshotFocus(snapshot) {
   var meta = state.sessionMeta || null;
   var rec = snapshot.recommendation;
 
-  // Tyre compound color
-  var TYRE_COLORS = { soft: '#ff7070', medium: '#f8b84e', hard: '#edf2f7', inter: '#7ddc9a', wet: '#7cc8ff' };
-  var tyreName = player && player.tyreCompound ? String(player.tyreCompound).toLowerCase() : null;
-  var tyreColor = tyreName && TYRE_COLORS[tyreName] ? TYRE_COLORS[tyreName] : '#96a2b5';
+  var branding = window.MPPBranding || null;
+  var tyreMarkup = branding
+    ? branding.tyreBadgeHtml(player && player.tyreCompound, { compact: true })
+    : escapeHtml(safe(player && player.tyreCompound));
+  var weatherMarkup = branding
+    ? branding.weatherBadgeHtml(meta && meta.weather, { compact: true })
+    : escapeHtml(safe(meta && meta.weather));
 
   $snapshotFocus.className = 'snapshot-focus-grid';
 
@@ -112,7 +115,8 @@ function renderSnapshotFocus(snapshot) {
     '<div class="chip"><strong>Sequence</strong>' + escapeHtml(safe(snapshot.sequence)) + '</div>' +
     '<div class="chip"><strong>Lap</strong>' + escapeHtml(safe(player && player.currentLapNum || (meta && meta.currentLap))) + '</div>' +
     '<div class="chip"><strong>Position</strong>' + escapeHtml(safe(player && player.position)) + '</div>' +
-    '<div class="chip"><strong>Tyre</strong><span style="color:' + tyreColor + ';">' + escapeHtml(safe(player && player.tyreCompound)) + '</span></div>' +
+    '<div class="chip"><strong>Tyre</strong>' + tyreMarkup + '</div>' +
+    '<div class="chip"><strong>Weather</strong>' + weatherMarkup + '</div>' +
     '<div class="chip"><strong>Tyre Age</strong>' + escapeHtml(safe(player && player.tyreAgeLaps)) + ' laps</div>' +
     '<div class="chip"><strong>Fuel Remaining</strong>' + escapeHtml(safe(player && player.fuelRemaining)) + '</div>' +
     '<div class="chip"><strong>Fuel Laps</strong>' + escapeHtml(safe(player && player.fuelLapsRemaining)) + '</div>' +

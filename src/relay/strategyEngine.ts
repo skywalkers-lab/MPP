@@ -5,11 +5,14 @@ import {
   StrategyRecommendationLabel,
   StrategySignals,
   StrategySeverity,
+  StrategySimulationMeta,
 } from './strategy';
 import {
+  fitPolynomialTyreDegradation,
   fuelRiskScore,
   getLapsRemaining,
   pitWindowHint,
+  pitWindowHintFromModel,
   rejoinRiskHint,
   stintProgress,
   tyreUrgencyScore,
@@ -18,6 +21,108 @@ import { computeAdvancedStrategyScores } from './strategyAdvancedMetrics';
 
 function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function sampleGaussian(mean: number, stdDev: number): number {
+  const u1 = Math.random();
+  const u2 = Math.random();
+  const z = Math.sqrt(-2.0 * Math.log(Math.max(1e-10, u1))) * Math.cos(2.0 * Math.PI * u2);
+  return mean + stdDev * z;
+}
+
+export type MonteCarloResult = StrategySimulationMeta;
+
+export function runMonteCarloSimulation(input: {
+  currentLap: number | null;
+  totalLaps: number | null;
+  tyreAgeLaps: number | null;
+  tyreUrgencyScore: number | null;
+  fuelRiskScore: number | null;
+  undercutScore: number | null;
+  safetyCarProbPerLap?: number;
+  iterations?: number;
+}): MonteCarloResult | null {
+  const currentLap = input.currentLap;
+  const totalLaps = input.totalLaps;
+  if (currentLap == null || totalLaps == null || totalLaps <= 0) return null;
+
+  const N = Math.min(1000, Math.max(500, input.iterations ?? 500));
+  const lapsRemaining = totalLaps - currentLap;
+  if (lapsRemaining <= 0) return null;
+
+  const tyreUrgency = input.tyreUrgencyScore ?? 50;
+  const fuelRisk = input.fuelRiskScore ?? 30;
+  const undercutScore = input.undercutScore ?? 50;
+  const tyreAge = input.tyreAgeLaps ?? 10;
+  const scProbPerLap = input.safetyCarProbPerLap ?? 0.03;
+
+  const pitWindowOpen = Math.max(currentLap + 1, currentLap + Math.round(((100 - tyreUrgency) / 100) * Math.min(lapsRemaining, 15)));
+  const rawClose = pitWindowOpen + Math.round(lapsRemaining * 0.4);
+  const pitWindowClose = Math.max(pitWindowOpen, Math.min(totalLaps - 1, rawClose));
+
+  if (pitWindowClose < pitWindowOpen) return null;
+
+  const lapGains: number[] = [];
+  const sampledPitLaps: number[] = [];
+
+  for (let iter = 0; iter < N; iter++) {
+    const noisyUrgency = Math.max(0, Math.min(100, sampleGaussian(tyreUrgency, 8)));
+    const noisyUndercutScore = Math.max(0, Math.min(100, sampleGaussian(undercutScore, 10)));
+    const noisyFuelRisk = Math.max(0, Math.min(100, sampleGaussian(fuelRisk, 6)));
+
+    const urgencyFactor = noisyUrgency / 100;
+    const undercutFactor = noisyUndercutScore / 100;
+
+    let hasSafetyCar = false;
+    for (let lap = currentLap; lap < pitWindowClose; lap++) {
+      if (Math.random() < scProbPerLap) { hasSafetyCar = true; break; }
+    }
+
+    const scBonus = hasSafetyCar ? 0.15 : 0;
+
+    const optLapOffset = Math.round(
+      ((1 - urgencyFactor) * 0.4 + (1 - undercutFactor) * 0.3) * Math.min(10, lapsRemaining * 0.3)
+    );
+    let candidateLap = pitWindowOpen + optLapOffset;
+    candidateLap = Math.min(pitWindowClose, Math.max(pitWindowOpen, candidateLap));
+
+    const pitDeltaSeconds = sampleGaussian(22, 1.5);
+
+    const freshTyreGainPerLap = sampleGaussian(0.35 + undercutFactor * 0.2, 0.05);
+    const lapsOnFreshTyre = totalLaps - candidateLap;
+    const freshTyreGain = freshTyreGainPerLap * lapsOnFreshTyre;
+
+    const deg = (tyreAge + (candidateLap - currentLap)) * 0.05 + noisyUrgency / 100;
+    const stayCost = deg * (lapsOnFreshTyre * 0.4);
+
+    const gain = freshTyreGain - pitDeltaSeconds + stayCost + scBonus * pitDeltaSeconds - noisyFuelRisk * 0.05;
+
+    lapGains.push(gain);
+    sampledPitLaps.push(candidateLap);
+  }
+
+  lapGains.sort((a, b) => a - b);
+  sampledPitLaps.sort((a, b) => a - b);
+
+  const p5 = lapGains[Math.floor(N * 0.05)];
+  const p95 = lapGains[Math.floor(N * 0.95)];
+  const meanGain = lapGains.reduce((s, v) => s + v, 0) / N;
+  const stdDev = Math.sqrt(lapGains.reduce((s, v) => s + (v - meanGain) ** 2, 0) / N);
+
+  const p5Lap = sampledPitLaps[Math.floor(N * 0.05)];
+  const p95Lap = sampledPitLaps[Math.floor(N * 0.95)];
+  const medianLap = sampledPitLaps[Math.floor(N * 0.5)];
+
+  const converged = stdDev < Math.abs(meanGain) * 0.5;
+
+  return {
+    optimalPitLap: medianLap,
+    confidenceInterval: [p5Lap, p95Lap],
+    iterations: N,
+    converged,
+    meanGainSeconds: meanGain,
+    stdDevGainSeconds: stdDev,
+  };
 }
 
 function recommendationScore(
@@ -60,11 +165,24 @@ function recommendationScore(
   }
 }
 
-function computeConfidenceScore(scores: Record<StrategyRecommendationLabel, number>): number {
+function computeConfidenceScore(scores: Record<StrategyRecommendationLabel, number>, mcResult?: MonteCarloResult | null): number {
   const values = Object.values(scores).sort((a, b) => b - a);
   if (values.length < 2) return 50;
   const gap = values[0] - values[1];
-  return clampScore(55 + gap * 1.2);
+  let base = clampScore(55 + gap * 1.2);
+
+  if (mcResult) {
+    if (mcResult.converged) {
+      base = Math.min(100, base + 5);
+    } else {
+      base = Math.max(0, base - 8);
+    }
+    const relStdDev = mcResult.stdDevGainSeconds / Math.max(1, Math.abs(mcResult.meanGainSeconds));
+    if (relStdDev > 1.5) base = Math.max(0, base - 10);
+    else if (relStdDev < 0.5) base = Math.min(100, base + 5);
+  }
+
+  return base;
 }
 
 function nearestThresholdDistance(value: number | null, thresholds: number[]): number {
@@ -188,8 +306,28 @@ export class StrategyEngine {
     const fuelRisk = fuelRiskScore(input);
     const stintRatio = stintProgress(input);
     const lapsRemaining = getLapsRemaining(input);
-    const pitHint = pitWindowHint(tyreUrgency, stintRatio);
     const rejoinHint = rejoinRiskHint(input.position);
+
+    const tyreModel = input.recentLapTimesMs && input.recentLapTimesMs.length >= 2
+      ? fitPolynomialTyreDegradation(
+          input.recentLapTimesMs.map(ms => ms / 1000),
+          input.tyreAgeLaps
+        )
+      : null;
+
+    const modelPitHint = tyreModel != null && input.tyreAgeLaps != null
+      ? pitWindowHintFromModel(tyreModel, input.tyreAgeLaps)
+      : null;
+
+    const heuristicPitHint = pitWindowHint(tyreUrgency, stintRatio);
+
+    const pitHint: typeof heuristicPitHint = (() => {
+      if (modelPitHint == null) return heuristicPitHint;
+      if (modelPitHint === 'open_now' || heuristicPitHint === 'open_now') return 'open_now';
+      if (modelPitHint === 'open_soon' || heuristicPitHint === 'open_soon') return 'open_soon';
+      if (modelPitHint === 'unknown' && heuristicPitHint !== 'unknown') return heuristicPitHint;
+      return modelPitHint;
+    })();
 
     const advanced = computeAdvancedStrategyScores({
       base: input,
@@ -198,6 +336,16 @@ export class StrategyEngine {
       stintProgress: stintRatio,
       pitWindowHint: pitHint,
       rejoinRiskHint: rejoinHint,
+    });
+
+    const mcResult = runMonteCarloSimulation({
+      currentLap: input.currentLap,
+      totalLaps: input.totalLaps,
+      tyreAgeLaps: input.tyreAgeLaps,
+      tyreUrgencyScore: tyreUrgency,
+      fuelRiskScore: fuelRisk,
+      undercutScore: advanced.undercutScore,
+      iterations: 500,
     });
 
     const reasons: string[] = [];
@@ -212,6 +360,21 @@ export class StrategyEngine {
 
     if (rejoinHint === 'high') {
       reasons.push('rejoin traffic risk is high for the current running position');
+    }
+
+    if (mcResult) {
+      const lapsRem = lapsRemaining ?? 0;
+      if (mcResult.optimalPitLap > 0 && lapsRem > 0) {
+        const lapsUntilOptimal = mcResult.optimalPitLap - (input.currentLap ?? 0);
+        if (lapsUntilOptimal <= 2) {
+          reasons.push(`monte carlo simulation (N=${mcResult.iterations}) suggests pit window is now optimal`);
+        } else if (lapsUntilOptimal <= 5) {
+          reasons.push(`monte carlo simulation (N=${mcResult.iterations}) suggests optimal pit in ${Math.round(lapsUntilOptimal)} laps`);
+        }
+      }
+      if (!mcResult.converged) {
+        reasons.push('simulation has high variance — multiple strategies remain viable');
+      }
     }
 
     let recommendation: StrategyRecommendationLabel = 'STAY OUT';
@@ -240,7 +403,29 @@ export class StrategyEngine {
       secondaryRecommendation = 'STAY OUT';
     }
 
-    // v2 refinement: comparative undercut/overcut/traffic/degradation evaluation.
+    if (mcResult && input.currentLap != null) {
+      const lapsUntilOptimal = mcResult.optimalPitLap - input.currentLap;
+      if (
+        mcResult.converged &&
+        lapsUntilOptimal <= 1 &&
+        recommendation !== 'FUEL RISK HIGH' &&
+        recommendation !== 'TYRE LIFE CRITICAL'
+      ) {
+        recommendation = 'PIT NOW';
+        severity = 'warning';
+        secondaryRecommendation = 'BOX IN 2 LAPS';
+        reasons.push('monte carlo simulation confirms this lap as the optimal pit window');
+      } else if (
+        mcResult.converged &&
+        lapsUntilOptimal <= 3 &&
+        recommendation === 'STAY OUT'
+      ) {
+        recommendation = 'BOX IN 2 LAPS';
+        severity = 'caution';
+        secondaryRecommendation = 'STAY OUT';
+      }
+    }
+
     if (advanced.undercutScore != null && advanced.overcutScore != null) {
       if (
         advanced.undercutScore >= 70 &&
@@ -250,7 +435,12 @@ export class StrategyEngine {
         recommendation = advanced.undercutScore >= 85 ? 'PIT NOW' : 'BOX IN 2 LAPS';
         secondaryRecommendation = 'STAY OUT';
         severity = recommendation === 'PIT NOW' ? 'warning' : 'caution';
-        reasons.push('undercut score indicates a potential gain in the current pit window');
+        const prob = advanced.undercutProbability;
+        reasons.push(
+          prob != null
+            ? `undercut score indicates a potential gain (est. ${Math.round(prob * 100)}% success probability)`
+            : 'undercut score indicates a potential gain in the current pit window'
+        );
       } else if (
         advanced.overcutScore >= 70 &&
         advanced.trafficRiskScore != null &&
@@ -262,7 +452,12 @@ export class StrategyEngine {
         recommendation = 'STAY OUT';
         secondaryRecommendation = 'BOX IN 2 LAPS';
         severity = 'caution';
-        reasons.push('overcut score is favorable while projected rejoin traffic remains high');
+        const prob = advanced.overcutProbability;
+        reasons.push(
+          prob != null
+            ? `overcut score is favorable (est. ${Math.round(prob * 100)}% success probability) while rejoin traffic remains high`
+            : 'overcut score is favorable while projected rejoin traffic remains high'
+        );
       }
     }
 
@@ -313,6 +508,9 @@ export class StrategyEngine {
       compoundStintBias: advanced.compoundStintBias,
       expectedRejoinBand: advanced.expectedRejoinBand,
       cleanAirProbability: advanced.cleanAirProbability,
+      undercutProbability: advanced.undercutProbability,
+      overcutProbability: advanced.overcutProbability,
+      ersEndLapPct: advanced.ersEndLapPct,
     };
 
     const scoreByRecommendation: Record<StrategyRecommendationLabel, number> = {
@@ -378,7 +576,7 @@ export class StrategyEngine {
       }),
     };
 
-    const confidenceScore = computeConfidenceScore(scoreByRecommendation);
+    const confidenceScore = computeConfidenceScore(scoreByRecommendation, mcResult);
     const stabilityScore = computeStabilityScore(signals, input.previousStrategy?.signals);
     const rawRecommendationChanged =
       !!input.previousStrategy && input.previousStrategy.recommendation !== recommendation;
@@ -426,6 +624,7 @@ export class StrategyEngine {
       reasons,
       signals,
       generatedAt: input.generatedAt,
+      simulationMeta: mcResult ?? undefined,
     };
 
     return result;

@@ -533,62 +533,289 @@
       '</div>';
   }
 
-  function buildReplayTelemetry() {
-    return P.telemetrySvg([
-      { color: '#61d6df', points: ['0,92', '60,78', '120,88', '180,70', '240,94', '300,66', '360,58', '420,72', '480,84', '540,96', '640,100'] },
-      { color: '#f3bf52', points: ['0,98', '60,84', '120,95', '180,74', '240,96', '300,70', '360,62', '420,76', '480,90', '540,99', '640,106'] },
-    ]);
+  var TEAM_COLORS = {
+    'RED BULL': '#3671c6',
+    'FERRARI': '#e8002d',
+    'MCLAREN': '#ff8000',
+    'MERCEDES': '#00d2be',
+    'ASTON MARTIN': '#00665e',
+    'ALPINE': '#0093cc',
+    'WILLIAMS': '#64c4ff',
+    'HAAS': '#b6babd',
+    'SAUBER': '#52e252',
+    'RACING BULLS': '#6692ff',
+  };
+
+  var REPLAY_CLASSIFICATION = [
+    { pos: '01', driver: 'VER', team: 'RED BULL', interval: 'LEADER', lap: '53', selected: true },
+    { pos: '02', driver: 'LEC', team: 'FERRARI', interval: '+1.242', lap: '53', selected: true },
+    { pos: '03', driver: 'NOR', team: 'MCLAREN', interval: '+3.891', lap: '53', selected: false },
+    { pos: '04', driver: 'HAM', team: 'MERCEDES', interval: '+8.115', lap: '53', selected: false },
+    { pos: '05', driver: 'RUS', team: 'MERCEDES', interval: '+12.504', lap: '53', selected: false },
+    { pos: '06', driver: 'SAI', team: 'FERRARI', interval: '+15.882', lap: '53', selected: false },
+    { pos: '07', driver: 'PIA', team: 'MCLAREN', interval: '+19.441', lap: '52', selected: false },
+    { pos: '08', driver: 'ALO', team: 'ASTON MARTIN', interval: '+24.777', lap: '52', selected: false },
+  ];
+
+  var REPLAY_EVENTS = [
+    { type: 'OVERTAKE', title: 'VER ON LEC (TURN 1)', lap: 'L48', time: '1:22:15' },
+    { type: 'PIT_STOP', title: 'LEC — 2.2S STATIONARY', lap: 'L44', time: '1:16:04' },
+    { type: 'BEST_SECTOR', title: 'VER S1 — PERSONAL BEST', lap: 'L40', time: '1:08:42' },
+    { type: 'FLAG_INCIDENT', title: 'SAI: LOCK-UP T4', lap: 'L38', time: '1:04:12' },
+    { type: 'PIT_STOP', title: 'VER — 2.4S STATIONARY', lap: 'L36', time: '1:00:08' },
+  ];
+
+  function buildKineticTelemetrySvg() {
+    var lines = [
+      { color: '#61d6df', label: 'VER', points: ['0,92','60,68','120,52','180,90','240,44','300,26','360,44','420,68','480,76','540,88','580,92','640,100'] },
+      { color: '#f3bf52', label: 'LEC', points: ['0,98','60,74','120,58','180,94','240,50','300,32','360,50','420,74','480,82','540,95','580,98','640,106'] },
+    ];
+    var polylines = lines.map(function (line) {
+      return '<polyline points="' + esc(line.points.join(' ')) + '" stroke="' + esc(line.color) + '" fill="none" stroke-width="2" class="telemetry-line" />';
+    }).join('');
+    var labels = lines.map(function (line, i) {
+      return '<text x="' + esc(10 + i * 40) + '" y="14" fill="' + esc(line.color) + '" font-size="9" font-family="monospace" font-weight="700">' + esc(line.label) + '</text>';
+    }).join('');
+    return '<svg class="ki-telemetry-svg" viewBox="0 0 640 160" role="img" aria-label="telemetry chart" style="height:130px">' +
+      '<rect x="0" y="0" width="640" height="160" class="telemetry-bg" />' +
+      '<line x1="0" y1="80" x2="640" y2="80" stroke="rgba(141,157,178,0.12)" stroke-width="1" />' +
+      '<line x1="0" y1="40" x2="640" y2="40" stroke="rgba(141,157,178,0.08)" stroke-width="1" />' +
+      '<line x1="0" y1="120" x2="640" y2="120" stroke="rgba(141,157,178,0.08)" stroke-width="1" />' +
+      polylines +
+      labels +
+      '<text x="570" y="14" fill="rgba(141,157,178,0.7)" font-size="8" font-family="monospace">CH: 2</text>' +
+    '</svg>';
+  }
+
+  function buildKineticCircuitSvg(playback) {
+    var progress = playback && Number.isFinite(playback.clockMs) ? Math.min(1, (playback.clockMs || 0) / REPLAY_MAX_MS) : 0;
+    var angle1 = (progress * Math.PI * 2) - Math.PI / 2;
+    var angle2 = ((progress + 0.05) * Math.PI * 2) - Math.PI / 2;
+    var x1 = 100 + Math.cos(angle1) * 64;
+    var y1 = 100 + Math.sin(angle1) * 49;
+    var x2 = 100 + Math.cos(angle2) * 64;
+    var y2 = 100 + Math.sin(angle2) * 49;
+
+    return '<svg class="ki-svg-circuit" viewBox="0 0 200 200" role="img" aria-label="circuit map">' +
+      '<ellipse cx="100" cy="100" rx="74" ry="56" fill="rgba(14,22,33,0.55)" stroke="rgba(97,214,223,0.2)" stroke-width="1.5" />' +
+      '<ellipse cx="100" cy="100" rx="64" ry="48" fill="rgba(6,11,18,0.9)" stroke="rgba(49,71,96,0.4)" stroke-width="1" />' +
+      '<line x1="100" y1="22" x2="100" y2="178" stroke="rgba(243,191,82,0.18)" stroke-width="1" stroke-dasharray="3 3" />' +
+      '<line x1="26" y1="100" x2="174" y2="100" stroke="rgba(243,191,82,0.18)" stroke-width="1" stroke-dasharray="3 3" />' +
+      '<polygon points="' + x1.toFixed(1) + ',' + (y1 - 5).toFixed(1) + ' ' + (x1 + 4).toFixed(1) + ',' + (y1 + 4).toFixed(1) + ' ' + (x1 - 4).toFixed(1) + ',' + (y1 + 4).toFixed(1) + '" fill="#61d6df" class="ki-marker-diamond" />' +
+      '<polygon points="' + x2.toFixed(1) + ',' + (y2 - 4).toFixed(1) + ' ' + (x2 + 3).toFixed(1) + ',' + (y2 + 3).toFixed(1) + ' ' + (x2 - 3).toFixed(1) + ',' + (y2 + 3).toFixed(1) + '" fill="#f3bf52" class="ki-marker-diamond" />' +
+      '<circle cx="100" cy="100" r="2" fill="rgba(97,214,223,0.5)" />' +
+    '</svg>';
+  }
+
+  function buildKiGauge(label, value, unit, pct, color) {
+    var w = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0));
+    return '<div class="ki-gauge-item">' +
+      '<div class="ki-gauge-label">' + esc(label) + '</div>' +
+      '<div class="ki-gauge-value" style="color:' + esc(color || 'var(--console-text)') + '">' + esc(value) + '<span style="font-size:11px;margin-left:2px;color:var(--console-muted)">' + esc(unit || '') + '</span></div>' +
+      '<div class="ki-gauge-bar-wrap"><div class="ki-gauge-bar" style="width:' + w.toFixed(1) + '%;background:' + esc(color || 'var(--console-cyan)') + '"></div></div>' +
+    '</div>';
+  }
+
+  function buildKiClassification(state) {
+    var session = state.session || {};
+    var snapshot = session.snapshot || null;
+    var rows = toSessionRows(snapshot);
+    var trackedDrivers = state.trackedDrivers || { VER: true, LEC: true };
+    var items = rows.length > 0
+      ? rows.slice(0, 8).map(function (row, i) {
+          var pos = safe(row.position, String(i + 1));
+          var driver = row.driverName || ('CAR ' + row.carIndex);
+          var team = teamFromRow(row).toUpperCase();
+          var teamColor = TEAM_COLORS[team] || '#8d9db2';
+          var gap = i === 0 ? 'LEADER' : ('+' + safe(row.gapToLeader, '--'));
+          var lap = safe(row.currentLapNum, safe(row.currentLapNum, '?'));
+          var selected = !!(trackedDrivers && trackedDrivers[driver]);
+          return buildKiClassItem(pos, driver, team, teamColor, gap, lap, selected);
+        }).join('')
+      : REPLAY_CLASSIFICATION.map(function (item) {
+          var teamColor = TEAM_COLORS[item.team] || '#8d9db2';
+          return buildKiClassItem(item.pos, item.driver, item.team, teamColor, item.interval, item.lap, item.selected);
+        }).join('');
+    return items;
+  }
+
+  function buildKiClassItem(pos, driver, team, teamColor, interval, lap, selected) {
+    return '<div class="ki-classification-item' + (selected ? ' selected' : '') + '">' +
+      '<span class="ki-cls-pos">' + esc(pos) + '</span>' +
+      '<div class="ki-cls-bar" style="background:' + esc(teamColor) + '"></div>' +
+      '<div>' +
+        '<div class="ki-cls-driver">' + esc(driver) + '</div>' +
+        '<div style="font:600 8px var(--console-font-mono);color:var(--console-muted);text-transform:uppercase">' + esc(team) + '</div>' +
+      '</div>' +
+      '<span class="ki-cls-interval">' + esc(interval) + '</span>' +
+      '<span class="ki-cls-laps">L' + esc(lap) + '</span>' +
+      '<input class="ki-cls-check" type="checkbox" data-action="toggle-driver" data-driver="' + esc(driver) + '" ' + (selected ? 'checked' : '') + ' />' +
+    '</div>';
+  }
+
+  function buildKiEventLog() {
+    return REPLAY_EVENTS.map(function (ev) {
+      return '<div class="ki-event-card">' +
+        '<div class="ki-event-type">' + esc(ev.type) + '</div>' +
+        '<div class="ki-event-title">' + esc(ev.title) + '</div>' +
+        '<div class="ki-event-meta">' + esc(ev.lap) + ' | ' + esc(ev.time) + '</div>' +
+        '<a class="ki-jump-link" href="#" data-action="jump_to_timecode" data-time="' + esc(ev.time) + '">JUMP_TO_TIMECODE ↗</a>' +
+      '</div>';
+    }).join('');
+  }
+
+  function buildKiTimelineMarkers(events) {
+    return events.map(function (ev) {
+      var timeMs = parseReplayTimecode(ev.time);
+      if (!Number.isFinite(timeMs)) return '';
+      var pct = Math.min(100, (timeMs / REPLAY_MAX_MS) * 100);
+      return '<div class="ki-event-marker" style="left:' + pct.toFixed(2) + '%"></div>';
+    }).join('');
   }
 
   function renderReplayShell(root, state) {
     var playback = state.playback || {};
     var speedValue = Number(playback.speed);
-    var speedLabel = Number.isFinite(speedValue) ? speedValue.toFixed(1) + 'X' : '1.8X';
+    var speedLabel = Number.isFinite(speedValue) ? speedValue.toFixed(1) + 'X' : '1.0X';
+    var clockMs = playback.clockMs || 0;
+    var progressPct = Math.min(100, (clockMs / REPLAY_MAX_MS) * 100);
+    var session = state.session || {};
+    var snapshot = session.snapshot || {};
+    var meta = snapshot.sessionMeta || {};
+    var track = safe(meta.track || (state.access && state.access.roomTitle), 'CIRCUIT');
+    var trackLength = '5.793 km';
+    var trackTemp = safe(meta.trackTemp, '38') + '°C';
+    var sessionTitle = safe(state.access && state.access.roomTitle, 'GP: MONZA');
+    var lap = safe(meta.currentLap, '-');
+    var totalLaps = safe(meta.totalLaps, '-');
 
-    var left = P.panel('Classification',
-      P.classificationItem('01', 'VER', 'RED BULL', 'LEADER', '53', true) +
-      P.classificationItem('02', 'LEC', 'FERRARI', '+1.242', '53', true) +
-      P.classificationItem('03', 'NOR', 'MCLAREN', '+3.891', '53', false) +
-      P.classificationItem('04', 'HAM', 'MERCEDES', '+8.115', '53', false)
-    );
+    var navItems = [
+      { key: 'telem', icon: '📈', label: 'TELEMETRY' },
+      { key: 'map', icon: '🗺', label: 'SECTOR_MAP' },
+      { key: 'sync', icon: '⇌', label: 'DRIVER_SYNC' },
+      { key: 'tires', icon: '○', label: 'TIRES' },
+      { key: 'strat', icon: '▶', label: 'STRATEGY' },
+    ];
+    var activeNav = state.activeReplayRail || 'map';
 
-    var centerTop = P.panel('SYNC_TELEMETRY',
-      '<div class="track-sim-header-line"><span>VER</span><span>LEC</span><span>WINDOW: 16S</span></div>' +
-      buildReplayTelemetry()
-    );
+    var iconRailHtml = '<aside class="ki-icon-rail">' +
+      '<div class="icon-rail-avatar">MP</div>' +
+      navItems.map(function (item) {
+        var active = item.key === activeNav ? ' active' : '';
+        return '<button class="ki-nav-item' + active + '" type="button" data-rail-key="' + esc(item.key) + '">' +
+          '<span class="ki-nav-glyph">' + esc(item.icon) + '</span>' +
+          '<span class="ki-nav-label">' + esc(item.label) + '</span>' +
+        '</button>';
+      }).join('') +
+      '<div class="ki-nav-sep"></div>' +
+      '<button class="ki-nav-item logout" type="button" data-action="go-lobby">' +
+        '<span class="ki-nav-glyph">⏎</span>' +
+        '<span class="ki-nav-label">LOGOUT</span>' +
+      '</button>' +
+    '</aside>';
 
-    var centerBottom = P.panel('SECTOR_MAP',
-      '<div class="track-sim-map">' +
-        P.circuitSvg([{ position: 1 }, { position: 2 }], 1) +
-      '</div>'
-    );
+    var leftPanelHtml =
+      '<aside class="ki-left-panel">' +
+        '<div class="ki-left-head">CLASSIFICATION</div>' +
+        buildKiClassification(state) +
+      '</aside>';
 
-    var right = P.panel('EVENT_LOG',
-      P.replayEventCard('OVERTAKE', 'VER ON LEC (TURN 1)', 'L48', '1:22:15') +
-      P.replayEventCard('PIT_STOP', 'LEC (2.2S STATIONARY)', 'L44', '1:16:04') +
-      P.replayEventCard('BEST_SECTOR', 'VER S1 (PERSONAL BEST)', 'L40', '1:08:42') +
-      P.replayEventCard('FLAG_INCIDENT', 'SAI_STR_LOCKUP_T4', 'L38', '1:04:12')
-    );
+    var telemetryHeadHtml =
+      '<div class="ki-telemetry-head">' +
+        '<span class="ki-telemetry-label">SYNC_TELEMETRY — SPEED TRAJECTORY</span>' +
+        '<span class="ki-telemetry-meta">VER · LEC &nbsp;|&nbsp; CH: 2 &nbsp;|&nbsp; WINDOW: 16S</span>' +
+      '</div>' +
+      buildKineticTelemetrySvg();
+
+    var trackAreaHtml =
+      '<div class="ki-track-area">' +
+        buildKineticCircuitSvg(playback) +
+        '<div class="ki-circuit-meta">' + esc(track.toUpperCase()) + ' · ' + esc(trackLength) + ' · ' + esc(trackTemp) + '</div>' +
+        '<div class="ki-sector-badges">' +
+          '<span class="ki-sector-badge">S1_DELTA −0.043s</span>' +
+          '<span class="ki-sector-badge">S2_DELTA +0.118s</span>' +
+        '</div>' +
+      '</div>';
+
+    var gaugesHtml =
+      '<div class="ki-gauges">' +
+        buildKiGauge('THR_PCT', '87', '%', 87, '#7fd7a2') +
+        buildKiGauge('BRK_PRS', '124', 'bar', 62, '#f27979') +
+        buildKiGauge('RPM_ENG', '11.8', 'K', 88, '#f3bf52') +
+        buildKiGauge('SRS_DRS', 'OPEN', '', 100, '#61d6df') +
+      '</div>';
+
+    var centerHtml =
+      '<div class="ki-center">' +
+        '<div class="ki-center-top">' + telemetryHeadHtml + '</div>' +
+        '<div class="ki-center-main">' +
+          trackAreaHtml +
+          gaugesHtml +
+        '</div>' +
+      '</div>';
+
+    var rightPanelHtml =
+      '<aside class="ki-right-panel">' +
+        '<div class="ki-left-head">EVENT_LOG</div>' +
+        buildKiEventLog() +
+      '</aside>';
+
+    var timelineMarkers = buildKiTimelineMarkers(REPLAY_EVENTS);
+
+    var footerHtml =
+      '<footer class="ki-footer">' +
+        '<div class="ki-timeline-row">' +
+          '<span style="font:600 9px var(--console-font-mono);color:var(--console-muted);white-space:nowrap">00:00:00</span>' +
+          '<div class="ki-timeline-track">' +
+            '<div class="ki-timeline-fill" style="width:' + progressPct.toFixed(2) + '%"></div>' +
+            timelineMarkers +
+            '<input class="ki-scrubber-input" type="range" min="0" max="' + REPLAY_MAX_MS + '" value="' + Math.round(clockMs) + '" data-action="scrub-timeline" />' +
+          '</div>' +
+          '<span style="font:600 9px var(--console-font-mono);color:var(--console-muted);white-space:nowrap">02:00:00</span>' +
+        '</div>' +
+        '<div class="ki-playback-row">' +
+          '<button class="ki-transport-btn" type="button" data-action="skip-start">&#x23EE;</button>' +
+          '<button class="ki-transport-btn" type="button" data-action="step-back">&#x23EA;</button>' +
+          '<button class="ki-transport-btn" type="button" data-action="play-pause" style="min-width:44px;font-size:16px">' + (playback.isPlaying ? '&#x23F8;' : '&#x25B6;') + '</button>' +
+          '<button class="ki-transport-btn" type="button" data-action="step-forward">&#x23E9;</button>' +
+          '<button class="ki-transport-btn" type="button" data-action="skip-end">&#x23ED;</button>' +
+          [0.5, 1.0, 2.0].map(function (s) {
+            var active = Math.abs(speedValue - s) < 0.01 ? ' active' : '';
+            return '<button class="ki-speed-btn' + active + '" type="button" data-speed="' + s + '">' + s.toFixed(1) + 'X</button>';
+          }).join('') +
+          '<span class="ki-timecode">' + esc(formatReplayClock(clockMs)) + '</span>' +
+          '<button class="ki-sync-btn" type="button" data-action="sync-live">SYNC_TO_LIVE</button>' +
+          '<span class="ki-latency-meta">DATA_LATENCY: ' + esc(playback.latency || '0.02s') + ' | BUFFER: ' + esc(playback.buffer || '96%') + '</span>' +
+        '</div>' +
+      '</footer>';
+
+    var headerHtml =
+      '<header class="ki-header">' +
+        '<div class="ki-brand">KINETIC_INSTRUMENT_V1</div>' +
+        P.navTabs([
+          { key: 'live', label: 'LIVE' },
+          { key: 'replay', label: 'REPLAY' },
+          { key: 'archive', label: 'ARCHIVE' },
+          { key: 'hub', label: 'DATA_HUB' },
+        ], 'replay') +
+        '<div class="top-meta">SESSION ' + esc(sessionTitle) + ' | LAPS ' + esc(lap) + '/' + esc(totalLaps) + '</div>' +
+        '<div class="top-icons-row">' +
+          '<span class="top-icon">S</span>' +
+          '<span class="top-icon">?</span>' +
+          '<span class="top-avatar"></span>' +
+        '</div>' +
+      '</header>';
 
     root.innerHTML =
-      buildHeader(state, 'replay', 'replay') +
-      '<div class="console-shell">' +
-        buildIconRail('replay', state) +
-        '<main class="console-main">' +
-          buildStatusLine(state, 'replay') +
-          '<div class="replay-layout">' +
-            left +
-            '<div class="live-col-center">' + centerTop + centerBottom + '</div>' +
-            right +
-          '</div>' +
-          P.playbackBar({
-            time: formatReplayClock(playback.clockMs || 0),
-            isPlaying: !!playback.isPlaying,
-            speed: speedLabel,
-            latency: playback.latency || '0.02s',
-            buffer: playback.buffer || '96%',
-          }) +
-        '</main>' +
+      '<div class="ki-shell">' +
+        headerHtml +
+        '<div class="ki-body">' +
+          iconRailHtml +
+          leftPanelHtml +
+          centerHtml +
+          rightPanelHtml +
+        '</div>' +
+        footerHtml +
       '</div>';
   }
 
@@ -630,6 +857,20 @@
   }
 
   function wireConsoleInteractions(root, state) {
+    root.addEventListener('input', function (event) {
+      var target = event.target;
+      if (!(target instanceof Element)) return;
+      var action = target.getAttribute('data-action');
+      if (action === 'scrub-timeline') {
+        var newMs = Number(target.value);
+        if (Number.isFinite(newMs)) {
+          state.playback.clockMs = clampReplayClock(newMs);
+          state.playback.isPlaying = false;
+          renderReplayShell(root, state);
+        }
+      }
+    });
+
     root.addEventListener('click', async function (event) {
       var rawTarget = event.target;
       if (!(rawTarget instanceof Element)) return;
@@ -767,7 +1008,7 @@
       playback: {
         clockMs: 0,
         isPlaying: false,
-        speed: 1.8,
+        speed: 1.0,
         latency: '0.02s',
         buffer: '96%',
       },

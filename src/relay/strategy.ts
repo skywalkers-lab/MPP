@@ -15,6 +15,14 @@ export type StrategyUnavailableReason =
   | 'session_stale'
   | 'player_state_missing';
 
+export interface RivalCarSnapshot {
+  carIndex: number;
+  position: number | null;
+  stintAge: number;
+  tyreCompound: string;
+  gapToLeader?: string | null;
+}
+
 export interface StrategyEngineInput {
   sessionId: string;
   relayStatus: 'active' | 'stale' | 'closed';
@@ -31,6 +39,9 @@ export interface StrategyEngineInput {
   fuelLapsRemaining: number | null;
   pitStatus: string | null;
   tyreCompound: string | null;
+  ersPercent: number | null;
+  recentLapTimesMs: number[];
+  rivals: RivalCarSnapshot[];
   previousStrategy?: {
     recommendation: StrategyRecommendationLabel;
     secondaryRecommendation?: StrategyRecommendationLabel;
@@ -67,6 +78,20 @@ export interface StrategySignals {
   compoundStintBias: number | null;
   expectedRejoinBand: StrategyScoreBand;
   cleanAirProbability: number | null;
+
+  // v3 Monte Carlo / advanced metrics
+  undercutProbability: number | null;
+  overcutProbability: number | null;
+  ersEndLapPct: number | null;
+}
+
+export interface StrategySimulationMeta {
+  optimalPitLap: number;
+  confidenceInterval: [number, number];
+  iterations: number;
+  converged: boolean;
+  meanGainSeconds: number;
+  stdDevGainSeconds: number;
 }
 
 export interface StrategyRecommendationResult {
@@ -89,6 +114,9 @@ export interface StrategyRecommendationResult {
   reasons: string[];
   signals: StrategySignals;
   generatedAt: number;
+
+  // v3 Monte Carlo simulation metadata
+  simulationMeta?: StrategySimulationMeta;
 }
 
 export interface StrategyUnavailableResult {

@@ -3,8 +3,411 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MPP Replay Console</title>
+  <title>KINETIC_INSTRUMENT_V1 — MPP Replay</title>
   <link rel="stylesheet" href="/console-system.css" />
+  <style>
+    /* KINETIC_INSTRUMENT_V1 overrides */
+    body.console-app {
+      background:
+        radial-gradient(circle at 80% 5%, rgba(97,214,223,0.07), transparent 30%),
+        radial-gradient(circle at 5% 95%, rgba(98,169,255,0.06), transparent 28%),
+        linear-gradient(180deg, #060c15 0%, #040a10 100%);
+    }
+    .ki-shell {
+      display: grid;
+      min-height: 100vh;
+      grid-template-rows: 56px 1fr auto;
+      grid-template-columns: 1fr;
+    }
+    .ki-header {
+      grid-row: 1;
+      height: 56px;
+      border-bottom: 1px solid var(--console-line);
+      background: rgba(6,10,18,0.95);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 16px;
+    }
+    .ki-brand {
+      color: var(--console-cyan);
+      font: 700 18px var(--console-font-ui);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .ki-body {
+      grid-row: 2;
+      display: grid;
+      grid-template-columns: 56px 260px minmax(0,1fr) 300px;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .ki-icon-rail {
+      border-right: 1px solid var(--console-line);
+      background: rgba(6,10,18,0.98);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 4px;
+      gap: 4px;
+    }
+    .ki-nav-item {
+      width: 46px;
+      min-height: 52px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--console-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      cursor: pointer;
+      font-family: var(--console-font-ui);
+      transition: all 0.15s;
+    }
+    .ki-nav-item.active,
+    .ki-nav-item:hover {
+      color: var(--console-cyan);
+      border-color: var(--console-cyan);
+      background: rgba(97,214,223,0.07);
+    }
+    .ki-nav-item.logout {
+      margin-top: auto;
+      color: var(--console-muted);
+    }
+    .ki-nav-glyph {
+      font-size: 14px;
+      line-height: 1;
+    }
+    .ki-nav-label {
+      font-size: 7px;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    .ki-nav-sep {
+      flex: 1;
+    }
+    .ki-left-panel {
+      border-right: 1px solid var(--console-line);
+      background: rgba(8,13,20,0.94);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .ki-left-head {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--console-line);
+      color: var(--console-muted);
+      font: 600 9px var(--console-font-mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: rgba(10,16,24,0.95);
+    }
+    .ki-classification-item {
+      display: grid;
+      grid-template-columns: 24px 4px 1fr 52px 36px 20px;
+      gap: 6px;
+      align-items: center;
+      padding: 6px 8px;
+      border-bottom: 1px dotted rgba(141,157,178,0.18);
+    }
+    .ki-classification-item.selected {
+      background: rgba(97,214,223,0.07);
+    }
+    .ki-cls-pos {
+      color: var(--console-cyan);
+      font: 700 13px var(--console-font-mono);
+    }
+    .ki-cls-bar {
+      width: 4px;
+      height: 20px;
+      border-radius: 2px;
+    }
+    .ki-cls-driver {
+      font: 700 11px var(--console-font-ui);
+      letter-spacing: 0.03em;
+    }
+    .ki-cls-interval {
+      color: var(--console-cyan);
+      font: 600 10px var(--console-font-mono);
+      text-align: right;
+    }
+    .ki-cls-laps {
+      color: var(--console-muted);
+      font: 600 9px var(--console-font-mono);
+      text-align: right;
+    }
+    .ki-cls-check {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--console-cyan);
+      cursor: pointer;
+    }
+    .ki-center {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .ki-center-top {
+      flex: 0 0 auto;
+      border-bottom: 1px solid var(--console-line);
+    }
+    .ki-center-main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: minmax(0,1fr) 240px;
+      gap: 0;
+      overflow: hidden;
+    }
+    .ki-track-area {
+      border-right: 1px solid var(--console-line);
+      background: rgba(6,10,18,0.8);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      padding: 10px;
+    }
+    .ki-circuit-meta {
+      position: absolute;
+      bottom: 8px;
+      left: 8px;
+      font: 600 9px var(--console-font-mono);
+      color: var(--console-muted);
+      text-transform: uppercase;
+    }
+    .ki-sector-badges {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      display: flex;
+      gap: 4px;
+    }
+    .ki-sector-badge {
+      border: 1px solid var(--console-line-strong);
+      background: rgba(8,13,20,0.9);
+      padding: 3px 6px;
+      font: 700 9px var(--console-font-mono);
+      color: var(--console-cyan);
+      text-transform: uppercase;
+    }
+    .ki-gauges {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      border-left: 1px solid var(--console-line);
+    }
+    .ki-gauge-item {
+      flex: 1;
+      border-bottom: 1px solid var(--console-line);
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: rgba(8,13,20,0.92);
+    }
+    .ki-gauge-label {
+      color: var(--console-muted);
+      font: 600 9px var(--console-font-mono);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .ki-gauge-value {
+      color: var(--console-text);
+      font: 700 22px var(--console-font-mono);
+      line-height: 1;
+    }
+    .ki-gauge-bar-wrap {
+      height: 4px;
+      background: rgba(141,157,178,0.2);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .ki-gauge-bar {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.4s;
+    }
+    .ki-telemetry-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--console-line);
+      background: rgba(10,16,24,0.95);
+    }
+    .ki-telemetry-label {
+      color: var(--console-cyan);
+      font: 700 10px var(--console-font-mono);
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    .ki-telemetry-meta {
+      color: var(--console-muted);
+      font: 600 9px var(--console-font-mono);
+    }
+    .ki-right-panel {
+      border-left: 1px solid var(--console-line);
+      background: rgba(8,13,20,0.94);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    .ki-event-card {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--console-line);
+    }
+    .ki-event-type {
+      color: var(--console-cyan);
+      font: 700 8px var(--console-font-mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .ki-event-title {
+      margin-top: 3px;
+      font: 700 11px var(--console-font-ui);
+      color: var(--console-text);
+    }
+    .ki-event-meta {
+      margin-top: 2px;
+      color: var(--console-muted);
+      font: 600 9px var(--console-font-mono);
+    }
+    .ki-jump-link {
+      display: inline-block;
+      margin-top: 4px;
+      color: var(--console-cyan);
+      font: 600 8px var(--console-font-mono);
+      text-decoration: none;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .ki-jump-link:hover { text-decoration: underline; }
+    .ki-footer {
+      grid-row: 3;
+      border-top: 1px solid var(--console-line);
+      background: rgba(8,13,20,0.98);
+    }
+    .ki-timeline-row {
+      padding: 4px 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--console-line);
+      position: relative;
+    }
+    .ki-timeline-track {
+      flex: 1;
+      height: 28px;
+      background: rgba(16,26,39,0.8);
+      border: 1px solid var(--console-line-strong);
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .ki-timeline-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      background: rgba(97,214,223,0.15);
+      border-right: 2px solid var(--console-cyan);
+      transition: width 0.5s;
+    }
+    .ki-event-marker {
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      width: 2px;
+      background: var(--console-amber);
+      opacity: 0.7;
+    }
+    .ki-scrubber-input {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 100%;
+      opacity: 0;
+      cursor: pointer;
+      margin: 0;
+    }
+    .ki-playback-row {
+      padding: 6px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .ki-transport-btn {
+      border: 1px solid var(--console-line-strong);
+      background: rgba(16,26,39,0.9);
+      color: var(--console-text);
+      min-width: 32px;
+      min-height: 32px;
+      font-size: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 4px;
+    }
+    .ki-transport-btn:hover {
+      border-color: var(--console-cyan);
+      color: var(--console-cyan);
+    }
+    .ki-speed-btn {
+      border: 1px solid var(--console-line-strong);
+      background: rgba(16,26,39,0.9);
+      color: var(--console-muted);
+      padding: 2px 8px;
+      font: 600 10px var(--console-font-mono);
+      cursor: pointer;
+      min-height: 24px;
+    }
+    .ki-speed-btn.active {
+      color: var(--console-cyan);
+      border-color: var(--console-cyan);
+    }
+    .ki-timecode {
+      color: var(--console-text);
+      font: 700 24px var(--console-font-mono);
+      letter-spacing: 0.05em;
+      min-width: 180px;
+    }
+    .ki-sync-btn {
+      border: 1px solid var(--console-cyan);
+      background: rgba(97,214,223,0.08);
+      color: var(--console-cyan);
+      padding: 4px 12px;
+      font: 700 10px var(--console-font-mono);
+      cursor: pointer;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    .ki-latency-meta {
+      margin-left: auto;
+      color: var(--console-muted);
+      font: 600 9px var(--console-font-mono);
+    }
+    .ki-svg-circuit {
+      width: min(100%, 280px);
+      height: auto;
+    }
+    .ki-telemetry-svg {
+      width: 100%;
+      display: block;
+    }
+    .ki-marker-diamond {
+      stroke: none;
+    }
+    @media (max-width: 1100px) {
+      .ki-body { grid-template-columns: 56px 1fr; }
+      .ki-left-panel, .ki-right-panel { display: none; }
+    }
+  </style>
 </head>
 <body class="console-app" data-console-type="replay">
   <div id="console-root"></div>

@@ -691,6 +691,9 @@ export class RelayServer {
         fuelLapsRemaining: null,
         pitStatus: null,
         tyreCompound: null,
+        ersPercent: null,
+        recentLapTimesMs: [],
+        rivals: [],
         previousStrategy: previousStrategy
           ? {
               recommendation: previousStrategy.recommendation,
@@ -714,6 +717,29 @@ export class RelayServer {
       return null;
     }
 
+    const recentLapTimesMs: number[] = [];
+    if (playerCar.lastLapTime != null && playerCar.lastLapTime > 0) {
+      recentLapTimesMs.push(playerCar.lastLapTime * 1000);
+    }
+    if (playerCar.bestLapTime != null && playerCar.bestLapTime > 0 &&
+        playerCar.bestLapTime !== playerCar.lastLapTime) {
+      recentLapTimesMs.push(playerCar.bestLapTime * 1000);
+    }
+
+    const rivals = Object.values(state.cars)
+      .filter((car): car is (typeof car & { position: number }) =>
+        car.carIndex !== playerCarIndex &&
+        car.position != null &&
+        Number.isFinite(car.position)
+      )
+      .map(car => ({
+        carIndex: car.carIndex,
+        position: car.position as number,
+        stintAge: car.tyreAgeLaps ?? 0,
+        tyreCompound: car.tyreCompound ?? 'unknown',
+        gapToLeader: car.gapToLeader != null ? String(car.gapToLeader) : null,
+      }));
+
     return {
       sessionId: session.sessionId,
       relayStatus: session.status,
@@ -731,6 +757,9 @@ export class RelayServer {
       fuelLapsRemaining: playerCar.fuelLapsRemaining ?? null,
       pitStatus: playerCar.pitStatus ?? null,
       tyreCompound: playerCar.tyreCompound ?? null,
+      ersPercent: playerCar.ersLevel ?? null,
+      recentLapTimesMs,
+      rivals,
       previousStrategy: previousStrategy
         ? {
             recommendation: previousStrategy.recommendation,

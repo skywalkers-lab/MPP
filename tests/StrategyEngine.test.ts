@@ -16,6 +16,9 @@ function baseInput(overrides: Partial<StrategyEngineInput> = {}): StrategyEngine
     fuelLapsRemaining: 70,
     pitStatus: null,
     tyreCompound: 'M',
+    ersPercent: null,
+    recentLapTimesMs: [],
+    rivals: [],
     generatedAt: 1700000000000,
     ...overrides,
   };
@@ -180,5 +183,56 @@ describe('StrategyEngine v1', () => {
       expect(synced.recommendationChanged).toBe(false);
       expect(synced.reasons.some((r) => r.includes('canonical session'))).toBe(true);
     }
+  });
+});
+
+describe('StrategyEngine Monte Carlo late-race edge cases', () => {
+  const engine = new StrategyEngine();
+
+  it('does not produce invalid recommendations in the final 3 laps', () => {
+    const lateRace = engine.evaluate(baseInput({
+      currentLap: 56,
+      totalLaps: 58,
+      tyreAgeLaps: 28,
+      fuelLapsRemaining: 4,
+    }));
+
+    expect(lateRace.strategyUnavailable).toBe(false);
+    if (!lateRace.strategyUnavailable) {
+      expect(['PIT NOW', 'BOX IN 2 LAPS', 'STAY OUT', 'TYRE LIFE CRITICAL', 'FUEL RISK HIGH', 'TRAFFIC RISK HIGH']).toContain(lateRace.recommendation);
+      const simMeta = (lateRace as { simulationMeta?: { optimalPitLap?: number } }).simulationMeta;
+      if (simMeta?.optimalPitLap != null) {
+        expect(simMeta.optimalPitLap).toBeGreaterThanOrEqual(56);
+        expect(simMeta.optimalPitLap).toBeLessThanOrEqual(58);
+      }
+    }
+  });
+
+  it('does not produce negative lapsUntilOptimal in final lap', () => {
+    const finalLap = engine.evaluate(baseInput({
+      currentLap: 58,
+      totalLaps: 58,
+      tyreAgeLaps: 32,
+      fuelLapsRemaining: 1,
+    }));
+
+    expect(finalLap.strategyUnavailable).toBe(false);
+    if (!finalLap.strategyUnavailable) {
+      const simMeta = (finalLap as { simulationMeta?: { optimalPitLap?: number } }).simulationMeta;
+      if (simMeta?.optimalPitLap != null) {
+        expect(simMeta.optimalPitLap).toBeGreaterThanOrEqual(58);
+      }
+    }
+  });
+
+  it('handles edge case where pit window open >= totalLaps gracefully', () => {
+    const veryLate = engine.evaluate(baseInput({
+      currentLap: 57,
+      totalLaps: 57,
+      tyreAgeLaps: 5,
+      fuelLapsRemaining: 1,
+    }));
+
+    expect(veryLate.strategyUnavailable).toBe(false);
   });
 });

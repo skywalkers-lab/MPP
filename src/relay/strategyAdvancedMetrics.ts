@@ -1,4 +1,4 @@
-import { StrategyEngineInput, StrategyScoreBand } from './strategy';
+import { RivalCarSnapshot, StrategyEngineInput, StrategyScoreBand } from './strategy';
 
 export interface StrategyAdvancedScores {
   undercutScore: number | null;
@@ -9,6 +9,9 @@ export interface StrategyAdvancedScores {
   compoundStintBias: number | null;
   expectedRejoinBand: StrategyScoreBand;
   cleanAirProbability: number | null;
+  undercutProbability: number | null;
+  overcutProbability: number | null;
+  ersEndLapPct: number | null;
 }
 
 function clampScore(v: number): number {
@@ -33,7 +36,6 @@ export function trafficRiskScore(
   if (rejoinRiskHint === 'medium') base = 55;
   if (rejoinRiskHint === 'high') base = 78;
 
-  // Mid-pack and back-pack are more likely to rejoin into clusters.
   if (position >= 8 && position <= 14) base += 8;
   if (position > 14) base += 12;
 
@@ -132,7 +134,6 @@ export function undercutScore(input: {
   }
 
   if (input.fuelRiskScore != null && input.fuelRiskScore >= 80) {
-    // Extremely high fuel risk means pit strategy advantage is less meaningful.
     score -= 8;
   }
 
@@ -152,11 +153,9 @@ export function overcutScore(input: {
 
   let score = 45;
 
-  // Overcut is stronger when tyre/degradation is still manageable.
   score += Math.max(0, 60 - tyre) * 0.35;
   score += Math.max(0, 65 - deg) * 0.25;
 
-  // If rejoin traffic is risky, staying out a bit can be beneficial.
   if (input.trafficRiskScore != null) {
     score += input.trafficRiskScore * 0.3;
   }
@@ -178,6 +177,92 @@ export function cleanAirProbability(trafficRiskScore: number | null): number | n
 
 export function expectedRejoinBand(trafficRiskScore: number | null): StrategyScoreBand {
   return scoreBand(trafficRiskScore);
+}
+
+export function undercutSuccessProbability(input: {
+  playerTyreAge: number | null;
+  playerCompound: string | null;
+  playerPosition: number | null;
+  rivals: RivalCarSnapshot[];
+  pitWindowHint: 'open_now' | 'open_soon' | 'monitor' | 'too_early' | 'unknown';
+}): number | null {
+  if (input.playerPosition == null || input.playerTyreAge == null) return null;
+
+  let probability = 0.5;
+
+  if (input.pitWindowHint === 'open_now') probability += 0.15;
+  else if (input.pitWindowHint === 'open_soon') probability += 0.08;
+  else if (input.pitWindowHint === 'too_early') probability -= 0.15;
+
+  const nearRivals = input.rivals.filter(r => r.position != null && Math.abs(r.position - (input.playerPosition ?? 99)) <= 3);
+  for (const rival of nearRivals) {
+    const agedRival = rival.stintAge > 20;
+    const softCompound = rival.tyreCompound.toLowerCase().startsWith('s');
+    const medCompound = rival.tyreCompound.toLowerCase().startsWith('m');
+
+    if (agedRival && !softCompound) probability += 0.08;
+    else if (agedRival && medCompound) probability += 0.04;
+    else if (!agedRival && softCompound) probability -= 0.06;
+  }
+
+  const compound = (input.playerCompound || '').toLowerCase();
+  if (compound.startsWith('s')) probability += 0.05;
+  else if (compound.startsWith('h')) probability -= 0.03;
+
+  return Math.max(0, Math.min(1, probability));
+}
+
+export function overcutSuccessProbability(input: {
+  playerTyreAge: number | null;
+  playerCompound: string | null;
+  playerPosition: number | null;
+  rivals: RivalCarSnapshot[];
+  pitWindowHint: 'open_now' | 'open_soon' | 'monitor' | 'too_early' | 'unknown';
+  trafficRiskScore: number | null;
+}): number | null {
+  if (input.playerPosition == null) return null;
+
+  let probability = 0.45;
+
+  if (input.pitWindowHint === 'too_early') probability += 0.12;
+  else if (input.pitWindowHint === 'open_now') probability -= 0.12;
+
+  if (input.trafficRiskScore != null) {
+    probability += (input.trafficRiskScore / 100) * 0.2;
+  }
+
+  const nearRivals = input.rivals.filter(r => r.position != null && Math.abs(r.position - (input.playerPosition ?? 99)) <= 2);
+  for (const rival of nearRivals) {
+    const agedRival = rival.stintAge > 18;
+    if (agedRival) probability -= 0.05;
+    else probability += 0.04;
+  }
+
+  const compound = (input.playerCompound || '').toLowerCase();
+  if (compound.startsWith('h')) probability += 0.08;
+  else if (compound.startsWith('s')) probability -= 0.06;
+
+  return Math.max(0, Math.min(1, probability));
+}
+
+export function ersEndLapPrediction(input: {
+  currentErsPercent: number | null;
+  deploymentPattern: 'aggressive' | 'normal' | 'harvest' | null;
+  lapsRemaining: number | null;
+}): number | null {
+  if (input.currentErsPercent == null) return null;
+
+  let deployPerLap = 1.5;
+  if (input.deploymentPattern === 'aggressive') deployPerLap = 3.0;
+  else if (input.deploymentPattern === 'harvest') deployPerLap = -1.0;
+  else if (input.deploymentPattern === 'normal') deployPerLap = 1.5;
+
+  const regenPerLap = 0.8;
+  const netChangePerLap = deployPerLap - regenPerLap;
+  const laps = input.lapsRemaining != null && input.lapsRemaining > 0 ? Math.min(input.lapsRemaining, 1) : 1;
+
+  const predicted = input.currentErsPercent - netChangePerLap * laps;
+  return Math.max(0, Math.min(100, predicted));
 }
 
 export function computeAdvancedStrategyScores(input: {
@@ -202,16 +287,14 @@ export function computeAdvancedStrategyScores(input: {
     tyreUrgencyScore: input.tyreUrgencyScore,
     stintProgress: input.stintProgress,
   });
-
-  const undercut = undercutScore({
+  const undercutScoreVal = undercutScore({
     tyreUrgencyScore: input.tyreUrgencyScore,
     stintProgress: input.stintProgress,
     pitWindowHint: input.pitWindowHint,
     trafficRiskScore: traffic,
     fuelRiskScore: input.fuelRiskScore,
   });
-
-  const overcut = overcutScore({
+  const overcutScoreVal = overcutScore({
     tyreUrgencyScore: input.tyreUrgencyScore,
     degradationTrend: degradation,
     trafficRiskScore: traffic,
@@ -219,14 +302,51 @@ export function computeAdvancedStrategyScores(input: {
     pitWindowHint: input.pitWindowHint,
   });
 
+  const rivals = input.base.rivals ?? [];
+
+  const undercutProb = undercutSuccessProbability({
+    playerTyreAge: input.base.tyreAgeLaps,
+    playerCompound: input.base.tyreCompound,
+    playerPosition: input.base.position,
+    rivals,
+    pitWindowHint: input.pitWindowHint,
+  });
+
+  const overcutProb = overcutSuccessProbability({
+    playerTyreAge: input.base.tyreAgeLaps,
+    playerCompound: input.base.tyreCompound,
+    playerPosition: input.base.position,
+    rivals,
+    pitWindowHint: input.pitWindowHint,
+    trafficRiskScore: traffic,
+  });
+
+  const deploymentPattern: 'aggressive' | 'normal' | 'harvest' = (() => {
+    const speed = undercutScoreVal ?? 50;
+    if (speed >= 75) return 'aggressive';
+    if (overcutScoreVal != null && overcutScoreVal >= 70) return 'harvest';
+    return 'normal';
+  })();
+
+  const ersEndLap = ersEndLapPrediction({
+    currentErsPercent: input.base.ersPercent ?? null,
+    deploymentPattern,
+    lapsRemaining: input.base.totalLaps != null && input.base.currentLap != null
+      ? input.base.totalLaps - input.base.currentLap
+      : null,
+  });
+
   return {
-    undercutScore: undercut,
-    overcutScore: overcut,
+    undercutScore: undercutScoreVal,
+    overcutScore: overcutScoreVal,
     trafficRiskScore: traffic,
     degradationTrend: degradation,
     pitLossHeuristic: pitLoss,
     compoundStintBias: bias,
     expectedRejoinBand: expectedRejoinBand(traffic),
     cleanAirProbability: cleanAirProbability(traffic),
+    undercutProbability: undercutProb,
+    overcutProbability: overcutProb,
+    ersEndLapPct: ersEndLap,
   };
 }

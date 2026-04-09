@@ -53,14 +53,44 @@ export interface DiagnosticsData {
   };
 }
 
+export interface StrategySimulationMeta {
+  iterations: number;
+  converged: boolean;
+  optimalPitLap?: number;
+  confidenceInterval?: [number, number];
+  meanGainSeconds?: number;
+  stdDevGainSeconds?: number;
+}
+
+export interface StrategySignalsData {
+  pitWindowHint?: 'open_now' | 'open_soon' | 'monitor' | 'too_early' | 'unknown';
+  expectedRejoinBand?: string;
+  undercutScore?: number;
+  overcutScore?: number;
+  cleanAirProbability?: number;
+  trafficRiskScore?: number;
+  undercutProbability?: number;
+  overcutProbability?: number;
+  ersEndLapPct?: number | null;
+  tyreUrgencyScore?: number;
+  fuelRiskScore?: number;
+}
+
 export interface StrategyData {
   strategyUnavailable?: boolean;
   reason?: string;
+  recommendation?: string;
+  primaryRecommendation?: string;
+  secondaryRecommendation?: string;
   primaryCall?: string;
   secondaryCall?: string;
+  confidenceScore?: number;
   confidence?: number;
+  stabilityScore?: number | null;
   stability?: string;
   pitWindowEta?: number | null;
+  simulationMeta?: StrategySimulationMeta;
+  signals?: StrategySignalsData;
   metrics?: {
     trafficExposure?: number;
     tyreFuelStress?: number;
@@ -71,6 +101,43 @@ export interface StrategyData {
     tyreUrgency?: number;
     fuelRisk?: number;
   };
+}
+
+export interface CarSnapshot {
+  carIndex: number;
+  position?: number | null;
+  currentLapNum?: number | null;
+  lastLapTime?: number | null;
+  bestLapTime?: number | null;
+  gapToLeader?: number | string | null;
+  gapToFront?: number | string | null;
+  pitStatus?: string | null;
+  tyreCompound?: string | null;
+  tyreAgeLaps?: number | null;
+  fuelRemaining?: number | null;
+  fuelLapsRemaining?: number | null;
+  ersLevel?: number | null;
+  tyreWear?: number[] | null;
+  tyreTemp?: number[] | null;
+  damage?: {
+    frontWingLeft?: number | null;
+    frontWingRight?: number | null;
+    rearWing?: number | null;
+    floor?: number | null;
+    sidepod?: number | null;
+    engine?: number | null;
+    gearbox?: number | null;
+  } | null;
+}
+
+export interface DriverSnapshot {
+  carIndex: number;
+  driverName: string;
+  teamId?: number;
+  teamName?: string;
+  nationality?: string;
+  aiControlled?: boolean;
+  raceNumber?: number;
 }
 
 export interface SessionNote {
@@ -115,6 +182,14 @@ export interface SessionSnapshot {
   safetyCarStatus?: number;
   wingDamageFront?: number;
   wingDamageRear?: number;
+  playerCarIndex?: number;
+  fuelLapsRemaining?: number;
+  cars?: Record<number, CarSnapshot>;
+  drivers?: Record<number, DriverSnapshot>;
+  tyreTemps?: number[];
+  tyreSurfaceTemp?: number[];
+  tyreWear?: number[];
+  tyreCarcassDamage?: number[];
 }
 
 export interface SessionAccessRecord {

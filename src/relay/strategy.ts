@@ -130,3 +130,78 @@ export interface StrategyUnavailableResult {
 export type StrategyEvaluationResult =
   | StrategyRecommendationResult
   | StrategyUnavailableResult;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Qualifying Strategy Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type QualiSessionType = 'Q1' | 'Q2' | 'Q3';
+export type QualiOutlapRecommendation = 'GO_NOW' | 'WAIT' | 'PREPARE';
+export type TrafficDensity = 'LOW' | 'MEDIUM' | 'HIGH';
+export type DriverLapStatus = 'IN_LAP' | 'OUT_LAP' | 'FLYING_LAP' | 'IN_GARAGE';
+export type CarPitStatus = 'ON_TRACK' | 'IN_PIT' | 'PIT_ENTRY' | 'PIT_EXIT';
+
+export interface TrackZone {
+  start: number; // 0-1 position on track
+  end: number;   // 0-1 position on track
+  density: number; // number of cars in zone
+}
+
+export interface CarTrackPosition {
+  carIndex: number;
+  driverName: string;
+  lapDistance: number; // 0-1 (track progress)
+  pitStatus: CarPitStatus;
+  driverStatus: DriverLapStatus;
+  isPlayer: boolean;
+  currentLapTime?: number | null;
+  bestLapTime?: number | null;
+}
+
+export interface QualiTrafficPrediction {
+  clearWindowSeconds: number;
+  carsOnTrack: number;
+  carsInPit: number;
+  carsOnFlyingLap: number;
+  carsOnOutLap: number;
+  predictedTrafficDensity: TrafficDensity;
+  hotZones: TrackZone[];
+}
+
+export interface QualiOutlapTiming {
+  recommendation: QualiOutlapRecommendation;
+  waitSeconds?: number;
+  reason: string;
+  reasonCode: 'TIME_CRITICAL' | 'CLEAR_TRACK' | 'CARS_EXITING_PIT' | 'TRAFFIC_CLEARING' | 'MONITORING' | 'SESSION_END';
+  confidence: number; // 0-1
+}
+
+export interface QualiSessionContext {
+  sessionType: QualiSessionType;
+  timeRemaining: number; // seconds
+  estimatedLapsRemaining: number;
+  cutoffPosition: number; // Q1: 15, Q2: 10, Q3: N/A
+  currentPosition: number;
+  gapToCutoff: number | null; // seconds (null if in safe zone or Q3)
+  isInDanger: boolean;
+  isInEliminationZone: boolean;
+  playerBestLapTime: number | null;
+  cutoffLapTime: number | null;
+}
+
+export interface QualiStrategyRecommendation {
+  sessionType: QualiSessionType;
+  trafficPrediction: QualiTrafficPrediction;
+  outlapTiming: QualiOutlapTiming;
+  sessionContext: QualiSessionContext;
+  carPositions: CarTrackPosition[];
+  generatedAt: number;
+}
+
+export interface QualiStrategyUnavailable {
+  strategyUnavailable: true;
+  reason: 'not_qualifying' | 'no_snapshot' | 'session_stale' | 'player_state_missing';
+  generatedAt: number;
+}
+
+export type QualiStrategyResult = QualiStrategyRecommendation | QualiStrategyUnavailable;

@@ -10,6 +10,7 @@ import {
   NOTE_ALLOWED_SEVERITIES,
   NOTE_MAX_TEXT_LENGTH,
 } from './notes';
+import { qualiStrategyEngine } from './qualiStrategyEngine';
 
 export function createViewerApiRouter(relayServer: RelayServer) {
   const router = express.Router();
@@ -618,6 +619,78 @@ export function createViewerApiRouter(relayServer: RelayServer) {
       requestedSessionId,
       rebound: auth.rebound,
       ...strategy,
+    });
+  });
+
+  // GET /api/viewer/quali-strategy/:sessionId
+  router.get('/quali-strategy/:sessionId', (req, res) => {
+    const requestedSessionId = req.params.sessionId;
+    const auth = ensureViewerRole(req, res, requestedSessionId, 'viewer');
+    if (!auth) {
+      return;
+    }
+
+    const session = relayServer.getSession(auth.canonicalSessionId);
+    if (!session) {
+      return res.status(404).json({
+        sessionId: auth.canonicalSessionId,
+        requestedSessionId,
+        rebound: auth.rebound,
+        strategyUnavailable: true,
+        reason: 'session_not_found',
+        generatedAt: Date.now(),
+      });
+    }
+
+    const snapshot = session.latestSnapshot;
+    const isStale = session.status === 'stale';
+
+    // Build input for quali strategy engine
+    const cars: Record<number, any> = {};
+    const drivers: Record<number, any> = {};
+
+    if (snapshot?.cars) {
+      for (const [idx, car] of Object.entries(snapshot.cars)) {
+        const carIndex = parseInt(idx, 10);
+        cars[carIndex] = {
+          carIndex,
+          position: car.position,
+          currentLapNum: car.currentLapNum,
+          lastLapTime: car.lastLapTime,
+          bestLapTime: car.bestLapTime,
+          pitStatus: car.pitStatus,
+          lapDistance: (car as any).lapDistance ?? null,
+          driverStatus: (car as any).driverStatus ?? null,
+        };
+      }
+    }
+
+    if (snapshot?.drivers) {
+      for (const [idx, driver] of Object.entries(snapshot.drivers)) {
+        const carIndex = parseInt(idx, 10);
+        drivers[carIndex] = {
+          carIndex,
+          driverName: driver.driverName,
+        };
+      }
+    }
+
+    const qualiResult = qualiStrategyEngine.evaluate({
+      sessionType: snapshot?.sessionMeta?.sessionType ?? null,
+      sessionTimeLeft: snapshot?.sessionMeta?.sessionTime ?? null,
+      trackLength: (snapshot?.sessionMeta as any)?.trackLength ?? null,
+      playerCarIndex: snapshot?.playerCarIndex ?? null,
+      cars,
+      drivers,
+      isStale,
+      hasSnapshot: !!snapshot,
+    });
+
+    res.json({
+      sessionId: auth.canonicalSessionId,
+      requestedSessionId,
+      rebound: auth.rebound,
+      ...qualiResult,
     });
   });
 

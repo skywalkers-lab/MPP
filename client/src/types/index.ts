@@ -244,3 +244,72 @@ export interface ArchiveSummary {
   track?: string;
   sessionType?: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Qualifying Strategy Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type QualiSessionType = 'Q1' | 'Q2' | 'Q3';
+export type QualiOutlapRecommendation = 'GO_NOW' | 'WAIT' | 'PREPARE';
+export type TrafficDensity = 'LOW' | 'MEDIUM' | 'HIGH';
+export type DriverLapStatus = 'IN_LAP' | 'OUT_LAP' | 'FLYING_LAP' | 'IN_GARAGE';
+export type CarPitStatus = 'ON_TRACK' | 'IN_PIT' | 'PIT_ENTRY' | 'PIT_EXIT';
+
+export interface TrackZone {
+  start: number;
+  end: number;
+  density: number;
+}
+
+export interface CarTrackPosition {
+  carIndex: number;
+  driverName: string;
+  lapDistance: number;
+  pitStatus: CarPitStatus;
+  driverStatus: DriverLapStatus;
+  isPlayer: boolean;
+  currentLapTime?: number | null;
+  bestLapTime?: number | null;
+}
+
+export interface QualiTrafficPrediction {
+  clearWindowSeconds: number;
+  carsOnTrack: number;
+  carsInPit: number;
+  carsOnFlyingLap: number;
+  carsOnOutLap: number;
+  predictedTrafficDensity: TrafficDensity;
+  hotZones: TrackZone[];
+}
+
+export interface QualiOutlapTiming {
+  recommendation: QualiOutlapRecommendation;
+  waitSeconds?: number;
+  reason: string;
+  reasonCode: string;
+  confidence: number;
+}
+
+export interface QualiSessionContext {
+  sessionType: QualiSessionType;
+  timeRemaining: number;
+  estimatedLapsRemaining: number;
+  cutoffPosition: number;
+  currentPosition: number;
+  gapToCutoff: number | null;
+  isInDanger: boolean;
+  isInEliminationZone: boolean;
+  playerBestLapTime: number | null;
+  cutoffLapTime: number | null;
+}
+
+export interface QualiStrategyData {
+  strategyUnavailable?: boolean;
+  reason?: string;
+  sessionType?: QualiSessionType;
+  trafficPrediction?: QualiTrafficPrediction;
+  outlapTiming?: QualiOutlapTiming;
+  sessionContext?: QualiSessionContext;
+  carPositions?: CarTrackPosition[];
+  generatedAt?: number;
+}

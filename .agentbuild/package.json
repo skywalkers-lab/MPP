@@ -1,0 +1,10 @@
+{
+  "name": "mpp-agent",
+  "version": "0.1.15",
+  "type": "commonjs",
+  "bin": "agent-entry.cjs",
+  "pkg": {
+    "targets": ["node18-win-x64"],
+    "outputPath": "../release"
+  }
+}

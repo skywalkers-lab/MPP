@@ -1,0 +1,8 @@
+{
+  "_주석": "이 파일을 편집하고 MPP-Agent.exe와 같은 폴더에 두세요.",
+  "relayUrl": "wss://your-app.replit.app/relay",
+  "udpPort": 20777,
+  "udpAddr": "0.0.0.0",
+  "_sessionId_주석": "sessionId는 선택 사항입니다. 비우면 자동 생성됩니다.",
+  "sessionId": ""
+}

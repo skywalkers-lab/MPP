@@ -134,6 +134,10 @@ export class RelayClient {
     this.heartbeatTimer = null;
   }
 
+  getStatus(): { connected: boolean; sessionId: string | null } {
+    return { connected: this.connected, sessionId: this.sessionId };
+  }
+
   close() {
     this.stopped = true;
     this.connected = false;

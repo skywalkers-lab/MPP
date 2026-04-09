@@ -512,6 +512,10 @@ app.get('/join/:joinCode', (req, res) => {
 app.get('/host/:sessionId', (req, res) => {
   res.sendFile(path.join(publicDir, 'host.html'));
 });
+app.get('/', (_req, res) => {
+  res.redirect('/rooms');
+});
+
 app.get('/ops', (req, res) => {
   const opsFile = path.join(publicDir, 'ops.html');
   if (!fs.existsSync(opsFile)) {

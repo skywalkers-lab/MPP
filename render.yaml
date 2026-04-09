@@ -1,0 +1,25 @@
+# Render Blueprint for MPP Relay Server
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: mpp-relay
+    runtime: node
+    region: singapore  # 한국에서 가장 가까운 리전
+    plan: free  # 무료 플랜 (필요시 starter로 업그레이드)
+    buildCommand: npm install && npm run build
+    startCommand: npm run relay
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RELAY_PUBLIC_URL
+        sync: false  # Render가 자동 생성하는 URL 사용
+      - key: MPP_EMBEDDED_AGENT
+        value: "false"  # 원격 서버이므로 UDP Agent 비활성화
+      - key: VIEWER_HTTP_PORT
+        value: "10000"  # Render 기본 포트
+      - key: RELAY_WS_PORT
+        value: "10000"  # HTTP와 같은 포트 (WebSocket 업그레이드)
+      - key: RELAY_ENABLE_CORS
+        value: "true"

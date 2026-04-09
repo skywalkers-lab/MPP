@@ -489,11 +489,11 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access }: {
         if (cat === 'strategy') strategyLogs.push({ time, text: String(data['text']) });
         else radio.push({ time, text: String(data['text']) });
       } else {
-        const t = item.type.toLowerCase();
+        const t = (item.type ?? '').toLowerCase();
         if (t.includes('flag') || t.includes('incident') || t.includes('vsc') || t.includes('sc')) {
-          raceControl.push({ time, text: item.type });
+          raceControl.push({ time, text: item.type ?? t });
         } else {
-          strategyLogs.push({ time, text: item.type });
+          strategyLogs.push({ time, text: item.type ?? t });
         }
       }
     });

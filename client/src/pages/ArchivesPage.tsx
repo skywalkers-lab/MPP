@@ -39,7 +39,7 @@ export default function ArchivesPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#1a2e42]">
-                {['Room', 'Driver / Car', 'Track', 'Laps', 'Duration', 'Archived', 'Actions'].map(h => (
+                {['Room', 'Driver / Car', 'Track', 'Laps', 'Duration', 'Archived', 'Session ID'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-[10px] font-mono tracking-widest text-[#4a6478] uppercase">
                     {h}
                   </th>
@@ -61,14 +61,7 @@ export default function ArchivesPage() {
                   <td className="px-4 py-3 text-sm font-mono text-[#5e7a94]">{fmtDuration(a.durationMs)}</td>
                   <td className="px-4 py-3 text-xs font-mono text-[#4a6478]">{fmtDateTime(a.archivedAt)}</td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      <a
-                        href={`/console/replay?sessionId=${encodeURIComponent(a.sessionId)}`}
-                        className="text-xs px-2 py-1 rounded border border-cyan-800 text-cyan-400 hover:bg-cyan-950/40 transition-colors"
-                      >
-                        Replay
-                      </a>
-                    </div>
+                    <span className="text-[10px] font-mono text-[#3a5570]">{a.sessionId.slice(0, 8)}…</span>
                   </td>
                 </tr>
               ))}

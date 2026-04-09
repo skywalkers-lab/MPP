@@ -160,6 +160,11 @@ export class RelayServer {
   // 5단계: joinCode → sessionId 매핑 및 access record 관리
   private joinCodeToSessionId: Map<string, string> = new Map();
   private sessionAccess: Map<string, SessionAccessRecord> = new Map();
+
+  // 랩 타임 링 버퍼 — 세션별로 최대 LAP_BUFFER_SIZE개의 유효 랩 타임(ms) 보관
+  private readonly LAP_BUFFER_SIZE = 20;
+  private readonly sessionLapBuffer = new Map<string, number[]>();
+  private readonly sessionLastLapTimeSeen = new Map<string, number>();
   private readonly recentOpsEvents = new InMemoryRecentOpsEvents(300);
   private readonly notesStore = new InMemorySessionNotesStore();
   private readonly strategyEngine = new StrategyEngine();
@@ -665,6 +670,50 @@ export class RelayServer {
     return result;
   }
 
+  /**
+   * 유효 랩 타임만 세션별 링 버퍼에 누적합니다.
+   * 피트 인/아웃 랩, 매우 짧거나 긴 랩, 아웃라이어를 걸러냅니다.
+   */
+  private updateLapBuffer(sessionId: string, state: CurrentRaceState): void {
+    const playerCarIndex = state.playerCarIndex;
+    const playerCar = playerCarIndex != null ? state.cars[playerCarIndex] : undefined;
+    if (!playerCar) return;
+
+    const lastLapTime = playerCar.lastLapTime;
+    if (lastLapTime == null || lastLapTime <= 0) return;
+
+    const seen = this.sessionLastLapTimeSeen.get(sessionId);
+    if (seen === lastLapTime) return;
+    this.sessionLastLapTimeSeen.set(sessionId, lastLapTime);
+
+    const lapMs = lastLapTime * 1000;
+
+    const pitStatus = (playerCar.pitStatus ?? '').toLowerCase();
+    const isPitLap =
+      pitStatus.includes('pit') ||
+      pitStatus.includes('in') ||
+      pitStatus.includes('out') ||
+      (playerCar as Record<string, unknown>)['inGarage'] === true;
+
+    if (isPitLap) return;
+
+    if (lapMs < 60_000 || lapMs > 300_000) return;
+
+    const buf = this.sessionLapBuffer.get(sessionId) ?? [];
+
+    if (buf.length >= 5) {
+      const sorted = buf.slice().sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      if (lapMs > median * 1.12 || lapMs < median * 0.88) return;
+    }
+
+    buf.push(lapMs);
+    if (buf.length > this.LAP_BUFFER_SIZE) {
+      buf.shift();
+    }
+    this.sessionLapBuffer.set(sessionId, buf);
+  }
+
   private buildStrategyInput(
     session: RelaySession,
     previousStrategy?: StrategyRecommendationResult
@@ -717,14 +766,7 @@ export class RelayServer {
       return null;
     }
 
-    const recentLapTimesMs: number[] = [];
-    if (playerCar.lastLapTime != null && playerCar.lastLapTime > 0) {
-      recentLapTimesMs.push(playerCar.lastLapTime * 1000);
-    }
-    if (playerCar.bestLapTime != null && playerCar.bestLapTime > 0 &&
-        playerCar.bestLapTime !== playerCar.lastLapTime) {
-      recentLapTimesMs.push(playerCar.bestLapTime * 1000);
-    }
+    const recentLapTimesMs: number[] = this.sessionLapBuffer.get(session.sessionId) ?? [];
 
     const rivals = Object.values(state.cars)
       .filter((car): car is (typeof car & { position: number }) =>
@@ -996,6 +1038,8 @@ export class RelayServer {
     session.latestSequence = Math.max(session.latestSequence, msg.sequence);
     session.latestState = msg.state;
     session.updatedAt = Date.now();
+
+    this.updateLapBuffer(canonicalSessionId, msg.state);
 
     const strategy = this.computeSessionStrategy(session);
     this.archiveStore.recordSnapshot(

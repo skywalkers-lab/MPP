@@ -19,13 +19,11 @@ import {
 } from '../lib/api';
 import { fmtPct, fmtRelTime } from '../lib/formatters';
 
-type ConsoleTab = 'live' | 'strategy' | 'garage' | 'replay' | 'notes' | 'timeline' | 'settings';
+type ConsoleTab = 'live' | 'strategy' | 'notes' | 'timeline' | 'settings';
 
 const CONSOLE_TABS: { id: ConsoleTab; label: string }[] = [
   { id: 'live', label: 'LIVE TELEMETRY' },
   { id: 'strategy', label: 'STRATEGY' },
-  { id: 'garage', label: 'VIRTUAL GARAGE' },
-  { id: 'replay', label: 'REPLAY' },
   { id: 'notes', label: 'NOTES' },
   { id: 'timeline', label: 'TIMELINE' },
   { id: 'settings', label: 'SETTINGS' },
@@ -338,29 +336,8 @@ export default function RoomPage() {
           <div className="m-3 rounded border border-red-800/60 bg-red-950/30 px-4 py-3 text-sm text-red-400">{error}</div>
         )}
 
-        {tab === 'live' && <StrategicConsoleTab s={s} strategy={strategy} health={health} timeline={timeline} access={access} />}
+        {tab === 'live' && <StrategicConsoleTab s={s} strategy={strategy} health={health} timeline={timeline} access={access} sessionId={id} password={password} permissionCode={permissionCode} />}
         {tab === 'strategy' && <StrategyTab strategy={strategy} />}
-        {tab === 'garage' && (
-          <div className="flex flex-col items-center justify-center py-24 text-[#4a6478] gap-3">
-            <div className="text-4xl opacity-20">⚙</div>
-            <div className="text-sm font-mono uppercase tracking-widest">VIRTUAL GARAGE — IN PREPARATION</div>
-            <div className="text-xs font-mono text-[#3a5570]">This module is under development</div>
-          </div>
-        )}
-        {tab === 'replay' && (
-          <div className="flex flex-col items-center justify-center py-24 text-[#4a6478] gap-3">
-            <div className="text-4xl opacity-20">⏮</div>
-            <div className="text-sm font-mono uppercase tracking-widest">REPLAY MODE</div>
-            {access?.joinCode && (
-              <a
-                href={`/console/replay?sessionId=${encodeURIComponent(id)}`}
-                className="mt-2 px-4 py-2 border border-[#61d6df] text-[#61d6df] text-xs font-mono tracking-widest uppercase hover:bg-[rgba(97,214,223,0.08)] transition-colors"
-              >
-                OPEN KINETIC INSTRUMENT V1 →
-              </a>
-            )}
-          </div>
-        )}
         {tab === 'notes' && (
           <div className="p-3">
             <NotesTab
@@ -403,12 +380,15 @@ export default function RoomPage() {
   );
 }
 
-function StrategicConsoleTab({ s, strategy, health, timeline, access }: {
+function StrategicConsoleTab({ s, strategy, health, timeline, access, sessionId, password, permissionCode }: {
   s: SessionSnapshot;
   strategy: StrategyData | null;
   health: SessionHealthData | null;
   timeline: TimelineEvent[];
   access: SessionAccessRecord | null;
+  sessionId: string;
+  password: string;
+  permissionCode: string;
 }) {
   const m = strategy?.metrics;
   const sig = strategy?.signals;
@@ -421,6 +401,19 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access }: {
   const playerIdx = s.playerCarIndex;
 
   const [selectedCarIndex, setSelectedCarIndex] = useState<number | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  async function dispatchAction(label: string, category: string) {
+    const lap = s.lap ?? undefined;
+    try {
+      await addNote(sessionId, { text: `[ACTION] ${label}`, authorLabel: 'Engineer', category, lap }, password, permissionCode);
+      setActionMsg(`✓ ${label}`);
+    } catch {
+      setActionMsg(`✗ ${label} failed`);
+    } finally {
+      setTimeout(() => setActionMsg(null), 3000);
+    }
+  }
 
   const rows = useMemo(() =>
     allCars
@@ -780,17 +773,17 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access }: {
               <div className="text-[#61d6df] font-mono font-bold text-lg">{rejoin !== '-' ? String(rejoin).toUpperCase() : '--'}</div>
             </div>
             <div>
-              <div className="text-[9px] font-mono text-[#4a6478] uppercase">STRATEGY DELTA VS P2</div>
+              <div className="text-[9px] font-mono text-[#4a6478] uppercase">PIT LOSS HEURISTIC</div>
               <div className="flex items-center gap-2">
                 <span className="text-[#61d6df] font-mono font-bold text-xl">
-                  {(() => { const conf = strategy?.confidenceScore ?? strategy?.confidence; return conf != null ? `${(-(conf / 240)).toFixed(3)}s` : '--'; })()}
+                  {sig?.pitLossHeuristic != null ? `${Math.round(sig.pitLossHeuristic)}/100` : '--'}
                 </span>
                 <span className={`text-[9px] border px-1.5 py-0.5 ${
-                  (strategy?.confidenceScore ?? strategy?.confidence) != null && ((strategy?.confidenceScore ?? strategy?.confidence) as number) >= 45
-                    ? 'text-[#7fd7a2] border-[#2d6c45]'
-                    : 'text-[#f27979] border-[#7a3838]'
+                  sig?.pitLossHeuristic != null && sig.pitLossHeuristic >= 82
+                    ? 'text-[#f27979] border-[#7a3838]'
+                    : 'text-[#7fd7a2] border-[#2d6c45]'
                 }`}>
-                  {(strategy?.confidenceScore ?? strategy?.confidence) != null && ((strategy?.confidenceScore ?? strategy?.confidence) as number) >= 45 ? 'GAINING' : 'LOSING'}
+                  {sig?.pitLossHeuristic != null && sig.pitLossHeuristic >= 82 ? 'HIGH' : 'NOMINAL'}
                 </span>
               </div>
             </div>
@@ -816,26 +809,44 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access }: {
           </div>
 
           <div className="p-2 border-b border-[#243247]">
-            <div className="text-[9px] font-mono text-[#4a6478] uppercase mb-2">ACTIONS</div>
+            <div className="text-[9px] font-mono text-[#4a6478] uppercase mb-2 flex items-center justify-between">
+              <span>ACTIONS</span>
+              {!permissionCode && <span className="text-[8px] text-[#3a5570]">PERMISSION REQUIRED</span>}
+            </div>
+            {actionMsg && (
+              <div className="mb-1.5 text-[10px] font-mono text-[#61d6df] text-center">{actionMsg}</div>
+            )}
             <div className="grid grid-cols-2 gap-1.5">
               {[
-                { label: 'BOX THIS LAP', tone: 'danger' },
-                { label: 'PUSH NOW', tone: 'primary' },
-                { label: 'HARVEST MODE', tone: 'warn' },
-                { label: 'HOLD POS', tone: 'secondary' },
-              ].map(({ label, tone }) => (
+                { label: 'BOX THIS LAP', tone: 'danger', category: 'pit' },
+                { label: 'PUSH NOW', tone: 'primary', category: 'strategy' },
+                { label: 'HARVEST MODE', tone: 'warn', category: 'strategy' },
+                { label: 'HOLD POS', tone: 'secondary', category: 'strategy' },
+              ].map(({ label, tone, category }) => (
                 <button key={label}
-                  className={`min-h-10 text-[10px] font-mono tracking-widest uppercase border cursor-pointer transition-colors ${
-                    tone === 'danger' ? 'border-[#9a4f46] bg-[rgba(118,51,43,0.5)] text-[#ffd1ca] hover:bg-[rgba(118,51,43,0.7)]' :
-                    tone === 'primary' ? 'border-[#2f9ea7] bg-[rgba(28,95,102,0.5)] text-[#bffeff] hover:bg-[rgba(28,95,102,0.7)]' :
-                    tone === 'warn' ? 'border-[#917130] bg-[rgba(98,76,26,0.5)] text-[#ffe5a4] hover:bg-[rgba(98,76,26,0.7)]' :
-                    'border-[#314760] bg-[rgba(16,26,39,0.82)] text-[#e6edf6] hover:border-[#61d6df]'
+                  disabled={!permissionCode}
+                  onClick={() => dispatchAction(label, category)}
+                  className={`min-h-10 text-[10px] font-mono tracking-widest uppercase border transition-colors ${
+                    !permissionCode
+                      ? 'border-[#1a2e42] bg-transparent text-[#3a5570] cursor-not-allowed opacity-50'
+                      : tone === 'danger' ? 'border-[#9a4f46] bg-[rgba(118,51,43,0.5)] text-[#ffd1ca] hover:bg-[rgba(118,51,43,0.7)] cursor-pointer' :
+                      tone === 'primary' ? 'border-[#2f9ea7] bg-[rgba(28,95,102,0.5)] text-[#bffeff] hover:bg-[rgba(28,95,102,0.7)] cursor-pointer' :
+                      tone === 'warn' ? 'border-[#917130] bg-[rgba(98,76,26,0.5)] text-[#ffe5a4] hover:bg-[rgba(98,76,26,0.7)] cursor-pointer' :
+                      'border-[#314760] bg-[rgba(16,26,39,0.82)] text-[#e6edf6] hover:border-[#61d6df] cursor-pointer'
                   }`}
                 >
                   {label}
                 </button>
               ))}
-              <button className="col-span-2 min-h-9 text-[10px] font-mono tracking-widest uppercase border border-[#314760] bg-[rgba(16,26,39,0.82)] text-[#e6edf6] hover:border-[#61d6df] cursor-pointer transition-colors">
+              <button
+                disabled={!permissionCode}
+                onClick={() => dispatchAction('EXECUTE SCENARIO B', 'strategy')}
+                className={`col-span-2 min-h-9 text-[10px] font-mono tracking-widest uppercase border transition-colors ${
+                  !permissionCode
+                    ? 'border-[#1a2e42] text-[#3a5570] cursor-not-allowed opacity-50'
+                    : 'border-[#314760] bg-[rgba(16,26,39,0.82)] text-[#e6edf6] hover:border-[#61d6df] cursor-pointer'
+                }`}
+              >
                 EXECUTE SCENARIO B
               </button>
             </div>

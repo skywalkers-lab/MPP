@@ -1,5 +1,5 @@
 ══════════════════════════════════════════════════
-  MPP Desktop v0.1.18  —  Mission Pitwall Platform
+  MPP Desktop v0.1.19  —  Mission Pitwall Platform
   Driver / Engineer Windows Launcher
 ══════════════════════════════════════════════════
 

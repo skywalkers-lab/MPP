@@ -625,17 +625,17 @@ function StrategicConsoleTab({ s, strategy, health, timeline, access, hasPermiss
     items.forEach((item: TimelineEvent) => {
       const time = new Date(item.timestamp || Date.now()).toLocaleTimeString();
       const data = item.data ?? {};
-      const itemType = typeof item.type === 'string' && item.type ? item.type : 'unknown';
-      if (itemType === 'note' && data['text']) {
+      const safeType = typeof item.type === 'string' && item.type.trim() ? item.type.trim() : 'unknown_event';
+      const safeTypeLower = safeType.toLowerCase();
+      if (safeTypeLower === 'note' && data['text']) {
         const cat = String(data['category'] || '').toLowerCase();
         if (cat === 'strategy') strategyLogs.push({ time, text: String(data['text']) });
         else radio.push({ time, text: String(data['text']) });
       } else {
-        const t = itemType.toLowerCase();
-        if (t.includes('flag') || t.includes('incident') || t.includes('vsc') || t.includes('sc')) {
-          raceControl.push({ time, text: itemType });
+        if (safeTypeLower.includes('flag') || safeTypeLower.includes('incident') || safeTypeLower.includes('vsc') || safeTypeLower.includes('sc')) {
+          raceControl.push({ time, text: safeType });
         } else {
-          strategyLogs.push({ time, text: itemType });
+          strategyLogs.push({ time, text: safeType });
         }
       }
     });
@@ -1231,12 +1231,13 @@ function TimelineTab({ events }: { events: TimelineEvent[] }) {
       ) : (
         <div className="space-y-1.5 max-h-[70vh] overflow-y-auto scrollbar-thin pr-1">
           {events.slice().reverse().map((ev, i) => {
-            const eventType = typeof ev.type === 'string' && ev.type ? ev.type : 'unknown';
+            const safeType = typeof ev.type === 'string' && ev.type.trim() ? ev.type.trim() : 'unknown_event';
+            const safeTypeLower = safeType.toLowerCase();
             return (
             <div key={ev.eventId || i} className="rounded border border-[#1a2e42] bg-[#0a1520] px-3 py-2.5 flex items-start gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-[10px] font-mono font-bold ${typeColor[eventType] || 'text-sky-400'}`}>{eventType}</span>
+                  <span className={`text-[10px] font-mono font-bold ${typeColor[safeTypeLower] || 'text-sky-400'}`}>{safeType}</span>
                   {ev.lap != null && <span className="text-[9px] font-mono text-[#4a6478]">Lap {ev.lap}</span>}
                 </div>
                 {ev.data && Object.keys(ev.data).length > 0 && (

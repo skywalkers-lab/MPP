@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node dist/relay/index.js",
     "build": "tsc",
-    "build:client": "cd client && npm install && npm run build && cp -r dist ../public/",
+    "build:client": "cd client && npm install && npm run build",
     "build:all": "npm run build && npm run build:client",
     "test": "jest",
     "relay": "tsx src/relay/index.ts",
